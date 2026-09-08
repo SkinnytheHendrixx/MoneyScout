@@ -1,0 +1,78 @@
+Perform the final read-only pre-live-run audit of the current Discovery implementation after Task #22.
+
+Do not change code.
+Do not run Discovery.
+Do not make external requests.
+
+Audit the actual implementation, schema, API contract, UI, and zero-cost tests. Confirm all of the following:
+
+A Discovery run performs at most two bounded passes.
+Each pass starts at offset 0.
+The page bound is finite and the one-extra-page probe cannot create an unbounded crawl.
+The maximum network-attempt bound is explicit and finite.
+Actual network attempts are counted separately from logical page requests.
+Each pass computes and persists or exposes:
+U
+minObservedTotal
+maxObservedTotal
+totalDrift
+A pass is structurally valid only when:
+offset/limit/metadata invariants pass;
+no repeated-page or duplicate-identity corruption occurs;
+the entire initial required range is traversed;
+there is no premature short/empty page;
+totalDrift <= effectivePageSize;
+growth consumes at most one extra-page probe;
+minObservedTotal <= U <= maxObservedTotal.
+Final state is VERIFIED_CONVERGENCE only when both passes are structurally valid and their canonical Actor sets are exactly equal.
+Provider totals are not used as a substitute for exact set equality.
+Same totals + different membership cannot verify.
+Different totals + identical membership can verify only when each pass independently satisfies the envelope rule.
+Equal membership with U outside either pass’s observed-total envelope cannot verify.
+Pass 2 telemetry is the only telemetry eligible for scoring.
+No unverified/failed/mismatched run can create snapshots, candidates, or scored signals.
+Pass-1-only and Pass-2-only counts persist on mismatch.
+Failed-page telemetry identifies the exact invariant and correct pass without storing raw pages.
+Staging cleanup works on normal incomplete/failed paths.
+Finalization remains atomic across actor/observation/snapshot/candidate writes.
+Multi-batch behavior still works.
+Candidate threshold is still 60 and cap is still 10.
+Discovery priority still does not populate Opportunity Score.
+Acceptance still creates opportunities with overall score 0, verdict NEW, policy UNKNOWN.
+Usage/marketplace telemetry is still not represented as revenue or validated buyer demand.
+Auth/authorization still protects Discovery routes.
+Active-run lock/guard is released on success, failure, timeout, and exception.
+Run ledger terminal refresh works.
+Candidate list refreshes when a run reaches terminal status.
+No Task #22 change regressed Phase 1–3 behavior.
+
+Then inspect specifically for any remaining path that could cause:
+
+false VERIFIED_CONVERGENCE
+false candidate creation
+duplicate candidate/opportunity creation
+stale or orphaned staging that could contaminate a later run
+unbounded requests/retries
+excessive in-memory accumulation
+misleading run telemetry
+stale UI state
+scoring from incomplete data
+
+Give every remaining issue a severity:
+
+BLOCKER
+HIGH
+MEDIUM
+LOW
+
+End with exactly one recommendation:
+
+SAFE FOR SECOND LIVE DISCOVERY RUN
+
+or
+
+DO NOT RUN YET
+
+Explain why.
+
+Read-only audit only. No fixes, no live calls, no Discovery run.
