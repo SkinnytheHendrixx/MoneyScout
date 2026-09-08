@@ -306,7 +306,7 @@ components:
         checked_at: { type: string, format: date-time }
         retrieval_method:
           type: string
-          enum: [HTTP, HTTP_AND_BROWSERBASE, HTTP_INSUFFICIENT]
+          enum: [HTTP, HTTP_AND_WEB_SEARCH, HTTP_AND_BROWSERBASE, HTTP_INSUFFICIENT]
         evidence_created: { type: integer }
         external_cost_usd: { type: [number, "null"] }
         ai_input_tokens: { type: [integer, "null"] }

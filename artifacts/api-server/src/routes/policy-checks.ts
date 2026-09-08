@@ -23,6 +23,9 @@ const MAX_DOCUMENT_CHARS = 120_000;
 const MAX_EXCERPT_CHARS = 8_000;
 const MAX_TOTAL_EXCERPT_CHARS = 32_000;
 const MAX_ESTIMATED_COST_USD = 0.5;
+const SONNET_INPUT_COST_PER_TOKEN = 0.000002;
+const SONNET_OUTPUT_COST_PER_TOKEN = 0.00001;
+const WEB_SEARCH_COST_PER_USE = 0.01;
 const ALLOWED_DIMENSIONS = new Set([
   "terms_of_service",
   "developer_api_terms",
@@ -50,6 +53,10 @@ type RetrievedDocument = {
   title: string;
   excerpt: string;
 };
+type ValidSource = {
+  url: string;
+  title: string;
+};
 
 const toApi = (row: typeof policyChecksTable.$inferSelect) => ({
   id: row.id,
@@ -59,6 +66,7 @@ const toApi = (row: typeof policyChecksTable.$inferSelect) => ({
   checked_at: row.checkedAt.toISOString(),
   retrieval_method: row.retrievalMethod as
     | "HTTP"
+    | "HTTP_AND_WEB_SEARCH"
     | "HTTP_AND_BROWSERBASE"
     | "HTTP_INSUFFICIENT",
   evidence_created: row.evidenceCreated,
@@ -98,6 +106,26 @@ const assertPublicUrl = async (urlValue: string): Promise<URL> => {
     throw new Error("Private network destinations are not allowed");
   }
   return url;
+};
+
+const registrableDomain = (hostname: string): string => {
+  const parts = hostname.toLowerCase().replace(/^www\./, "").split(".");
+  if (parts.length <= 2) return parts.join(".");
+  const secondLevelSuffixes = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+  const suffixLength =
+    parts.at(-1)?.length === 2 && secondLevelSuffixes.has(parts.at(-2) ?? "") ? 3 : 2;
+  return parts.slice(-suffixLength).join(".");
+};
+
+const normalizeSourceUrl = (value: string): string | null => {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
 };
 
 const fetchPublicText = async (initialUrl: string): Promise<{ url: string; text: string; contentType: string }> => {
@@ -225,30 +253,73 @@ const retrievePolicyDocuments = async (sourceUrl: string): Promise<RetrievedDocu
   return documents.slice(0, MAX_DOCUMENTS);
 };
 
-const parseAnalysis = (text: string, allowedUrls: Set<string>): PolicyAnalysis => {
+const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): PolicyAnalysis => {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const raw = JSON.parse(cleaned) as Partial<PolicyAnalysis>;
   const statuses = new Set(["GREEN", "YELLOW", "RED", "UNKNOWN"]);
   if (!raw.status || !statuses.has(raw.status) || typeof raw.summary !== "string") {
     throw new Error("Invalid policy analysis response");
   }
-  const findings = Array.isArray(raw.findings)
-    ? raw.findings.filter(
-        (finding): finding is Finding =>
-          typeof finding?.claim === "string" &&
-          finding.claim.length > 0 &&
-          typeof finding.source_url === "string" &&
-          allowedUrls.has(finding.source_url) &&
-          typeof finding.source_title === "string" &&
-          typeof finding.evaluation_dimension === "string" &&
-          ALLOWED_DIMENSIONS.has(finding.evaluation_dimension),
-      )
-    : [];
+  const findings: Finding[] = [];
+  if (Array.isArray(raw.findings)) {
+    for (const finding of raw.findings) {
+      if (
+        typeof finding?.claim !== "string" ||
+        finding.claim.length === 0 ||
+        typeof finding.source_url !== "string" ||
+        typeof finding.evaluation_dimension !== "string" ||
+        !ALLOWED_DIMENSIONS.has(finding.evaluation_dimension)
+      ) {
+        continue;
+      }
+      const normalized = normalizeSourceUrl(finding.source_url);
+      const source = normalized ? validSources.get(normalized) : undefined;
+      if (!source) continue;
+      findings.push({
+        claim: finding.claim,
+        source_url: source.url,
+        source_title: source.title,
+        evaluation_dimension: finding.evaluation_dimension,
+      });
+    }
+  }
   return {
     status: raw.status,
     summary: raw.summary.slice(0, 1_500),
     findings: findings.slice(0, 20),
   };
+};
+
+const directSources = (documents: RetrievedDocument[]): Map<string, ValidSource> =>
+  new Map(
+    documents.flatMap((document) => {
+      const normalized = normalizeSourceUrl(document.url);
+      return normalized
+        ? [[normalized, { url: document.url, title: document.title }] as const]
+        : [];
+    }),
+  );
+
+const citedWebSources = (
+  message: Anthropic.Message,
+  officialDomain: string,
+): Map<string, ValidSource> => {
+  const sources = new Map<string, ValidSource>();
+  for (const block of message.content) {
+    if (block.type !== "text" || !block.citations) continue;
+    for (const citation of block.citations) {
+      if (citation.type !== "web_search_result_location") continue;
+      const normalized = normalizeSourceUrl(citation.url);
+      if (!normalized) continue;
+      const hostname = new URL(normalized).hostname.toLowerCase();
+      if (hostname !== officialDomain && !hostname.endsWith(`.${officialDomain}`)) continue;
+      sources.set(normalized, {
+        url: citation.url,
+        title: citation.title ?? hostname,
+      });
+    }
+  }
+  return sources;
 };
 
 const saveUnknown = async (
@@ -315,30 +386,22 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
     }
 
     const totalExcerptChars = documents.reduce((sum, document) => sum + document.excerpt.length, 0);
-    if (documents.length === 0 || totalExcerptChars < 240) {
-      const unknown = await saveUnknown(
-        opportunityId,
-        "Authoritative policy text could not be retrieved with the bounded direct HTTP check. No paid fallback or AI call was made.",
-        "HTTP_INSUFFICIENT",
-      );
-      await db
-        .update(opportunitiesTable)
-        .set({ policyStatus: "UNKNOWN" })
-        .where(eq(opportunitiesTable.id, opportunityId));
-      res.status(201).json(RunPolicyCheckResponse.parse(toApi(unknown)));
-      return;
-    }
-
-    const excerpts = documents
-      .map(
-        (document, index) =>
-          `SOURCE ${index + 1}\nURL: ${document.url}\nTITLE: ${document.title}\nEXCERPT:\n${document.excerpt}`,
-      )
-      .join("\n\n")
-      .slice(0, MAX_TOTAL_EXCERPT_CHARS);
+    const directEvidenceSufficient = documents.length > 0 && totalExcerptChars >= 240;
+    const excerpts = directEvidenceSufficient
+      ? documents
+          .map(
+            (document, index) =>
+              `SOURCE ${index + 1}\nURL: ${document.url}\nTITLE: ${document.title}\nEXCERPT:\n${document.excerpt}`,
+          )
+          .join("\n\n")
+          .slice(0, MAX_TOTAL_EXCERPT_CHARS)
+      : "";
 
     const estimatedInputTokens = Math.ceil(excerpts.length / 4) + 1_500;
-    const conservativeEstimatedCost = estimatedInputTokens * 0.000015 + 1_500 * 0.000075;
+    const conservativeEstimatedCost =
+      estimatedInputTokens * SONNET_INPUT_COST_PER_TOKEN +
+      1_500 * SONNET_OUTPUT_COST_PER_TOKEN +
+      (directEvidenceSufficient ? 0 : WEB_SEARCH_COST_PER_USE);
     if (conservativeEstimatedCost > MAX_ESTIMATED_COST_USD) {
       const unknown = await saveUnknown(
         opportunityId,
@@ -357,11 +420,30 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
     const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
     if (!apiKey || !baseURL) throw new Error("Replit Anthropic integration is not configured");
     const anthropic = new Anthropic({ apiKey, baseURL });
+    const officialDomain = registrableDomain(new URL(opportunity.sourceUrl).hostname);
+    const retrievalInstructions = directEvidenceSufficient
+      ? `Use only the supplied SOURCE excerpts. Every finding must cite an exact URL from a SOURCE block.
+
+${excerpts}`
+      : `Direct HTTP retrieval did not produce enough authoritative policy text. You must use web_search exactly once.
+Search only for authoritative first-party policy material on ${officialDomain}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
+Every finding must use the exact URL of a cited web-search result. Do not use third-party commentary or search-result claims that you do not cite.`;
     const message = await anthropic.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 8192,
       system:
-        "You are a conservative policy compliance reviewer. Use only supplied excerpts. Never treat inference as fact. Return UNKNOWN when authoritative evidence is missing or ambiguous. Output only valid JSON.",
+        "You are a conservative policy compliance reviewer. Never treat inference as fact. Return UNKNOWN when authoritative first-party evidence is missing or ambiguous. Output only valid JSON and attach web citations to every search-backed factual finding.",
+      tools: directEvidenceSufficient
+        ? undefined
+        : [
+            {
+              type: "web_search_20250305",
+              name: "web_search",
+              max_uses: 1,
+              allowed_callers: ["direct"],
+              allowed_domains: [officialDomain],
+            },
+          ],
       messages: [
         {
           role: "user",
@@ -378,14 +460,43 @@ Return JSON:
 
 GREEN means no material restriction was found in the supplied authoritative text; YELLOW means constraints or ambiguity require human review; RED means the intended activity is expressly prohibited or creates a clear policy conflict; UNKNOWN means evidence is insufficient. Do not invent missing permissions. Every finding must be factual, directly supported, and cite an exact supplied URL.
 
-${excerpts}`,
+${retrievalInstructions}`,
         },
       ],
     });
 
-    const content = message.content.find((block) => block.type === "text");
-    if (!content || content.type !== "text") throw new Error("Claude returned no text");
-    const analysis = parseAnalysis(content.text, new Set(documents.map((document) => document.url)));
+    const responseText = message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("");
+    if (!responseText) throw new Error("Claude returned no text");
+    const validSources = directEvidenceSufficient
+      ? directSources(documents)
+      : citedWebSources(message, officialDomain);
+    let analysis = parseAnalysis(responseText, validSources);
+    if (!directEvidenceSufficient && (validSources.size === 0 || analysis.findings.length === 0)) {
+      analysis = {
+        status: "UNKNOWN",
+        summary:
+          "The single bounded web search did not return a cited authoritative first-party policy source.",
+        findings: [],
+      };
+    }
+    // Replit exposes token and server-tool usage, but not the final passthrough charge.
+    // The estimate uses Anthropic's published Sonnet 5 and web-search rates.
+    const webSearchUses = message.usage.server_tool_use?.web_search_requests ?? 0;
+    const estimatedCost =
+      message.usage.input_tokens * SONNET_INPUT_COST_PER_TOKEN +
+      message.usage.output_tokens * SONNET_OUTPUT_COST_PER_TOKEN +
+      webSearchUses * WEB_SEARCH_COST_PER_USE;
+    if (estimatedCost > MAX_ESTIMATED_COST_USD) {
+      analysis = {
+        status: "UNKNOWN",
+        summary:
+          "The policy check exceeded the configured $0.50 estimated external-service limit, so no findings were stored.",
+        findings: [],
+      };
+    }
     const observedDate = new Date().toISOString().slice(0, 10);
 
     const result = await db.transaction(async (tx) => {
@@ -407,18 +518,13 @@ ${excerpts}`,
         .set({ policyStatus: analysis.status })
         .where(eq(opportunitiesTable.id, opportunityId));
 
-      // Replit exposes token usage here, but not the final passthrough charge.
-      // This estimate uses deliberately conservative per-token ceilings.
-      const estimatedCost =
-        message.usage.input_tokens * 0.000015 +
-        message.usage.output_tokens * 0.000075;
       const [check] = await tx
         .insert(policyChecksTable)
         .values({
           opportunityId,
           status: analysis.status,
           summary: analysis.summary,
-          retrievalMethod: "HTTP",
+          retrievalMethod: directEvidenceSufficient ? "HTTP" : "HTTP_AND_WEB_SEARCH",
           evidenceCreated: analysis.findings.length,
           externalCostUsd: Math.min(estimatedCost, MAX_ESTIMATED_COST_USD),
           aiInputTokens: message.usage.input_tokens,

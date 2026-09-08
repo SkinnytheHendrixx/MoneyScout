@@ -30,7 +30,7 @@ A private internal tool for evidence-driven opportunity tracking and human revie
 ## Architecture decisions
 
 - Phase 1 is deliberately manual: no AI, research automation, scraping, scheduling, or scoring logic.
-- Phase 2 adds only a user-triggered policy review. It performs bounded direct HTTP retrieval and at most one Claude Sonnet interpretation call; failures return `UNKNOWN` without paid retries.
+- Phase 2 adds only a user-triggered policy review. It performs bounded direct HTTP retrieval first, then permits one domain-restricted Anthropic web search inside the single Claude Sonnet call only when direct evidence is insufficient.
 - Policy checks are capped at four fetched documents, 32,000 excerpt characters, and a conservative $0.50 estimated external-service ceiling.
 - Calendar dates use PostgreSQL `date` columns; research run timestamps use timezone-aware timestamps.
 - Deleting an opportunity cascades to its linked evidence, evaluations, snapshots, and experiments.

@@ -11,6 +11,7 @@ export type PolicyCheckRetrievalMethod = typeof PolicyCheckRetrievalMethod[keyof
 
 export const PolicyCheckRetrievalMethod = {
   HTTP: 'HTTP',
+  HTTP_AND_WEB_SEARCH: 'HTTP_AND_WEB_SEARCH',
   HTTP_AND_BROWSERBASE: 'HTTP_AND_BROWSERBASE',
   HTTP_INSUFFICIENT: 'HTTP_INSUFFICIENT',
 } as const;
