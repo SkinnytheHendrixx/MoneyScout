@@ -191,7 +191,7 @@ export default function OpportunityDetail() {
                   Kill Reason
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-4 text-destructive-foreground/90">
+              <CardContent className="pt-4 text-black">
                 <p className="whitespace-pre-wrap text-sm">{opportunity.kill_reason}</p>
               </CardContent>
             </Card>
