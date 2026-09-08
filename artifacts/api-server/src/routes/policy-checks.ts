@@ -26,6 +26,16 @@ const MAX_ESTIMATED_COST_USD = 0.5;
 const SONNET_INPUT_COST_PER_TOKEN = 0.000002;
 const SONNET_OUTPUT_COST_PER_TOKEN = 0.00001;
 const WEB_SEARCH_COST_PER_USE = 0.01;
+const HOSTED_HELP_DOMAINS = [
+  "zendesk.com",
+  "intercom.help",
+  "readme.io",
+  "gitbook.io",
+  "freshdesk.com",
+  "helpscoutdocs.com",
+];
+const POLICY_SOURCE_PATTERN =
+  /(terms|polic|privacy|legal|developer|api|help|support|guideline|robot|crawl|scrap|automat|authentication|login|access|resale|redistribut|personal data)/i;
 const ALLOWED_DIMENSIONS = new Set([
   "terms_of_service",
   "developer_api_terms",
@@ -300,9 +310,40 @@ const directSources = (documents: RetrievedDocument[]): Map<string, ValidSource>
     }),
   );
 
+const isOfficialPolicySource = (
+  sourceUrl: string,
+  sourceTitle: string,
+  officialDomain: string,
+  platformName: string,
+): boolean => {
+  const url = new URL(sourceUrl);
+  const hostname = url.hostname.toLowerCase();
+  if (!POLICY_SOURCE_PATTERN.test(`${url.pathname} ${url.search} ${sourceTitle}`)) {
+    return false;
+  }
+  if (hostname === officialDomain || hostname.endsWith(`.${officialDomain}`)) {
+    return true;
+  }
+
+  const hostedHelpDomain = HOSTED_HELP_DOMAINS.find(
+    (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+  );
+  if (!hostedHelpDomain) return false;
+
+  const identityTokens = new Set(
+    [
+      officialDomain.split(".")[0],
+      ...platformName.toLowerCase().split(/[^a-z0-9]+/),
+    ].filter((token) => token.length >= 3),
+  );
+  const identityText = `${hostname} ${url.pathname} ${sourceTitle}`.toLowerCase();
+  return [...identityTokens].some((token) => identityText.includes(token));
+};
+
 const citedWebSources = (
   message: Anthropic.Message,
   officialDomain: string,
+  platformName: string,
 ): Map<string, ValidSource> => {
   const sources = new Map<string, ValidSource>();
   for (const block of message.content) {
@@ -312,7 +353,16 @@ const citedWebSources = (
       const normalized = normalizeSourceUrl(citation.url);
       if (!normalized) continue;
       const hostname = new URL(normalized).hostname.toLowerCase();
-      if (hostname !== officialDomain && !hostname.endsWith(`.${officialDomain}`)) continue;
+      if (
+        !isOfficialPolicySource(
+          normalized,
+          citation.title ?? hostname,
+          officialDomain,
+          platformName,
+        )
+      ) {
+        continue;
+      }
       sources.set(normalized, {
         url: citation.url,
         title: citation.title ?? hostname,
@@ -426,8 +476,9 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
 
 ${excerpts}`
       : `Direct HTTP retrieval did not produce enough authoritative policy text. You must use web_search exactly once.
-Search only for authoritative first-party policy material on ${officialDomain}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
-Every finding must use the exact URL of a cited web-search result. Do not use third-party commentary or search-result claims that you do not cite.`;
+Search for authoritative policy material published by ${opportunity.sourcePlatform}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
+Official hosted help and documentation centers, such as a platform-branded Zendesk site, are allowed. Do not use unrelated third-party blogs, news articles, forums, aggregators, or copied policies.
+Every finding must use the exact URL of a cited web-search result. Do not use claims that you do not cite.`;
     const message = await anthropic.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 8192,
@@ -440,7 +491,6 @@ Every finding must use the exact URL of a cited web-search result. Do not use th
               type: "web_search_20250305",
               name: "web_search",
               max_uses: 1,
-              allowed_domains: [officialDomain],
             },
           ],
       messages: [
@@ -471,7 +521,7 @@ ${retrievalInstructions}`,
     if (!responseText) throw new Error("Claude returned no text");
     const validSources = directEvidenceSufficient
       ? directSources(documents)
-      : citedWebSources(message, officialDomain);
+      : citedWebSources(message, officialDomain, opportunity.sourcePlatform);
     let analysis = parseAnalysis(responseText, validSources);
     if (!directEvidenceSufficient && (validSources.size === 0 || analysis.findings.length === 0)) {
       analysis = {
