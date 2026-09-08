@@ -1,0 +1,125 @@
+mplement the approved Corrective Phase 4 plan for Discovery Scout v0.
+
+Do not redesign the task. Do not broaden scope. Continue from the current Phase 4 implementation and correct it in place.
+
+Required fixes:
+
+Catalog consistency
+Require every Apify Store page to report the same advertised total as page 1.
+Validate exact offset, effective page size, expected page length, repeated pages, malformed pagination, duplicate Actor identities, retry exhaustion, and final unique coverage.
+Any inconsistency must produce INCOMPLETE or FAILED.
+Incomplete/failed runs must create no scored candidates.
+Low-memory traversal
+Replace full-catalog in-memory accumulation with a run-scoped compact staging approach.
+Process one page at a time: fetch → validate → normalize → persist compact staging rows → update progress/heartbeat → release raw page from memory.
+Finalize transactionally only after complete coverage is verified.
+Delete staging rows on incomplete/failed runs.
+Actor identity and normalization
+Prefer Apify Store Actor ID as canonical identity.
+Fall back to normalized username/name only if Actor ID is unavailable.
+Use versioned canonical key policy.
+Normalize categories to the approved canonical form and use explicit UNKNOWN when absent.
+Implement a versioned source-platform alias dictionary with token-boundary matching and specificity precedence.
+Support multiple unambiguous platform matches.
+Ambiguous or unmatched platform = UNKNOWN.
+Do not default unmatched Actors to apify.
+UNKNOWN semantics
+Missing or malformed numeric source values must remain null / UNKNOWN.
+Genuine numeric zero must remain distinguishable from missing data.
+Aggregation must track known-value coverage.
+Required UNKNOWN components cannot qualify a candidate.
+UI/API must display UNKNOWN rather than implying zero activity.
+Restore approved anomaly scoring
+Add explicit versioned configuration:
+qualification threshold = 60
+per-run candidate cap = 10
+formula version
+normalization/alias version
+Gates:
+HIGH_USAGE_THIN_SUPPLY: at most 2 active Actors, meaningful known usage, no HHI bonus
+HIGH_USAGE_CONCENTRATED: at least 3 active Actors, high usage, high concentration
+HIGH_USAGE_FRAGMENTED: at least 3 active Actors, high usage, low HHI, broad provider participation
+EMERGING_CLUSTER: explicit emergence/new-Actor component plus independent snapshot-newness component
+MATERIAL_SNAPSHOT_CHANGE: Actor-count change plus usage-field change between adjacent compatible COMPLETE snapshots
+Preserve max-not-sum scoring.
+Store all eligible anomaly tags and component breakdowns.
+Only candidates with score >= 60 qualify.
+Persist only the top 10 per run using deterministic ordering.
+Opportunity Score separation
+Accepted Discovery candidates must create opportunities with:
+overall_score = 0
+verdict = NEW
+policy_status = UNKNOWN
+Discovery engine family
+stable discovery_key
+Discovery priority score must never populate Opportunity Score.
+Evidence linkage
+On candidate acceptance, create concise FACT evidence linked to the created opportunity.
+Include source run/snapshot, cluster/platform/category, relevant usage/supply observations, anomaly type, and formula/version where useful.
+Evidence wording must explicitly state that the observation is:
+usage / marketplace-structure telemetry
+not revenue
+not validated buyer demand
+not an opportunity-quality estimate
+Repeated acceptance must remain idempotent and must not duplicate evidence.
+Frugal retention
+Retain the latest 3 COMPLETE runs of unlinked compact Actor observations.
+No 90-day floor for v0.
+Retain indefinitely only observations explicitly linked to:
+a candidate
+an accepted opportunity
+an audit record
+Do not preserve every Actor in a candidate’s entire cluster by default.
+Keep canonical Actors, cluster snapshots, candidate history, stable discovery keys, links, and acceptance evidence long-term.
+Reduce selected raw data to compact fields only.
+Do not retain the full pricing object unless explicitly required for audit/evidence.
+Intentional deferrals
+Do not persist failed-run partial Actor observations beyond temporary staging.
+Continue marking persisted RUNNING jobs as INTERRUPTED after server restart rather than attempting heartbeat-based resumability.
+Zero-cost verification only
+All Apify/network behavior must be mocked in tests.
+Do not run a real Discovery crawl.
+Do not call Claude, Anthropic, Firecrawl, paid search, or any paid integration.
+
+Required fixtures/tests:
+
+stable complete pagination
+changed totals
+malformed pagination
+repeated pages
+duplicate Actors
+retry exhaustion
+low-memory staging/finalization
+Actor ID and fallback identity
+category/platform normalization and ambiguity
+UNKNOWN vs genuine zero
+every anomaly type
+max-not-sum behavior
+threshold 60
+deterministic cap 10
+stable discovery-key dedupe
+accepted opportunity score/verdict/policy separation
+FACT evidence creation and wording
+retention cleanup and linkage exemptions
+async 202, progress polling, terminal states, concurrency
+UI states
+
+Preserve existing Phase 1, Phase 2, and Phase 3 behavior.
+
+When implementation is complete:
+
+run schema push
+regenerate API bindings if needed
+run API typecheck
+run frontend typecheck/build
+run all zero-cost fixture suites
+restart affected workflows
+
+Then stop and report:
+
+exactly what changed
+every test that passed
+any deviations or remaining TODOs
+confirmation that no real Discovery run or paid external call occurred
+
+Do not start any suggested follow-up tasks automatically.
