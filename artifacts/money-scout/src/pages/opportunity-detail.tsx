@@ -25,6 +25,16 @@ import { EvidenceDialog } from "@/components/evidence-dialog"
 import { DemandChecks } from "@/components/demand-checks"
 import { Select } from "@/components/ui/select"
 
+export const filterEvidenceByDimension = <
+  T extends { evaluation_dimension: string },
+>(
+  evidence: T[] | undefined,
+  dimension: string,
+): T[] | undefined =>
+  evidence?.filter((item) =>
+    dimension === "all" ? true : item.evaluation_dimension === dimension,
+  )
+
 export default function OpportunityDetail() {
   const params = useParams()
   const id = Number(params.id)
@@ -129,9 +139,7 @@ export default function OpportunityDetail() {
     }, 0)
   }
 
-  const filteredEvidence = evidenceList?.filter(ev => 
-    evidenceFilter === "all" ? true : ev.evaluation_dimension === evidenceFilter
-  )
+  const filteredEvidence = filterEvidenceByDimension(evidenceList, evidenceFilter)
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">

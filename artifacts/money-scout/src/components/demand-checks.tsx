@@ -71,10 +71,7 @@ export function DemandChecks({
               <AccordionItem key={check.id} value={`check-${check.id}`} className="border-b border-indigo-50 dark:border-indigo-900/30 last:border-b-0 px-4">
                 <AccordionTrigger className="hover:no-underline py-4">
                   <div className="flex items-center justify-between w-full pr-4">
-                    <div className="flex items-center gap-3">
-                      {getDemandBadge(check.demand_conclusion)}
-                      <span className="text-sm font-medium text-indigo-950 dark:text-indigo-200">Run #{check.run_id}</span>
-                    </div>
+                    <DemandCheckRunSummary check={check} />
                     <span className="text-xs text-muted-foreground font-normal font-mono">
                       {formatDateTime(check.started_at)}
                     </span>
@@ -92,7 +89,18 @@ export function DemandChecks({
   )
 }
 
-function DemandCheckDetails({
+export function DemandCheckRunSummary({ check }: { check: DemandCheckResult }) {
+  return (
+    <div className="flex items-center gap-3">
+      {getDemandBadge(check.demand_conclusion)}
+      <span className="text-sm font-medium text-indigo-950 dark:text-indigo-200">
+        Run #{check.run_id}
+      </span>
+    </div>
+  )
+}
+
+export function DemandCheckDetails({
   check,
   onShowEvidence,
 }: {

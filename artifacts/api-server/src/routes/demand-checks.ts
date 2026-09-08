@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
 import { Router, type IRouter } from "express";
 import { desc, eq } from "drizzle-orm";
 import {
@@ -18,7 +19,7 @@ import {
 const router: IRouter = Router();
 const runningChecks = new Set<number>();
 const MAX_EXTERNAL_COST_USD = 0.5;
-const MAX_SEARCH_USES = 8;
+export const MAX_SEARCH_USES = 4;
 const MAX_OUTPUT_TOKENS = 3_000;
 const PROJECTED_MAX_INPUT_TOKENS = 190_000;
 const INPUT_COST_PER_TOKEN = 0.000002;
@@ -66,6 +67,107 @@ type DemandAnalysis = {
   findings: Finding[];
 };
 
+const demandOutputSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "buyer_identified",
+    "buyer_description",
+    "workflow_identified",
+    "workflow_description",
+    "access_vs_consumption",
+    "recurring_usage_signal",
+    "recurring_usage_basis",
+    "existing_paid_analog_found",
+    "paid_analog_names",
+    "demand_conclusion",
+    "contradicting_finding_refs",
+    "confidence_basis",
+    "open_questions",
+    "findings",
+  ],
+  properties: {
+    buyer_identified: { type: "string", enum: ["true", "false", "unknown"] },
+    buyer_description: { type: ["string", "null"] },
+    workflow_identified: { type: "string", enum: ["true", "false", "unknown"] },
+    workflow_description: { type: ["string", "null"] },
+    access_vs_consumption: {
+      type: "string",
+      enum: ["access_demand", "consumption_only", "unclear"],
+    },
+    recurring_usage_signal: { type: "string", enum: ["yes", "no", "unknown"] },
+    recurring_usage_basis: { type: ["string", "null"] },
+    existing_paid_analog_found: { type: "boolean" },
+    paid_analog_names: { type: "array", maxItems: 20, items: { type: "string" } },
+    demand_conclusion: {
+      type: "string",
+      enum: ["SUPPORTED", "WEAK", "UNSUPPORTED", "UNKNOWN"],
+    },
+    contradicting_finding_refs: {
+      type: "array",
+      maxItems: 40,
+      items: { type: "string" },
+    },
+    confidence_basis: { type: "string" },
+    open_questions: { type: "array", maxItems: 20, items: { type: "string" } },
+    findings: {
+      type: "array",
+      maxItems: 40,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "ref",
+          "claim",
+          "source_url",
+          "source_title",
+          "classification",
+          "evaluation_dimension",
+          "evidence_tier",
+          "contradicts_thesis",
+        ],
+        properties: {
+          ref: { type: "string" },
+          claim: { type: "string" },
+          source_url: { type: "string" },
+          source_title: { type: "string" },
+          classification: {
+            type: "string",
+            enum: ["FACT", "CLAIM", "INFERENCE", "UNKNOWN"],
+          },
+          evaluation_dimension: {
+            type: "string",
+            enum: [
+              "external_demand",
+              "commercial_value",
+              "repeat_usage",
+              "agent_api_usefulness",
+              "incumbent_weakness",
+            ],
+          },
+          evidence_tier: { type: "integer", minimum: 1, maximum: 6 },
+          contradicts_thesis: { type: "boolean" },
+        },
+      },
+    },
+  },
+} as const;
+
+export const demandStructuredOutputFormat = jsonSchemaOutputFormat(demandOutputSchema);
+
+type DemandParsedMessage = Anthropic.Message & { parsed_output: unknown | null };
+type DemandMessagesClient = {
+  parse: (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<DemandParsedMessage>;
+};
+
+let demandMessagesClientFactory: (() => DemandMessagesClient) | null = null;
+
+export const setDemandMessagesClientFactoryForTests = (
+  factory: (() => DemandMessagesClient) | null,
+): void => {
+  demandMessagesClientFactory = factory;
+};
+
 const truncate = (value: string, max = 2_000): string => value.trim().slice(0, max);
 
 const canonicalUrl = (value: string): string | null => {
@@ -94,12 +196,49 @@ const returnedSearchSources = (message: Anthropic.Message): Map<string, { url: s
 };
 
 const parseAnalysis = (
-  text: string,
+  rawValue: unknown,
   sources: Map<string, { url: string; title: string }>,
 ): DemandAnalysis => {
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Claude returned no JSON object");
-  const raw = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    throw new Error("Claude returned no schema-valid structured output");
+  }
+  const raw = rawValue as Record<string, unknown>;
+  const requiredKeys = Object.keys(demandOutputSchema.properties);
+  if (
+    requiredKeys.some((key) => !(key in raw)) ||
+    Object.keys(raw).some((key) => !requiredKeys.includes(key))
+  ) {
+    throw new Error("Claude structured output did not match the required schema");
+  }
+  if (
+    typeof raw.buyer_identified !== "string" ||
+    !TRI_STATES.has(raw.buyer_identified) ||
+    !("buyer_description" in raw) ||
+    (raw.buyer_description !== null && typeof raw.buyer_description !== "string") ||
+    typeof raw.workflow_identified !== "string" ||
+    !TRI_STATES.has(raw.workflow_identified) ||
+    !("workflow_description" in raw) ||
+    (raw.workflow_description !== null && typeof raw.workflow_description !== "string") ||
+    typeof raw.access_vs_consumption !== "string" ||
+    !ACCESS_TYPES.has(raw.access_vs_consumption) ||
+    typeof raw.recurring_usage_signal !== "string" ||
+    !RECURRING_SIGNALS.has(raw.recurring_usage_signal) ||
+    !("recurring_usage_basis" in raw) ||
+    (raw.recurring_usage_basis !== null && typeof raw.recurring_usage_basis !== "string") ||
+    typeof raw.existing_paid_analog_found !== "boolean" ||
+    !Array.isArray(raw.paid_analog_names) ||
+    raw.paid_analog_names.some((value) => typeof value !== "string") ||
+    typeof raw.demand_conclusion !== "string" ||
+    !CONCLUSIONS.has(raw.demand_conclusion) ||
+    !Array.isArray(raw.contradicting_finding_refs) ||
+    raw.contradicting_finding_refs.some((value) => typeof value !== "string") ||
+    typeof raw.confidence_basis !== "string" ||
+    !Array.isArray(raw.open_questions) ||
+    raw.open_questions.some((value) => typeof value !== "string") ||
+    !Array.isArray(raw.findings)
+  ) {
+    throw new Error("Claude structured output did not match the required schema");
+  }
   const findings: Finding[] = [];
   const usedRefs = new Set<string>();
 
@@ -328,16 +467,25 @@ router.post("/opportunities/:opportunityId/demand-checks", async (req, res): Pro
     if (projectedMaximumCost > MAX_EXTERNAL_COST_USD) {
       throw new Error("Configured Demand Check bounds exceed the $0.50 cost ceiling");
     }
-    const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
-    const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
-    if (!apiKey || !baseURL) throw new Error("Replit Anthropic integration is not configured");
-
-    const anthropic = new Anthropic({ apiKey, baseURL });
-    const message = await anthropic.messages.create({
+    let messagesClient: DemandMessagesClient;
+    if (demandMessagesClientFactory) {
+      messagesClient = demandMessagesClientFactory();
+    } else {
+      const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
+      const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+      if (!apiKey || !baseURL) {
+        throw new Error("Replit Anthropic integration is not configured");
+      }
+      messagesClient = new Anthropic({ apiKey, baseURL }).messages as DemandMessagesClient;
+    }
+    const message = await messagesClient.parse({
       model: "claude-sonnet-4-5",
       max_tokens: MAX_OUTPUT_TOKENS,
       system:
-        "You are a conservative demand researcher. Use web evidence, not intuition. Never infer programmatic-access demand from popularity, willingness to pay from free tools, or recurring use from one anecdote. UNSUPPORTED requires affirmative contradicting evidence. Return only valid JSON after research.",
+        "You are a conservative demand researcher. Use web evidence, not intuition. Never infer programmatic-access demand from popularity, willingness to pay from free tools, or recurring use from one anecdote. UNSUPPORTED requires affirmative contradicting evidence. Use explicit unknown, unclear, and null values whenever research cannot establish a field.",
+      output_config: {
+        format: demandStructuredOutputFormat,
+      },
       tools: [
         {
           type: "web_search_20250305",
@@ -365,10 +513,7 @@ Use focused searches for named buyers and concrete input-to-output workflows; jo
 
 Do not research Apify, score the opportunity, recommend products, or perform a competitive-landscape analysis. Incidental paid analogs may be named and their raw limitations recorded. Evidence older than 12 months without current corroboration cannot establish the conclusion.
 
-Return exactly this JSON shape:
-{"buyer_identified":"true|false|unknown","buyer_description":"text or null","workflow_identified":"true|false|unknown","workflow_description":"text or null","access_vs_consumption":"access_demand|consumption_only|unclear","recurring_usage_signal":"yes|no|unknown","recurring_usage_basis":"text or null","existing_paid_analog_found":true,"paid_analog_names":["name"],"demand_conclusion":"SUPPORTED|WEAK|UNSUPPORTED|UNKNOWN","contradicting_finding_refs":["F1"],"confidence_basis":"which evidence tiers drove this result","open_questions":["question"],"findings":[{"ref":"F1","claim":"one source-backed claim","source_url":"exact URL from a returned search result","source_title":"title","classification":"FACT|CLAIM|INFERENCE|UNKNOWN","evaluation_dimension":"external_demand|commercial_value|repeat_usage|agent_api_usefulness|incumbent_weakness","evidence_tier":1,"contradicts_thesis":false}]}
-
-SUPPORTED requires a named buyer, concrete workflow, and either verified spend or strong recurring evidence from tiers 1-3. WEAK requires some tier 1-4 support but a major gap. UNSUPPORTED requires specific affirmative contradiction findings listed by ref. Otherwise use UNKNOWN.`,
+Return the required structured output. SUPPORTED requires a named buyer, concrete workflow, and either verified spend or strong recurring evidence from tiers 1-3. WEAK requires some tier 1-4 support but a major gap. UNSUPPORTED requires specific affirmative contradiction findings listed by ref. Otherwise use UNKNOWN. Preserve every valid source-backed finding even when the overall conclusion is UNKNOWN.`,
         },
       ],
     });
@@ -377,87 +522,15 @@ SUPPORTED requires a named buyer, concrete workflow, and either verified spend o
     outputTokens = message.usage.output_tokens;
     claudeCallCount = 1;
     searchCount = message.usage.server_tool_use?.web_search_requests ?? 0;
+    if (searchCount > MAX_SEARCH_USES) {
+      throw new Error("Anthropic reported more web searches than the configured maximum");
+    }
     estimatedCost =
       inputTokens * INPUT_COST_PER_TOKEN +
       outputTokens * OUTPUT_COST_PER_TOKEN +
       searchCount * SEARCH_COST_PER_USE;
-    const text = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
     const searchSources = returnedSearchSources(message);
-    let followUpReason: string | null = null;
-    try {
-      analysis = parseAnalysis(text, searchSources);
-      const hasSupportingEvidence = analysis.findings.some(
-        (finding) => !finding.contradicts_thesis && finding.evidence_tier <= 4,
-      );
-      const hasContradictingEvidence = analysis.findings.some(
-        (finding) => finding.contradicts_thesis && finding.evidence_tier <= 4,
-      );
-      if (
-        analysis.demand_conclusion === "UNKNOWN" &&
-        hasSupportingEvidence &&
-        hasContradictingEvidence
-      ) {
-        followUpReason =
-          "The first synthesis contains both supporting and contradicting tier 1-4 findings but leaves the conclusion unresolved.";
-      }
-    } catch {
-      followUpReason =
-        "The first synthesis omitted or malformed a required structured output field.";
-    }
-
-    if (followUpReason) {
-      const sourceList = [...new Map([...searchSources.values()].map((source) => [source.url, source])).values()]
-        .map((source) => `${source.title}: ${source.url}`)
-        .join("\n")
-        .slice(0, 12_000);
-      const followUpInputEstimate =
-        Math.ceil((followUpReason.length + text.length + sourceList.length) / 4) + 2_000;
-      const followUpOutputLimit = 1_200;
-      const projectedTotalCost =
-        estimatedCost +
-        followUpInputEstimate * INPUT_COST_PER_TOKEN +
-        followUpOutputLimit * OUTPUT_COST_PER_TOKEN;
-      if (projectedTotalCost <= MAX_EXTERNAL_COST_USD) {
-        const followUp = await anthropic.messages.create({
-          model: "claude-sonnet-4-5",
-          max_tokens: followUpOutputLimit,
-          system:
-            "Resolve only the named contradiction or missing structured field using the supplied first synthesis and returned source list. Do not add research, sources, or unsupported claims. Return only a complete corrected JSON object.",
-          messages: [
-            {
-              role: "user",
-              content: `Specific issue: ${followUpReason}
-
-First synthesis:
-${text}
-
-Allowed returned sources:
-${sourceList}
-
-Return the same complete JSON shape requested in the first synthesis. Preserve source URLs exactly. UNSUPPORTED still requires affirmative contradicting findings; otherwise use UNKNOWN.`,
-            },
-          ],
-        });
-        claudeCallCount = 2;
-        inputTokens += followUp.usage.input_tokens;
-        outputTokens += followUp.usage.output_tokens;
-        estimatedCost +=
-          followUp.usage.input_tokens * INPUT_COST_PER_TOKEN +
-          followUp.usage.output_tokens * OUTPUT_COST_PER_TOKEN;
-        const followUpText = followUp.content
-          .filter((block) => block.type === "text")
-          .map((block) => block.text)
-          .join("");
-        analysis = parseAnalysis(followUpText, searchSources);
-      } else if (analysis.confidence_basis === "The Demand Check did not complete.") {
-        analysis = unknownAnalysis(
-          "A required structured field was missing, and repairing it would exceed the $0.50 total cost ceiling.",
-        );
-      }
-    }
+    analysis = parseAnalysis(message.parsed_output, searchSources);
     if (estimatedCost > MAX_EXTERNAL_COST_USD) {
       analysis.demand_conclusion = "UNKNOWN";
       analysis.confidence_basis = `${analysis.confidence_basis} Research stopped at the $0.50 estimated cost ceiling; unresolved fields remain UNKNOWN.`;
