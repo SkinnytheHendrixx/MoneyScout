@@ -157,6 +157,25 @@ const normalizeSourceUrl = (value: string): string | null => {
   }
 };
 
+const canonicalSourceKey = (value: string): string | null => {
+  const normalized = normalizeSourceUrl(value);
+  if (!normalized) return null;
+  const url = new URL(normalized);
+  const hostname = url.hostname.replace(/^www\./, "");
+  const pathname = decodeURIComponent(url.pathname).replace(/\/+$/, "") || "/";
+  return `${hostname}${pathname}`.toLowerCase();
+};
+
+const addValidSource = (
+  sources: Map<string, ValidSource>,
+  source: ValidSource,
+): void => {
+  const normalized = normalizeSourceUrl(source.url);
+  const canonical = canonicalSourceKey(source.url);
+  if (normalized) sources.set(normalized, source);
+  if (canonical) sources.set(`canonical:${canonical}`, source);
+};
+
 const fetchPublicText = async (initialUrl: string): Promise<{ url: string; text: string; contentType: string }> => {
   let current = initialUrl;
   for (let redirect = 0; redirect <= 3; redirect += 1) {
@@ -318,11 +337,14 @@ const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): Pa
         rejectedFindings.push({ source_url: sourceUrl, reason: "malformed source_url" });
         continue;
       }
-      const source = validSources.get(normalized);
+      const canonical = canonicalSourceKey(finding.source_url);
+      const source =
+        validSources.get(normalized) ??
+        (canonical ? validSources.get(`canonical:${canonical}`) : undefined);
       if (!source) {
         rejectedFindings.push({
           source_url: sourceUrl,
-          reason: "source_url did not exactly match an authority-approved citation URL",
+          reason: "source_url did not match an authority-approved returned source URL",
         });
         continue;
       }
@@ -345,14 +367,10 @@ const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): Pa
 };
 
 const directSources = (documents: RetrievedDocument[]): Map<string, ValidSource> =>
-  new Map(
-    documents.flatMap((document) => {
-      const normalized = normalizeSourceUrl(document.url);
-      return normalized
-        ? [[normalized, { url: document.url, title: document.title }] as const]
-        : [];
-    }),
-  );
+  documents.reduce((sources, document) => {
+    addValidSource(sources, { url: document.url, title: document.title });
+    return sources;
+  }, new Map<string, ValidSource>());
 
 const validateOfficialPolicySource = (
   sourceUrl: string,
@@ -435,13 +453,40 @@ const citedWebSources = (
         continue;
       }
       accepted += 1;
-      sources.set(normalized, {
+      addValidSource(sources, {
         url: citation.url,
         title: citation.title ?? hostname,
       });
     }
   }
   return { sources, total, accepted, rejected };
+};
+
+const authoritativeWebSearchResultSources = (
+  message: Anthropic.Message,
+  officialDomain: string,
+  platformName: string,
+): Map<string, ValidSource> => {
+  const sources = new Map<string, ValidSource>();
+  for (const block of message.content) {
+    if (block.type !== "web_search_tool_result" || !Array.isArray(block.content)) {
+      continue;
+    }
+    for (const result of block.content) {
+      if (result.type !== "web_search_result") continue;
+      const normalized = normalizeSourceUrl(result.url);
+      if (!normalized) continue;
+      const authority = validateOfficialPolicySource(
+        normalized,
+        result.title,
+        officialDomain,
+        platformName,
+      );
+      if (!authority.accepted) continue;
+      addValidSource(sources, { url: result.url, title: result.title });
+    }
+  }
+  return sources;
 };
 
 const saveUnknown = async (
@@ -543,14 +588,16 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
     if (!apiKey || !baseURL) throw new Error("Replit Anthropic integration is not configured");
     const anthropic = new Anthropic({ apiKey, baseURL });
     const officialDomain = registrableDomain(new URL(opportunity.sourceUrl).hostname);
+    const requiredSearchQuery = `${opportunity.sourcePlatform} official terms of service privacy policy developer API automation scraping restrictions`;
     const retrievalInstructions = directEvidenceSufficient
       ? `Use only the supplied SOURCE excerpts. Every finding must cite an exact URL from a SOURCE block.
 
 ${excerpts}`
       : `Direct HTTP retrieval did not produce enough authoritative policy text. You must use web_search exactly once.
+Use exactly this focused search query: ${requiredSearchQuery}
 Search for authoritative policy material published by ${opportunity.sourcePlatform}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
 Official hosted help and documentation centers, such as a platform-branded Zendesk site, are allowed. Do not use unrelated third-party blogs, news articles, forums, aggregators, or copied policies.
-Every finding must use the exact URL of a cited web-search result. Do not use claims that you do not cite.`;
+Every finding must copy the exact URL of the authoritative web-search result that supports it. Do not use claims that are not supported by a returned result.`;
     const message = await anthropic.messages.create({
       model: "claude-sonnet-5",
       max_tokens: 8192,
@@ -577,7 +624,7 @@ Source: ${opportunity.sourceUrl}
 Evaluate exactly: Terms of Service, developer/API terms, scraping/automation restrictions, robots/crawler restrictions, data resale restrictions, privacy concerns, and authentication/access restrictions.
 
 Return JSON:
-{"status":"GREEN|YELLOW|RED|UNKNOWN","summary":"short review summary","findings":[{"claim":"one directly supported factual finding","source_url":"exact URL from a SOURCE block","source_title":"source title","evaluation_dimension":"one of terms_of_service, developer_api_terms, scraping_automation_restrictions, robots_crawler_restrictions, data_resale_restrictions, privacy_concerns, authentication_access_restrictions"}]}
+{"status":"GREEN|YELLOW|RED|UNKNOWN","summary":"short review summary","findings":[{"claim":"one directly supported factual finding","source_url":"exact URL from the supplied source or authoritative web-search result","source_title":"source title","evaluation_dimension":"one of terms_of_service, developer_api_terms, scraping_automation_restrictions, robots_crawler_restrictions, data_resale_restrictions, privacy_concerns, authentication_access_restrictions"}]}
 
 GREEN means no material restriction was found in the supplied authoritative text; YELLOW means constraints or ambiguity require human review; RED means the intended activity is expressly prohibited or creates a clear policy conflict; UNKNOWN means evidence is insufficient. Do not invent missing permissions. Every finding must be factual, directly supported, and cite an exact supplied URL.
 
@@ -606,6 +653,16 @@ ${retrievalInstructions}`,
     const citationDiagnostics: CitationDiagnostics = directEvidenceSufficient
       ? { sources: directSources(documents), total: 0, accepted: 0, rejected: [] }
       : citedWebSources(message, officialDomain, opportunity.sourcePlatform);
+    if (!directEvidenceSufficient) {
+      const resultSources = authoritativeWebSearchResultSources(
+        message,
+        officialDomain,
+        opportunity.sourcePlatform,
+      );
+      for (const [key, source] of resultSources) {
+        citationDiagnostics.sources.set(key, source);
+      }
+    }
     const parsedAnalysis = parseAnalysis(responseText, citationDiagnostics.sources);
     let analysis = parsedAnalysis.analysis;
     const findingsAfterFiltering = parsedAnalysis.analysis.findings.length;

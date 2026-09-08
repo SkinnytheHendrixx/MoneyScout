@@ -1,0 +1,1 @@
+- [Anthropic web-search citations](anthropic-web-search-citations.md) — strict JSON may omit text citations; validate findings against authoritative returned result URLs.
