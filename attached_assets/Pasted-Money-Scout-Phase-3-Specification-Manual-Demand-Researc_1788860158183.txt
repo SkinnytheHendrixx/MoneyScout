@@ -1,0 +1,145 @@
+Money Scout — Phase 3 Specification: Manual Demand Research (Run Demand Check)
+
+Final, implementation-ready. Paste directly into Replit Agent.
+
+0. Scope guardrails (do not violate)
+
+This phase adds one manual action: Run Demand Check, triggered per-opportunity by a human. It performs research and writes evidence + a structured result. It does not:
+
+Compute or modify overall_score or verdict on the opportunity
+Research Apify or any competitive-tooling landscape
+Discover new opportunities
+Recommend products
+Run on a schedule or autonomously
+1. Purpose
+
+Determine whether a named platform/source represents real, commercially useful, recurring demand — not attention, novelty, or founder-side interest.
+
+2. Exact research questions
+
+The check must produce an answer (including UNKNOWN) for each:
+
+Who is the buyer? (named role/company type, not "users" or "people")
+What job are they trying to get done? (concrete input → output workflow)
+Is there verifiable current spend on adjacent solutions (tools, contractors, manual labor, existing APIs/products)?
+Is the demand for the platform/product itself, or for programmatic/structured access to what it holds?
+Is usage recurring, or a one-time/single-event need?
+Does an existing paid channel already serve this demand — and what gap (price, coverage, latency, format, reliability) does it leave?
+Is the demand expressed where buyers actually transact (job posts with budgets, marketplace sales, paid API directories) versus only where people talk (forums, social media)?
+Is there anything that would disqualify the thesis outright (no identifiable budget holder, demand fully and visibly satisfied elsewhere, market too small to sustain a product)?
+3. Evidence hierarchy (highest to lowest weight)
+Direct transactional evidence — paid listings, invoices, pricing pages, marketplace sales data, job posts with stated rates/budgets
+Primary operator statements — company engineering blogs, official docs admitting a need/limitation, earnings/investor calls
+Third-party paid-tool evidence — an existing paid competitor/adjacent product's pricing, customer logos, review volume (G2, Capterra, etc.)
+Structured community evidence — GitHub issues/Stack Overflow threads with high engagement describing a specific, repeated operational need
+Unstructured community sentiment — Reddit/X/forum posts, especially single instances
+Speculation — founder/marketing commentary, "top opportunity" listicles
+
+Tiers 5–6 may justify moving an opportunity toward RESEARCH/WATCH (a human decision, outside this action) but can never alone support a SUPPORTED conclusion.
+
+4. Popularity vs. programmatic-access demand — rules
+
+Evaluate as three separable questions, each evidenced independently:
+
+Consumption demand: do people want to use the platform's existing product/UI? (traffic, DAU, engagement)
+Access demand: do people want structured/bulk/programmatic access to what it holds, which it doesn't natively provide well?
+Paid access already exists: are there unofficial APIs, paid scrapers, browser extensions, or actor-style tools people already pay for on this exact platform? (Note only that such tools exist if found incidentally — do not analyze the competitive landscape; that's out of scope.)
+
+Rule: Platform popularity (traffic rank, followers, "trending") is never by itself evidence of demand for this product. It is context only. Only access-demand and paid-access evidence may support external_demand or agent_api_usefulness.
+
+5. Buyer / workflow identification rules
+
+A buyer/workflow counts as "identified" only if evidence names or clearly implies:
+
+A role or company type (not "people," not "developers" generically)
+A task with a defined input and output
+Where money currently changes hands for that task today (labor, subscription, contractor — or explicitly "nothing," which is itself a valid, filed data point)
+
+If evidence only shows theoretical usefulness with no named buyer/workflow, classify it as INFERENCE and do not treat it as buyer identification.
+
+6. Recurring-usage rules
+
+Recurring usage is evidenced indirectly (no live experiments in this phase):
+
+Does the underlying data/workflow change often enough to require repeat checks (daily, weekly, seasonal)?
+Do adjacent paid tools bill via subscription/usage (implies repeat customers) rather than one-time sale?
+Do complaints use repeat-frequency language ("every time," "each month")?
+Is the need tied to an ongoing business process (compliance, reporting, restocking) vs. a single event?
+
+If none of these are found, recurring usage is UNKNOWN — never assumed true or false by default.
+
+7. Paid-analog evidence rules
+An existing paid product counts as demand evidence only when it shows both a visible price/paywall and some signal of active customers (reviews, "trusted by," case studies, install/download counts).
+Pricing with no customer signal → file the price as FACT (a price point exists) but do NOT infer active demand from it.
+An existing paid analog also generates raw incumbent_weakness observations (what it does poorly) — file the observation only; deeper competitive analysis is out of scope until its own phase.
+The existence of a paid competitor proves demand exists for the category, not for the specific gap Money Scout would target — do not conflate the two.
+8. Conclusion definitions — SUPPORTED / WEAK / UNSUPPORTED / UNKNOWN
+
+This is the corrected rule — apply it exactly:
+
+SUPPORTED — Tier 1–3 evidence affirmatively establishes a named buyer, a concrete workflow, and either verifiable spend or a strong recurring-need signal.
+WEAK — Some tier 1–4 evidence exists supporting the thesis, but it's thin, partial, or leaves a major question (buyer named but no spend evidence; recurring signal present but no buyer identified, etc.).
+UNSUPPORTED — There is affirmative evidence contradicting the demand thesis (e.g., documented evidence the need is already fully and visibly satisfied elsewhere at low cost; explicit statements from the target buyer segment that they don't want/need this; a clear absence of any budget holder confirmed by direct inquiry-equivalent evidence). UNSUPPORTED requires evidence against the thesis, not merely the absence of evidence for it.
+UNKNOWN — The default when evidence is simply absent, thin-to-nonexistent, contradictory without resolution, stale (>12 months with no corroboration), or research hit a hard stop (paywall, no public data) before reaching tier 1–4 sources.
+
+Rule of thumb: if you're tempted to write UNSUPPORTED and can't point to a specific piece of evidence that contradicts the thesis, write UNKNOWN instead.
+
+9. Structured output schema
+
+Each Run Demand Check produces one research_runs row and one structured result object:
+
+demand_check_result:
+  opportunity_id
+  run_id                        (FK to research_runs)
+  buyer_identified:              true | false | unknown
+  buyer_description:             short text or null
+  workflow_identified:           true | false | unknown
+  workflow_description:          short text or null
+  access_vs_consumption:         "access_demand" | "consumption_only" | "unclear"
+  recurring_usage_signal:        "yes" | "no" | "unknown"
+  recurring_usage_basis:         short text or null
+  existing_paid_analog_found:    true | false
+  paid_analog_names:             list of strings or empty
+  demand_conclusion:             "SUPPORTED" | "WEAK" | "UNSUPPORTED" | "UNKNOWN"
+  contradicting_evidence_ids:    list of evidence row IDs (required, non-empty, if demand_conclusion = "UNSUPPORTED")
+  confidence_basis:              short text — which evidence tiers drove the conclusion
+  open_questions:                list of strings
+
+Validation rule to implement: the system must reject/flag a demand_conclusion = "UNSUPPORTED" result that has an empty contradicting_evidence_ids list. This enforces the corrected rule at the data layer, not just the prompt layer.
+
+10. Evidence-table dimensions written by this check
+
+Each factual finding is its own evidence row (existing schema: claim, source_url, source_title, observed_date, classification, opportunity_id, evaluation_dimension). Allowed evaluation_dimension values for this check:
+
+external_demand — buyer/workflow/spend findings
+commercial_value — pricing/budget/willingness-to-pay findings
+repeat_usage — recurring-need findings
+agent_api_usefulness — access-vs-consumption findings, existing programmatic-access tools
+incumbent_weakness — raw gap observations about paid analogs (no analysis)
+
+Do not write to marketplace_supply_gap, distribution_autonomy, technical_feasibility, maintenance_economics, clone_resistance, or engine_reuse in this phase.
+
+Every evidence row carries its own independent classification (FACT/CLAIM/INFERENCE/UNKNOWN) — a single run typically produces a mix.
+
+11. Explicit non-inference rules
+Do not infer demand from platform popularity/traffic/followers alone.
+Do not infer access-demand merely because no API currently exists — absence of an API is not evidence of desire for one.
+Do not infer recurring usage from a single anecdote.
+Do not infer willingness-to-pay from the existence of free tools/scrapers.
+Do not treat a paid competitor's existence as proof of value for the specific gap targeted.
+Do not extrapolate market-wide demand from one company's or one individual's behavior.
+Do not perform or reference Apify competitive research, scoring, opportunity discovery, or product recommendations.
+Do not upgrade a CLAIM or INFERENCE to FACT because it "seems obviously true."
+Do not return UNSUPPORTED without citing specific contradicting evidence; absence of evidence is always UNKNOWN.
+12. Bounds per check (cost/scope control)
+Web searches: maximum 8–12 per Demand Check run (scale to complexity, but hard cap at 12)
+Claude reasoning calls: 1 primary synthesis call after search is complete; at most 1 follow-up call to resolve a specific contradiction or fill a named gap — 2 total maximum
+Runtime target: a single run should complete in a few minutes, not be open-ended
+Cost target: each run should be cheap enough to run per-opportunity on demand without a budget review — treat 12 searches + 2 Claude calls as the ceiling, not the norm; simple cases should resolve in fewer
+13. UI elements Phase 3 needs
+"Run Demand Check" button on the opportunity detail page — triggers the action, disabled while a run is in progress, with a visible loading/in-progress state.
+Run history list on the opportunity detail page — each past research_runs entry for this check type, with timestamp and resulting demand_conclusion, expandable to show the full structured result.
+Demand Check result panel — displays the structured output (§9) in readable form: buyer, workflow, access-vs-consumption, recurring signal, paid analogs, conclusion badge (color-coded: SUPPORTED=green, WEAK=yellow, UNSUPPORTED=red, UNKNOWN=gray), confidence basis, open questions.
+Contradicting-evidence links — when conclusion is UNSUPPORTED, the panel must show direct links to the specific evidence rows that justify it (never show UNSUPPORTED without visible contradicting evidence in the UI).
+Evidence list filter — ability to filter the opportunity's evidence table view by the five dimensions this check writes to, so a reviewer can see just what this check contributed.
+No new opportunity-level fields are edited by this action — overall_score and verdict remain manually set by the human reviewer elsewhere, unaffected by this feature.
