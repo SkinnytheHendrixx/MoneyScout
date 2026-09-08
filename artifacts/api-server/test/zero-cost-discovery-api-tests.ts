@@ -68,13 +68,15 @@ const convergenceActor = (id: string) => ({
   categories: ["unclassified"],
 });
 
-const startFixtureRun = async (pages: Array<{ total: number; items: unknown[] }>) => {
+const startFixtureRun = async (
+  pages: Array<{ total: number; items: unknown[]; limit?: number }>,
+) => {
   let pageIndex = 0;
   setDiscoveryMaxRetriesForTests(0);
   setDiscoveryFetchPageForTests(async (offset, limit) => {
     const page = pages[pageIndex++];
     if (!page) throw new Error(`unexpected fixture page at offset ${offset}`);
-    return { ...page, offset, limit };
+    return { ...page, offset, limit: page.limit ?? limit };
   });
   const response = await fetch(`http://127.0.0.1:${port}/api/discovery/runs`, { method: "POST" });
   assert.equal(response.status, 202);
@@ -429,6 +431,40 @@ await run("canonical membership converges despite reordered actors and changed o
     .from(discoveryRunPassMembershipsTable)
     .where(eq(discoveryRunPassMembershipsTable.runId, startedId));
   assert.equal(memberships.length, 0);
+});
+
+await run("duplicate canonical identities fail before convergence even when totals shrink", async () => {
+  const actorA = convergenceActor("duplicate-a");
+  const actorB = convergenceActor("duplicate-b");
+  const actorC = convergenceActor("duplicate-c");
+  const { startedId, finished } = await startFixtureRun([
+    { total: 4, limit: 2, items: [actorA, actorB] },
+    { total: 3, limit: 2, items: [actorB, actorC] },
+    { total: 3, limit: 2, items: [] },
+  ]);
+  const terminal = finished as {
+    status: string;
+    verification_status: string;
+    candidate_count: number;
+  };
+  assert.equal(terminal.status, "INCOMPLETE");
+  assert.equal(terminal.verification_status, "UNVERIFIED");
+  assert.equal(terminal.candidate_count, 0);
+
+  const passes = await db
+    .select()
+    .from(discoveryRunPassesTable)
+    .where(eq(discoveryRunPassesTable.runId, startedId));
+  assert.equal(passes.length, 1);
+  assert.equal(passes[0].status, "UNVERIFIED");
+  assert.equal(passes[0].duplicateActorCount, 1);
+  assert.equal(passes[0].failureTelemetry?.invariant, "duplicate_actor_identity");
+
+  const [remainingStaging] = await db
+    .select({ count: discoveryStagingActorsTable.id })
+    .from(discoveryStagingActorsTable)
+    .where(eq(discoveryStagingActorsTable.runId, startedId));
+  assert.equal(remainingStaging, undefined);
 });
 
 await run("same totals with changed canonical membership remain incomplete", async () => {

@@ -157,7 +157,28 @@ await run("premature shrinkage and mutable duplicate windows cannot verify a pas
   });
   assert.equal(duplicateWindow.ok, false);
   assert.equal(duplicateWindow.progress.duplicateActorCount, 1);
-  assert.equal(duplicateWindow.failureTelemetry?.invariant, "unique_count_outside_observed_total_envelope");
+   assert.equal(duplicateWindow.failureTelemetry?.invariant, "duplicate_actor_identity");
+
+   const shrinkingDuplicateWindow = await traverseStore({
+     pageSize: 2,
+     pacingMs: 500,
+     sleep: async () => undefined,
+     fetchPage: async (offset, limit) => ({
+       total: offset === 0 ? 4 : 3,
+       offset,
+       limit,
+       items: offset === 0
+         ? [actorFixture(1), actorFixture(2)]
+         : offset === 2
+           ? [actorFixture(2), actorFixture(3)]
+           : [],
+     }),
+   });
+   assert.equal(shrinkingDuplicateWindow.ok, false);
+   assert.equal(shrinkingDuplicateWindow.progress.duplicateActorCount, 1);
+   assert.equal(shrinkingDuplicateWindow.progress.minObservedTotal, 3);
+   assert.equal(shrinkingDuplicateWindow.progress.maxObservedTotal, 4);
+   assert.equal(shrinkingDuplicateWindow.failureTelemetry?.invariant, "duplicate_actor_identity");
 });
 
 await run("incomplete and failed traversals produce no scored actors", async () => {

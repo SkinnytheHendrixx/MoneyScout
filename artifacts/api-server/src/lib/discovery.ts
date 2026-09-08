@@ -633,16 +633,31 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     const pageSignatures = new Set([sha256(JSON.stringify(first.page.items))]);
     const firstActors = first.page.items.map(normalizeActor).filter((actor): actor is NormalizedActor => Boolean(actor));
     const firstUniqueActors: NormalizedActor[] = [];
+    let firstDuplicateCount = 0;
     for (const actor of firstActors) {
-      if (seenKeys.has(actor.actorKey)) progress.duplicateActorCount += 1;
+      if (seenKeys.has(actor.actorKey)) {
+        progress.duplicateActorCount += 1;
+        firstDuplicateCount += 1;
+      }
       else {
         seenKeys.add(actor.actorKey);
         firstUniqueActors.push(actor);
       }
     }
+    progress.uniqueActorCount = seenKeys.size;
+    if (firstDuplicateCount > 0) {
+      fail(
+        `Apify Store returned ${firstDuplicateCount} duplicate Actor identity(ies) on the first page`,
+        first.page,
+        0,
+        first.page.limit,
+        firstExpectedCount,
+        first.page.total,
+        "duplicate_actor_identity",
+      );
+    }
     await options.onActors?.(firstUniqueActors);
     if (options.collectActors !== false) actors.push(...firstUniqueActors);
-    progress.uniqueActorCount = seenKeys.size;
     await options.onProgress?.({ ...progress });
 
     let requiredPageCount = progress.initialPageCount;
@@ -690,18 +705,33 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
           "total_drift_exceeds_page_size",
         );
       const pageActors: NormalizedActor[] = [];
+      let pageDuplicateCount = 0;
       for (const actor of next.page.items
         .map(normalizeActor)
         .filter((candidate): candidate is NormalizedActor => Boolean(candidate))) {
-        if (seenKeys.has(actor.actorKey)) progress.duplicateActorCount += 1;
+        if (seenKeys.has(actor.actorKey)) {
+          progress.duplicateActorCount += 1;
+          pageDuplicateCount += 1;
+        }
         else {
           seenKeys.add(actor.actorKey);
           pageActors.push(actor);
         }
       }
+      progress.uniqueActorCount = seenKeys.size;
+      if (pageDuplicateCount > 0) {
+        fail(
+          `Apify Store returned ${pageDuplicateCount} duplicate Actor identity(ies) at offset ${offset}`,
+          next.page,
+          offset,
+          progress.effectivePageSize,
+          expectedLength,
+          progress.maxObservedTotal,
+          "duplicate_actor_identity",
+        );
+      }
       await options.onActors?.(pageActors);
       if (options.collectActors !== false) actors.push(...pageActors);
-       progress.uniqueActorCount = seenKeys.size;
       await options.onProgress?.({ ...progress });
     }
     if (progress.total === 0 && first.page.items.length !== 0) {
