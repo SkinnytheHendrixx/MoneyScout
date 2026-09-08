@@ -19,7 +19,10 @@ import discoveryRouter, {
   setDiscoveryMaxRetriesForTests,
   setDiscoveryRequestTimeoutForTests,
 } from "../src/routes/discovery";
-import { finalizeStagedDiscoveryResult } from "../src/lib/discovery";
+import {
+  finalizeStagedDiscoveryResult,
+  setDiscoveryDerivedFailureForTests,
+} from "../src/lib/discovery";
 
 const app = express();
 app.use(express.json());
@@ -406,6 +409,84 @@ await run("finalization failures transition terminal and release the active-run 
   runIds.push(retry.id);
   const retryFinished = await waitForStatus(retry.id) as { status: string };
   assert.equal(retryFinished.status, "COMPLETE");
+});
+
+await run("derived write failures roll back all finalized Discovery records", async () => {
+  const actorKey = "apify:id:rollback-fixture";
+  const candidateKey = "apify:JAVASCRIPT:FINANCE:HIGH_USAGE_THIN_SUPPLY";
+  await db.delete(discoveryCandidatesTable).where(eq(discoveryCandidatesTable.discoveryKey, candidateKey));
+  await db.delete(discoveryActorsTable).where(eq(discoveryActorsTable.actorKey, actorKey));
+
+  setDiscoveryFetchPageForTests(async (offset, limit) => ({
+    total: 1,
+    offset,
+    limit,
+    items: [
+      {
+        id: "rollback-fixture",
+        username: "rollback-fixture",
+        name: "JavaScript Finance Rollback Fixture",
+        title: "JavaScript Finance Rollback Fixture",
+        description: "javascript finance rollback fixture",
+        platform: "javascript",
+        categories: ["finance"],
+        stats: {
+          totalUsers: 100,
+          totalUsers7Days: 20,
+          totalUsers30Days: 100,
+          totalUsers90Days: 120,
+        },
+      },
+    ],
+  }));
+  setDiscoveryDerivedFailureForTests("fixture derived write failure");
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/api/discovery/runs`, { method: "POST" });
+    assert.equal(response.status, 202);
+    const started = await response.json() as { id: number };
+    runIds.push(started.id);
+
+    const failed = await waitForStatus(started.id) as { status: string; coverage_status: string; error: string | null };
+    assert.equal(failed.status, "FAILED");
+    assert.equal(failed.coverage_status, "INCOMPLETE");
+    assert.match(failed.error ?? "", /fixture derived write failure/);
+
+    const stagingRows = await db
+      .select()
+      .from(discoveryStagingActorsTable)
+      .where(eq(discoveryStagingActorsTable.runId, started.id));
+    assert.equal(stagingRows.length, 0);
+
+    const actors = await db
+      .select()
+      .from(discoveryActorsTable)
+      .where(eq(discoveryActorsTable.actorKey, actorKey));
+    assert.equal(actors.length, 0);
+
+    const observations = await db
+      .select()
+      .from(discoveryActorObservationsTable)
+      .where(eq(discoveryActorObservationsTable.runId, started.id));
+    assert.equal(observations.length, 0);
+
+    const snapshots = await db
+      .select()
+      .from(discoveryClusterSnapshotsTable)
+      .where(eq(discoveryClusterSnapshotsTable.runId, started.id));
+    assert.equal(snapshots.length, 0);
+
+    const candidates = await db
+      .select()
+      .from(discoveryCandidatesTable)
+      .where(eq(discoveryCandidatesTable.discoveryKey, candidateKey));
+    assert.equal(candidates.length, 0);
+
+    const links = await db.select().from(discoveryObservationLinksTable);
+    assert.equal(links.length, 0);
+  } finally {
+    setDiscoveryDerivedFailureForTests(null);
+    setDiscoveryFetchPageForTests(null);
+  }
 });
 
 await run("concurrent acceptance creates one opportunity and one Discovery FACT", async () => {

@@ -4,3 +4,4 @@
 - [Discovery partial unique conflicts](discovery-partial-unique-conflict.md) — partial idempotency indexes require a matching conflict predicate during concurrent acceptance.
 - [Money Scout auth allowlist](money-scout-auth-allowlist.md) — verified identity and explicit access approval stay separate; missing approval fails closed.
 - [Discovery upsert column qualification](discovery-upsert-column-qualification.md) — conflict updates combining target and excluded values must qualify target columns.
+- [Discovery finalization transaction](discovery-finalization-transaction.md) — actor, observation, derived-result, and staging writes must commit or roll back together.

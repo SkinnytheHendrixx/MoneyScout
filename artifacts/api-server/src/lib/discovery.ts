@@ -47,6 +47,21 @@ export const DISCOVERY_CANDIDATE_CAP = 10;
 export const DISCOVERY_STORE_URL = "https://api.apify.com/v2/store";
 
 type JsonObject = Record<string, unknown>;
+type DiscoveryQueryExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+
+let derivedFailureForTests: string | null = null;
+
+export function setDiscoveryDerivedFailureForTests(message: string | null) {
+  derivedFailureForTests = message;
+}
+
+async function withDiscoveryTransaction<T>(
+  executor: DiscoveryQueryExecutor | undefined,
+  operation: (tx: DiscoveryQueryExecutor) => Promise<T>,
+) {
+  if (executor) return operation(executor);
+  return db.transaction(operation);
+}
 
 export interface NormalizedActor {
   actorKey: string;
@@ -1460,8 +1475,9 @@ async function persistActorBatches(
   runId: number,
   actorBatches: AsyncIterable<NormalizedActor[]>,
   accumulators: Map<string, ClusterAccumulator>,
+  executor?: DiscoveryQueryExecutor,
 ) {
-  await db.transaction(async (tx) => {
+  await withDiscoveryTransaction(executor, async (tx) => {
     for await (const actors of actorBatches) {
       if (actors.length === 0) continue;
       const actorKeys = actors.map((actor) => actor.actorKey);
@@ -1538,8 +1554,9 @@ async function persistDerivedDiscoveryResult(
   runId: number,
   traversal: Extract<TraversalResult, { ok: true }>,
   scored: ScoredCluster[],
+  executor?: DiscoveryQueryExecutor,
 ) {
-  await db.transaction(async (tx) => {
+  await withDiscoveryTransaction(executor, async (tx) => {
     const savedSnapshots =
       scored.length === 0
         ? []
@@ -1575,6 +1592,9 @@ async function persistDerivedDiscoveryResult(
               })),
             )
             .returning();
+    if (derivedFailureForTests) {
+      throw new Error(derivedFailureForTests);
+    }
     const snapshotIdByKey = new Map(savedSnapshots.map((snapshot) => [snapshot.clusterKey, snapshot.id]));
     const qualified = scored
       .filter((candidate) => candidate.priorityScore >= DISCOVERY_QUALIFICATION_THRESHOLD)
@@ -1751,10 +1771,10 @@ export async function finalizeStagedDiscoveryResult(
 ) {
   const previous = await previousDiscoverySnapshots(runId);
   const accumulators = new Map<string, ClusterAccumulator>();
-  async function* stagedBatches() {
+  async function* stagedBatches(executor: DiscoveryQueryExecutor) {
     let afterId = 0;
     while (true) {
-      const rows = await db
+      const rows = await executor
         .select()
         .from(discoveryStagingActorsTable)
         .where(
@@ -1770,10 +1790,12 @@ export async function finalizeStagedDiscoveryResult(
       yield rows.map(stagedRowToActor);
     }
   }
-  await persistActorBatches(runId, stagedBatches(), accumulators);
-  const scored = scoreClusters(finishClusterAccumulators(accumulators, previous), previous);
-  await persistDerivedDiscoveryResult(runId, traversal, scored);
-  await clearDiscoveryStaging(runId);
+  await db.transaction(async (tx) => {
+    await persistActorBatches(runId, stagedBatches(tx), accumulators, tx);
+    const scored = scoreClusters(finishClusterAccumulators(accumulators, previous), previous);
+    await persistDerivedDiscoveryResult(runId, traversal, scored, tx);
+    await tx.delete(discoveryStagingActorsTable).where(eq(discoveryStagingActorsTable.runId, runId));
+  });
 }
 
 function sqlExcluded(column: string) {
