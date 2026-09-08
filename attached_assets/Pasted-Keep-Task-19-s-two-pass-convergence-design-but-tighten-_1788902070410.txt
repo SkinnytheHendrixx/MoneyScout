@@ -1,0 +1,39 @@
+Keep Task #19’s two-pass convergence design, but tighten the acceptance and implementation rules before Build.
+
+Verified membership is the authority
+A run is score-eligible only when Pass 1 and Pass 2 each complete their bounded traversal and their canonical unique Actor sets are exactly equal.
+Exact set equality also implies equal unique Actor counts.
+Provider-advertised total values are diagnostic/termination inputs, not a fuzzy substitute for Actor-set equality.
+Remove ambiguous wording such as “compatible catalog counts” from the final verification rule.
+Total drift within a pass
+Define one precise bounded algorithm using maxObservedTotal.
+A pass may continue far enough to cover a small bounded increase in total, but it may never loop indefinitely.
+Set an explicit maximum extra-page allowance.
+Shrinkage, empty/short pages before the required range is covered, or growth beyond the bound makes that pass UNVERIFIED.
+The second pass does not excuse a structurally invalid first pass.
+Use the least mutable supported ordering
+Do not continue using sortBy=lastUpdate merely because Run #99 used it.
+Inspect the documented/local Store API semantics for newest.
+If newest is creation-based and therefore less volatile than lastUpdate, use it for convergence passes while still making no claim that it is immutable or tie-stable.
+If its semantics cannot be established, state that explicitly and keep convergence as the actual safety mechanism.
+Bound memory/database comparison
+Do not collect both ~70k membership sets into large application arrays.
+Persist compact pass membership in run-scoped staging and compare Pass 1 vs Pass 2 using database set operations/counts or another bounded-memory deterministic method.
+Pass 1 needs only identity/membership data where the API genuinely supports a lighter representation.
+If the Store does not support a lighter response, do not invent one; use the supported response and discard unnecessary fields immediately.
+Final accepted telemetry
+Pass 2 supplies the Actor telemetry used for scoring only after set equality is verified.
+No candidate/snapshot scoring before verification.
+Diagnostics
+Keep the exact failed-invariant telemetry proposed in Task #19.
+Persist per-pass unique count, duplicates, first/last observed totals, max observed total, pages/requests, and set-difference counts when convergence fails.
+Fixtures
+Add exact membership equality via staging/DB comparison.
+Add a case where provider totals differ slightly but Actor sets are equal and document the intended outcome.
+Add a case where totals match but Actor membership differs; this must be INCOMPLETE.
+Prove the pass and extra-page limits cannot produce an unbounded crawl.
+
+Keep the ledger freshness/terminology fixes.
+Do not implement.
+Do not run Discovery.
+Return the revised Task #19 plan.
