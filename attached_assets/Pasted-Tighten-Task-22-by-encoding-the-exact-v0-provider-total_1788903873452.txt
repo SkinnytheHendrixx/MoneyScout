@@ -1,0 +1,44 @@
+Tighten Task #22 by encoding the exact v0 provider-total/coverage rule below. Do not leave this to implementation judgment.
+
+For each pass define:
+
+U = unique canonical Actor count
+minObservedTotal
+maxObservedTotal
+totalDrift = maxObservedTotal - minObservedTotal
+
+A pass is structurally verified only if:
+
+All page offset/limit/metadata/repeated-page/duplicate-identity invariants pass.
+The entire initial required page range is traversed without a premature short or empty page.
+totalDrift <= effectivePageSize (currently 1,000).
+Growth beyond the initial range may use at most the single approved extra-page probe. If covering maxObservedTotal would require more than that one extra page, the pass is UNVERIFIED.
+minObservedTotal <= U <= maxObservedTotal.
+
+Provider total therefore does not need to equal U exactly, but the unique membership count must be plausible within the totals actually observed during that pass.
+
+Final run verification requires BOTH:
+
+Pass 1 structurally verified
+Pass 2 structurally verified
+exact canonical Actor-set equality between Pass 1 and Pass 2
+
+Call the resulting state VERIFIED_CONVERGENCE, not an immutable snapshot.
+
+Encode these outcomes explicitly:
+
+same Actor set + same totals → VERIFIED_CONVERGENCE
+same Actor set + slightly different totals → VERIFIED_CONVERGENCE only when each pass independently satisfies its observed-total-envelope rule
+same totals + different Actor sets → INCOMPLETE
+equal Actor sets but U < minObservedTotal or U > maxObservedTotal for either pass → INCOMPLETE
+bounded total shrinkage may continue only when the initial required range can still be traversed without premature short/empty pages and all other structural checks pass
+bounded growth may use the single extra-page probe
+total drift greater than one page or growth requiring more than one extra page → INCOMPLETE
+
+Add end-to-end fixtures for every case above through the actual staging/database convergence path.
+
+Preserve all other Task #22 requirements exactly.
+Do not implement.
+Do not run Discovery.
+
+Return the revised task for final approval.
