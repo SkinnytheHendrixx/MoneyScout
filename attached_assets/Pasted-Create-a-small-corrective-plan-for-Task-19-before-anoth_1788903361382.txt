@@ -1,0 +1,55 @@
+Create a small corrective plan for Task #19 before another live Discovery run. Do not change code and do not run Discovery.
+
+Address the two HIGH audit findings first.
+
+1. Define one exact verification rule for provider totals vs Actor membership
+
+The current code rejects a pass when uniqueActorCount !== maxObservedTotal, which can make provider totals act as a hard authority before two-pass convergence is evaluated.
+
+Do not simply delete that safeguard.
+
+Design one explicit v0 rule that separates:
+
+membership convergence: Pass 1 and Pass 2 canonical Actor sets must be exactly equal;
+within-pass coverage sanity: provider totals, page lengths, duplicate detection, bounded probe behavior, and termination conditions must show that neither pass obviously stopped early or became structurally invalid.
+
+The rule must answer these cases unambiguously:
+
+same Actor set, same provider total
+same Actor set, slightly different provider totals
+same provider total, different Actor sets
+Actor sets equal but unique count is lower than provider-reported total
+provider total shrinks during a pass
+provider total grows within the one-extra-page allowance
+
+Recommend the most conservative rule that can still reasonably succeed against a live mutable catalog.
+
+Use terminology such as VERIFIED_CONVERGENCE if that is more accurate than claiming an immutable “complete snapshot.”
+
+2. Add the missing end-to-end two-pass fixtures
+
+The fixtures must exercise the real staging + database anti-join + finalization path, not only the pure traversal helper:
+
+stable two-pass convergence
+page reorder with identical final membership
+same totals / different membership → INCOMPLETE
+different totals / identical membership → result according to the newly defined rule
+Actor added between passes
+Actor removed between passes
+duplicate offset window
+Pass-1-only and Pass-2-only counts persisted correctly
+convergence mismatch cleans staging and creates zero snapshots/candidates
+exact failed-page telemetry persists on the correct pass
+
+Also include two small fixes in the same corrective task:
+
+invalidate/refetch the candidate list when a Discovery run reaches a terminal status;
+make the maximum network-attempt bound explicit from page bound × retry bound, and report actual network attempts separately from logical page requests.
+
+The cleanup-delete failure behavior can remain a LOW deferred issue for now.
+
+All testing remains mocked and zero-cost.
+No live Apify request.
+No Discovery run.
+
+Return the corrective task plan only and stop for approval.
