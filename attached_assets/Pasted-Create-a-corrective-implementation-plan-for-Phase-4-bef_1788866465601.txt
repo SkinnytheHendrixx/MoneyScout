@@ -1,0 +1,54 @@
+Create a corrective implementation plan for Phase 4 before we run Discovery. Do not change code yet.
+
+Treat the audit findings as confirmed.
+
+The corrective pass must address these items:
+
+Catalog consistency
+Every page must report the same advertised total as the first page.
+Any changed total, malformed pagination, repeated page, or coverage mismatch must make the run INCOMPLETE/FAILED.
+An inconsistent run must never create candidates.
+Actor identity and normalization
+Prefer Apify Store Actor ID as the canonical identity key.
+Fall back to normalized username/name only when ID is unavailable.
+Use approved category normalization with explicit UNKNOWN.
+Implement the versioned source-platform alias dictionary with token-boundary matching rather than defaulting unmatched Actors to apify.
+Preserve ambiguity as UNKNOWN rather than inventing a platform.
+UNKNOWN semantics
+Missing numeric source fields must remain UNKNOWN/null where appropriate, not silently become zero.
+Genuine source zero and unavailable data must be distinguishable throughout aggregation/scoring.
+Restore approved anomaly behavior
+HIGH_USAGE_THIN_SUPPLY: at most 2 active Actors.
+HIGH_USAGE_CONCENTRATED: at least 3 active Actors.
+HIGH_USAGE_FRAGMENTED: at least 3 active Actors with broad participation.
+Preserve max-not-sum scoring.
+Restore explicit type formulas/components or propose a mathematically equivalent deterministic version and document it.
+Add a configurable qualification threshold, initially 60.
+Add a configurable per-run candidate cap, initially 10.
+UNKNOWN required components cannot qualify.
+Opportunity separation
+Accepted Discovery candidates must create opportunities with overall_score = 0, verdict = NEW, and policy_status = UNKNOWN.
+Discovery priority score must remain separate from Opportunity Score.
+Evidence linkage
+On candidate acceptance, create concise FACT evidence recording the relevant Apify Store observations.
+Wording must explicitly say usage/marketplace structure is not revenue or validated buyer demand.
+Frugal retention
+Replace 30-run retention with latest 3 COMPLETE runs of unlinked compact Actor observations.
+Preserve observations indefinitely when explicitly linked to a candidate, accepted opportunity, or audit record.
+No 90-day floor for v0.
+Keep cluster snapshots/candidate history long-term.
+Reduce selected raw data to compact fields; do not retain the full pricing object unless explicitly needed.
+Memory use
+Do not accumulate the entire ~56k Actor raw catalog in memory if a page-at-a-time/streaming persistence design can safely support validation and finalization.
+Propose the simplest low-memory implementation compatible with complete-coverage verification.
+
+Also evaluate the two lower-priority deviations:
+
+partial observations not persisted
+startup reconciliation marking all RUNNING jobs interrupted rather than checking heartbeat age
+
+Tell me whether each should be fixed now or intentionally deferred, and why.
+
+All tests must remain zero-cost and network-mocked.
+Do not run Discovery.
+Return the corrective task plan only and stop for approval.
