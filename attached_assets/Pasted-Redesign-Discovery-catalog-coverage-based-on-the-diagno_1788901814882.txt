@@ -1,0 +1,60 @@
+Redesign Discovery catalog coverage based on the diagnosis from live Run #99. Do not modify code and do not run Discovery.
+
+The current assumption that one offset-pagination traversal using sortBy=lastUpdate can represent an immutable complete snapshot is invalid.
+
+Plan a bounded convergence-based catalog acquisition strategy.
+
+Prefer this architecture unless you can demonstrate a better one from the currently supported Apify Store API:
+
+Two-pass verification
+Perform a first complete catalog pass that collects canonical Actor IDs/keys.
+Perform a second complete pass.
+Only treat catalog membership as verified when two consecutive passes produce the same unique Actor set and compatible catalog counts.
+If they differ, mark the run INCOMPLETE rather than scoring.
+Keep it bounded
+Maximum two full passes for v0 unless you can justify a third verification pass.
+No unbounded retry-until-convergence loop.
+Preserve conservative pacing and request timeouts.
+Minimize data/network cost
+Investigate whether verification Pass 1 can use a reduced Store response containing only identity fields needed for membership comparison.
+Use the full response only for the pass whose telemetry will become the scored snapshot, if safe.
+Do not call individual Actors or datasets.
+Handle live-catalog totals correctly
+Do not require the advertised total to remain frozen across an entire pass if that makes successful traversal practically impossible on a live catalog.
+Propose a deterministic way to handle small total changes while still ensuring the final accepted Actor set is verified by the second pass.
+Explain the termination rule when totals grow or shrink during pagination.
+Detect offset-window corruption
+Track duplicate Actor IDs within each pass.
+Compare unique Actor membership between passes.
+A pass with unresolved duplicates/coverage gaps cannot verify a snapshot.
+Scoring
+Score only the verified pass.
+The catalog-relative supply, concentration, and percentile metrics must never be computed from an unverified pass.
+Diagnostic telemetry
+Persist compact failing-page telemetry for future incomplete runs:
+requested offset
+returned offset
+returned limit
+returned count/items length
+returned total
+expected values
+exact failed invariant
+Do not persist full raw failed pages.
+UI
+Fix the run-ledger cache issue so a terminal INCOMPLETE run does not remain visually labeled RUNNING.
+Replace “Sampling history” language with terminology consistent with full/convergence catalog scans.
+Zero-cost tests
+stable two-pass convergence
+reorder between pages without membership change
+Actor added between passes
+Actor removed between passes
+total changes
+duplicate windows caused by mutable ordering
+differing Actor sets → INCOMPLETE
+matching Actor sets → eligible for scoring
+request/pass bounds
+exact failure telemetry
+
+Also inspect the currently supported Apify Store API/client capabilities and tell me whether there is any documented cursor, snapshot boundary, immutable sort, or creation-order option that would make a simpler single-pass solution genuinely safe. Do not assume generic Apify pagination behavior applies to /v2/store unless the Store API actually exposes it.
+
+Return the revised architecture and task plan only. Do not implement or make external requests.
