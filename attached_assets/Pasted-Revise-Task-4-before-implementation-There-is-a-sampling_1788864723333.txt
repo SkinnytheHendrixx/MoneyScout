@@ -1,0 +1,39 @@
+Revise Task #4 before implementation. There is a sampling-bias problem in the current design.
+
+The proposed three-query sample (totalUsers, newest, lastUpdate, max 1,000 each) is not sufficient to calculate:
+
+true Actor supply per cluster
+provider concentration / HHI
+cluster usage percentiles
+meaningful supply thinness
+
+Those metrics would be systematically biased because Actors outside those three sampled result sets would be invisible.
+
+For Discovery Scout v0, prefer a complete public Apify Store catalog snapshot if the API allows deterministic pagination through the full Store at zero monetary cost.
+
+Investigate and revise the plan around:
+
+Fetching the entire public Store catalog through pagination, approximately 1 request per 1,000 Actors.
+Recording the actual total count and verifying that the run obtained complete coverage before computing supply/concentration metrics.
+If complete coverage cannot be established, mark supply thinness, concentration, and catalog-relative percentiles as UNKNOWN rather than calculating them from a biased sample.
+Do not make three duplicate 1,000-record ranking queries if a single paginated catalog traversal can provide the underlying Actor fields needed for scoring.
+Keep request pacing extremely conservative despite the generous documented limits.
+Separate:
+current catalog structure
+change between our own snapshots
+source metadata such as 7/30/90-day users
+
+Also revise the scoring model:
+
+Do not award “momentum” solely from 7-day users / 25% of 30-day users without explaining exactly what that ratio means and its edge cases.
+Do not treat high HHI as inherently positive. It is an anomaly signal that could mean an opportunity or simply a dominant superior incumbent.
+Do not combine persistence and emergence into one ambiguous component. Track them separately as observations if necessary.
+The v0 candidate score should prioritize ranking interesting anomalies, not pretending to estimate business attractiveness.
+
+Strengthen deduplication by storing a stable canonical discovery key on accepted opportunities or an explicit linkage, rather than relying primarily on fuzzy comparisons of normalized names/platform/category.
+
+Keep manual acceptance.
+Keep all usage signals explicitly separate from validated demand.
+Keep all testing zero-cost.
+
+Do not implement anything yet. Return the revised Task #4 plan.
