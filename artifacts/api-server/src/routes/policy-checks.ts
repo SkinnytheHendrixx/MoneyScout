@@ -552,23 +552,19 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
       documents = [];
     }
 
-    const totalExcerptChars = documents.reduce((sum, document) => sum + document.excerpt.length, 0);
-    const directEvidenceSufficient = documents.length > 0 && totalExcerptChars >= 240;
-    const excerpts = directEvidenceSufficient
-      ? documents
-          .map(
-            (document, index) =>
-              `SOURCE ${index + 1}\nURL: ${document.url}\nTITLE: ${document.title}\nEXCERPT:\n${document.excerpt}`,
-          )
-          .join("\n\n")
-          .slice(0, MAX_TOTAL_EXCERPT_CHARS)
-      : "";
+    const excerpts = documents
+      .map(
+        (document, index) =>
+          `SOURCE ${index + 1}\nURL: ${document.url}\nTITLE: ${document.title}\nEXCERPT:\n${document.excerpt}`,
+      )
+      .join("\n\n")
+      .slice(0, MAX_TOTAL_EXCERPT_CHARS);
 
     const estimatedInputTokens = Math.ceil(excerpts.length / 4) + 1_500;
     const conservativeEstimatedCost =
       estimatedInputTokens * SONNET_INPUT_COST_PER_TOKEN +
       1_500 * SONNET_OUTPUT_COST_PER_TOKEN +
-      (directEvidenceSufficient ? 0 : WEB_SEARCH_COST_PER_USE);
+      WEB_SEARCH_COST_PER_USE;
     if (conservativeEstimatedCost > MAX_ESTIMATED_COST_USD) {
       const unknown = await saveUnknown(
         opportunityId,
@@ -589,11 +585,17 @@ router.post("/opportunities/:opportunityId/policy-checks", async (req, res): Pro
     const anthropic = new Anthropic({ apiKey, baseURL });
     const officialDomain = registrableDomain(new URL(opportunity.sourceUrl).hostname);
     const requiredSearchQuery = `${opportunity.sourcePlatform} official terms of service privacy policy developer API automation scraping restrictions`;
-    const retrievalInstructions = directEvidenceSufficient
-      ? `Use only the supplied SOURCE excerpts. Every finding must cite an exact URL from a SOURCE block.
+    const retrievalInstructions = excerpts
+      ? `First evaluate the supplied direct-HTTP SOURCE excerpts. Every direct finding must cite an exact URL from a SOURCE block.
 
-${excerpts}`
-      : `Direct HTTP retrieval did not produce enough authoritative policy text. You must use web_search exactly once.
+${excerpts}
+
+Use web_search only if these excerpts do not resolve one or more required policy dimensions: Terms of Service, developer/API terms, scraping/automation restrictions, robots/crawler restrictions, data resale restrictions, privacy concerns, and authentication/access restrictions.
+If search is needed, use web_search exactly once with exactly this focused query: ${requiredSearchQuery}
+Search only for the unresolved dimensions using authoritative policy material published by ${opportunity.sourcePlatform}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
+Official hosted help and documentation centers, such as a platform-branded Zendesk site, are allowed. Do not use unrelated third-party blogs, news articles, forums, aggregators, or copied policies.
+Every search-backed finding must copy the exact URL of the authoritative web-search result that supports it. Do not use claims that are not supported by a returned result.`
+      : `Direct HTTP retrieval did not produce policy excerpts, so the required policy dimensions remain unresolved. You must use web_search exactly once.
 Use exactly this focused search query: ${requiredSearchQuery}
 Search for authoritative policy material published by ${opportunity.sourcePlatform}, prioritizing terms, legal, privacy, developer/API, help, authentication/access, automation/scraping, crawler/robots, and data-resale rules.
 Official hosted help and documentation centers, such as a platform-branded Zendesk site, are allowed. Do not use unrelated third-party blogs, news articles, forums, aggregators, or copied policies.
@@ -603,15 +605,13 @@ Every finding must copy the exact URL of the authoritative web-search result tha
       max_tokens: 8192,
       system:
         "You are a conservative policy compliance reviewer. Never treat inference as fact. Return UNKNOWN when authoritative first-party evidence is missing or ambiguous. Output only valid JSON and attach web citations to every search-backed factual finding.",
-      tools: directEvidenceSufficient
-        ? undefined
-        : [
-            {
-              type: "web_search_20250305",
-              name: "web_search",
-              max_uses: 1,
-            },
-          ],
+      tools: [
+        {
+          type: "web_search_20250305",
+          name: "web_search",
+          max_uses: 1,
+        },
+      ],
       messages: [
         {
           role: "user",
@@ -650,33 +650,25 @@ ${retrievalInstructions}`,
     );
     const responseText = finalTextBlocks.map((block) => block.text).join("");
     if (!responseText) throw new Error("Claude returned no text");
-    const citationDiagnostics: CitationDiagnostics = directEvidenceSufficient
-      ? { sources: directSources(documents), total: 0, accepted: 0, rejected: [] }
-      : citedWebSources(message, officialDomain, opportunity.sourcePlatform);
-    if (!directEvidenceSufficient) {
-      const resultSources = authoritativeWebSearchResultSources(
-        message,
-        officialDomain,
-        opportunity.sourcePlatform,
-      );
-      for (const [key, source] of resultSources) {
-        citationDiagnostics.sources.set(key, source);
-      }
+    const citationDiagnostics = citedWebSources(
+      message,
+      officialDomain,
+      opportunity.sourcePlatform,
+    );
+    for (const [key, source] of directSources(documents)) {
+      citationDiagnostics.sources.set(key, source);
+    }
+    const resultSources = authoritativeWebSearchResultSources(
+      message,
+      officialDomain,
+      opportunity.sourcePlatform,
+    );
+    for (const [key, source] of resultSources) {
+      citationDiagnostics.sources.set(key, source);
     }
     const parsedAnalysis = parseAnalysis(responseText, citationDiagnostics.sources);
     let analysis = parsedAnalysis.analysis;
     const findingsAfterFiltering = parsedAnalysis.analysis.findings.length;
-    if (
-      !directEvidenceSufficient &&
-      (citationDiagnostics.sources.size === 0 || analysis.findings.length === 0)
-    ) {
-      analysis = {
-        status: "UNKNOWN",
-        summary:
-          "The single bounded web search did not return a cited authoritative first-party policy source.",
-        findings: [],
-      };
-    }
     // Replit exposes token and server-tool usage, but not the final passthrough charge.
     // The estimate uses Anthropic's published Sonnet 5 and web-search rates.
     const webSearchUses = message.usage.server_tool_use?.web_search_requests ?? 0;
@@ -719,7 +711,12 @@ ${retrievalInstructions}`,
           opportunityId,
           status: analysis.status,
           summary: analysis.summary,
-          retrievalMethod: directEvidenceSufficient ? "HTTP" : "HTTP_AND_WEB_SEARCH",
+          retrievalMethod:
+            webSearchUses > 0
+              ? "HTTP_AND_WEB_SEARCH"
+              : documents.length > 0
+                ? "HTTP"
+                : "HTTP_INSUFFICIENT",
           evidenceCreated: analysis.findings.length,
           externalCostUsd: Math.min(estimatedCost, MAX_ESTIMATED_COST_USD),
           aiInputTokens: message.usage.input_tokens,
