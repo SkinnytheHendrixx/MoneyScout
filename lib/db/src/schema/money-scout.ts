@@ -125,4 +125,23 @@ export const policyChecksTable = pgTable("policy_checks", {
   }),
   aiInputTokens: integer("ai_input_tokens"),
   aiOutputTokens: integer("ai_output_tokens"),
+  anthropicCitationCount: integer("anthropic_citation_count").notNull().default(0),
+  authorityAcceptedCitationCount: integer("authority_accepted_citation_count")
+    .notNull()
+    .default(0),
+  authorityRejectedCitationCount: integer("authority_rejected_citation_count")
+    .notNull()
+    .default(0),
+  rejectedCitationDetails: jsonb("rejected_citation_details")
+    .$type<Array<{ url: string | null; reason: string }>>()
+    .notNull()
+    .default([]),
+  claudeFindingsBeforeFiltering: integer("claude_findings_before_filtering")
+    .notNull()
+    .default(0),
+  findingsAfterFiltering: integer("findings_after_filtering").notNull().default(0),
+  rejectedFindingDetails: jsonb("rejected_finding_details")
+    .$type<Array<{ source_url: string | null; reason: string }>>()
+    .notNull()
+    .default([]),
 });

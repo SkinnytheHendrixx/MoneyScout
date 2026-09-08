@@ -67,6 +67,25 @@ type ValidSource = {
   url: string;
   title: string;
 };
+type RejectedCitationDiagnostic = {
+  url: string | null;
+  reason: string;
+};
+type RejectedFindingDiagnostic = {
+  source_url: string | null;
+  reason: string;
+};
+type CitationDiagnostics = {
+  sources: Map<string, ValidSource>;
+  total: number;
+  accepted: number;
+  rejected: RejectedCitationDiagnostic[];
+};
+type ParsedAnalysis = {
+  analysis: PolicyAnalysis;
+  findingsBeforeFiltering: number;
+  rejectedFindings: RejectedFindingDiagnostic[];
+};
 
 const toApi = (row: typeof policyChecksTable.$inferSelect) => ({
   id: row.id,
@@ -263,7 +282,7 @@ const retrievePolicyDocuments = async (sourceUrl: string): Promise<RetrievedDocu
   return documents.slice(0, MAX_DOCUMENTS);
 };
 
-const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): PolicyAnalysis => {
+const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): ParsedAnalysis => {
   const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   const raw = JSON.parse(cleaned) as Partial<PolicyAnalysis>;
   const statuses = new Set(["GREEN", "YELLOW", "RED", "UNKNOWN"]);
@@ -271,32 +290,57 @@ const parseAnalysis = (text: string, validSources: Map<string, ValidSource>): Po
     throw new Error("Invalid policy analysis response");
   }
   const findings: Finding[] = [];
-  if (Array.isArray(raw.findings)) {
-    for (const finding of raw.findings) {
+  const rejectedFindings: RejectedFindingDiagnostic[] = [];
+  const rawFindings = Array.isArray(raw.findings) ? raw.findings : [];
+  for (const finding of rawFindings) {
+      const sourceUrl =
+        typeof finding?.source_url === "string" ? finding.source_url : null;
+      if (typeof finding?.claim !== "string" || finding.claim.length === 0) {
+        rejectedFindings.push({ source_url: sourceUrl, reason: "missing or empty claim" });
+        continue;
+      }
+      if (typeof finding.source_url !== "string") {
+        rejectedFindings.push({ source_url: null, reason: "missing source_url" });
+        continue;
+      }
       if (
-        typeof finding?.claim !== "string" ||
-        finding.claim.length === 0 ||
-        typeof finding.source_url !== "string" ||
         typeof finding.evaluation_dimension !== "string" ||
         !ALLOWED_DIMENSIONS.has(finding.evaluation_dimension)
       ) {
+        rejectedFindings.push({
+          source_url: sourceUrl,
+          reason: "missing or unsupported evaluation_dimension",
+        });
         continue;
       }
       const normalized = normalizeSourceUrl(finding.source_url);
-      const source = normalized ? validSources.get(normalized) : undefined;
-      if (!source) continue;
+      if (!normalized) {
+        rejectedFindings.push({ source_url: sourceUrl, reason: "malformed source_url" });
+        continue;
+      }
+      const source = validSources.get(normalized);
+      if (!source) {
+        rejectedFindings.push({
+          source_url: sourceUrl,
+          reason: "source_url did not exactly match an authority-approved citation URL",
+        });
+        continue;
+      }
       findings.push({
         claim: finding.claim,
         source_url: source.url,
         source_title: source.title,
         evaluation_dimension: finding.evaluation_dimension,
       });
-    }
   }
   return {
-    status: raw.status,
-    summary: raw.summary.slice(0, 1_500),
-    findings: findings.slice(0, 20),
+    analysis: {
+      status: raw.status,
+      summary: raw.summary.slice(0, 1_500),
+      findings: findings.slice(0, 20),
+    },
+    findingsBeforeFiltering: rawFindings.length,
+    rejectedFindings,
   };
 };
 
@@ -310,25 +354,33 @@ const directSources = (documents: RetrievedDocument[]): Map<string, ValidSource>
     }),
   );
 
-const isOfficialPolicySource = (
+const validateOfficialPolicySource = (
   sourceUrl: string,
   sourceTitle: string,
   officialDomain: string,
   platformName: string,
-): boolean => {
+): { accepted: true } | { accepted: false; reason: string } => {
   const url = new URL(sourceUrl);
   const hostname = url.hostname.toLowerCase();
   if (!POLICY_SOURCE_PATTERN.test(`${url.pathname} ${url.search} ${sourceTitle}`)) {
-    return false;
+    return {
+      accepted: false,
+      reason: "URL path, query, and title did not identify policy/help/developer content",
+    };
   }
   if (hostname === officialDomain || hostname.endsWith(`.${officialDomain}`)) {
-    return true;
+    return { accepted: true };
   }
 
   const hostedHelpDomain = HOSTED_HELP_DOMAINS.find(
     (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
   );
-  if (!hostedHelpDomain) return false;
+  if (!hostedHelpDomain) {
+    return {
+      accepted: false,
+      reason: "domain was neither the official platform domain nor a recognized hosted-help domain",
+    };
+  }
 
   const identityTokens = new Set(
     [
@@ -337,39 +389,59 @@ const isOfficialPolicySource = (
     ].filter((token) => token.length >= 3),
   );
   const identityText = `${hostname} ${url.pathname} ${sourceTitle}`.toLowerCase();
-  return [...identityTokens].some((token) => identityText.includes(token));
+  if (![...identityTokens].some((token) => identityText.includes(token))) {
+    return {
+      accepted: false,
+      reason: "hosted-help citation did not contain a recognizable platform identity",
+    };
+  }
+  return { accepted: true };
 };
 
 const citedWebSources = (
   message: Anthropic.Message,
   officialDomain: string,
   platformName: string,
-): Map<string, ValidSource> => {
+): CitationDiagnostics => {
   const sources = new Map<string, ValidSource>();
+  let total = 0;
+  let accepted = 0;
+  const rejected: RejectedCitationDiagnostic[] = [];
   for (const block of message.content) {
     if (block.type !== "text" || !block.citations) continue;
     for (const citation of block.citations) {
-      if (citation.type !== "web_search_result_location") continue;
-      const normalized = normalizeSourceUrl(citation.url);
-      if (!normalized) continue;
-      const hostname = new URL(normalized).hostname.toLowerCase();
-      if (
-        !isOfficialPolicySource(
-          normalized,
-          citation.title ?? hostname,
-          officialDomain,
-          platformName,
-        )
-      ) {
+      total += 1;
+      if (citation.type !== "web_search_result_location") {
+        rejected.push({
+          url: null,
+          reason: `unsupported citation type: ${citation.type}`,
+        });
         continue;
       }
+      const normalized = normalizeSourceUrl(citation.url);
+      if (!normalized) {
+        rejected.push({ url: citation.url, reason: "malformed citation URL" });
+        continue;
+      }
+      const hostname = new URL(normalized).hostname.toLowerCase();
+      const authority = validateOfficialPolicySource(
+        normalized,
+        citation.title ?? hostname,
+        officialDomain,
+        platformName,
+      );
+      if (!authority.accepted) {
+        rejected.push({ url: citation.url, reason: authority.reason });
+        continue;
+      }
+      accepted += 1;
       sources.set(normalized, {
         url: citation.url,
         title: citation.title ?? hostname,
       });
     }
   }
-  return sources;
+  return { sources, total, accepted, rejected };
 };
 
 const saveUnknown = async (
@@ -519,11 +591,16 @@ ${retrievalInstructions}`,
       .map((block) => block.text)
       .join("");
     if (!responseText) throw new Error("Claude returned no text");
-    const validSources = directEvidenceSufficient
-      ? directSources(documents)
+    const citationDiagnostics: CitationDiagnostics = directEvidenceSufficient
+      ? { sources: directSources(documents), total: 0, accepted: 0, rejected: [] }
       : citedWebSources(message, officialDomain, opportunity.sourcePlatform);
-    let analysis = parseAnalysis(responseText, validSources);
-    if (!directEvidenceSufficient && (validSources.size === 0 || analysis.findings.length === 0)) {
+    const parsedAnalysis = parseAnalysis(responseText, citationDiagnostics.sources);
+    let analysis = parsedAnalysis.analysis;
+    const findingsAfterFiltering = parsedAnalysis.analysis.findings.length;
+    if (
+      !directEvidenceSufficient &&
+      (citationDiagnostics.sources.size === 0 || analysis.findings.length === 0)
+    ) {
       analysis = {
         status: "UNKNOWN",
         summary:
@@ -578,6 +655,13 @@ ${retrievalInstructions}`,
           externalCostUsd: Math.min(estimatedCost, MAX_ESTIMATED_COST_USD),
           aiInputTokens: message.usage.input_tokens,
           aiOutputTokens: message.usage.output_tokens,
+          anthropicCitationCount: citationDiagnostics.total,
+          authorityAcceptedCitationCount: citationDiagnostics.accepted,
+          authorityRejectedCitationCount: citationDiagnostics.rejected.length,
+          rejectedCitationDetails: citationDiagnostics.rejected,
+          claudeFindingsBeforeFiltering: parsedAnalysis.findingsBeforeFiltering,
+          findingsAfterFiltering,
+          rejectedFindingDetails: parsedAnalysis.rejectedFindings,
         })
         .returning();
       return check;
