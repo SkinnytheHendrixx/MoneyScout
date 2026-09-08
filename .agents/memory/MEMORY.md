@@ -3,3 +3,4 @@
 - [Discovery catalog coverage](discovery-catalog-coverage.md) — discovery scoring is valid only after exact-offset catalog traversal proves total coverage and uniqueness.
 - [Discovery partial unique conflicts](discovery-partial-unique-conflict.md) — partial idempotency indexes require a matching conflict predicate during concurrent acceptance.
 - [Money Scout auth allowlist](money-scout-auth-allowlist.md) — verified identity and explicit access approval stay separate; missing approval fails closed.
+- [Discovery upsert column qualification](discovery-upsert-column-qualification.md) — conflict updates combining target and excluded values must qualify target columns.

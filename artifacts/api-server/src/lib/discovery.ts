@@ -1288,7 +1288,7 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
               usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
             },
             sourceSnapshotIds: sql.raw(
-              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
+              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("discovery_candidates"."source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
             ),
           },
         });
@@ -1631,7 +1631,7 @@ async function persistDerivedDiscoveryResult(
             scoreBreakdown: snapshot.scoreBreakdown,
             structureObservations,
             sourceSnapshotIds: sql.raw(
-              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
+              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("discovery_candidates"."source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
             ),
           },
         });
@@ -1781,7 +1781,7 @@ function sqlExcluded(column: string) {
 }
 
 function sqlIncrement(column: string) {
-  return sql.raw(`"${column}" + 1`);
+  return sql.raw(`"discovery_candidates"."${column}" + 1`);
 }
 
 export async function reconcileStaleDiscoveryRuns(): Promise<void> {

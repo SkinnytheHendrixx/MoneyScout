@@ -4,7 +4,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
   discoveryCandidatesTable,
+  discoveryActorsTable,
+  discoveryActorObservationsTable,
+  discoveryClusterSnapshotsTable,
+  discoveryObservationLinksTable,
   discoveryRunsTable,
+  discoveryStagingActorsTable,
   evidenceTable,
   opportunitiesTable,
 } from "@workspace/db";
@@ -14,6 +19,7 @@ import discoveryRouter, {
   setDiscoveryMaxRetriesForTests,
   setDiscoveryRequestTimeoutForTests,
 } from "../src/routes/discovery";
+import { finalizeStagedDiscoveryResult } from "../src/lib/discovery";
 
 const app = express();
 app.use(express.json());
@@ -44,6 +50,274 @@ const run = async (name: string, test: () => Promise<void>) => {
 };
 
 const runIds: number[] = [];
+
+await run("staged finalization persists multiple batches and protects linked history", async () => {
+  const fixtureCandidateKey = "apify:JAVASCRIPT:FINANCE:HIGH_USAGE_FRAGMENTED";
+  const fixtureStagedActorKeys = Array.from(
+    { length: 501 },
+    (_, index) => `fixture:staged-${index}`,
+  );
+  await db
+    .delete(discoveryCandidatesTable)
+    .where(eq(discoveryCandidatesTable.discoveryKey, fixtureCandidateKey));
+  await db.delete(discoveryActorsTable).where(
+    inArray(discoveryActorsTable.actorKey, [
+      ...fixtureStagedActorKeys,
+      "fixture:protected-history",
+      "fixture:retention-cleanup",
+    ]),
+  );
+
+  const now = Date.now();
+  const retentionRuns = await db
+    .insert(discoveryRunsTable)
+    .values(
+      [4, 3, 2].map((daysAgo) => ({
+        status: "COMPLETE" as const,
+        coverageStatus: "COMPLETE" as const,
+        startedAt: new Date(now - daysAgo * 24 * 60 * 60 * 1000),
+        finishedAt: new Date(now - daysAgo * 24 * 60 * 60 * 1000 + 1_000),
+        lastHeartbeatAt: new Date(now - daysAgo * 24 * 60 * 60 * 1000 + 1_000),
+        queryDefinition: { fixture: "multi-batch-finalization", daysAgo },
+        pageSize: 1_000,
+        effectivePageSize: 1_000,
+        pacingMs: 0,
+        formulaVersion: "fixture",
+        advertisedTotal: 501,
+        observedTotal: 501,
+        expectedPages: 1,
+        pagesFetched: 1,
+        currentOffset: 0,
+        requestCount: 1,
+        uniqueActorCount: 501,
+      })),
+    )
+    .returning();
+  const staleRun = retentionRuns[0];
+  const latestPreviousRun = retentionRuns[2];
+
+  const [previousSnapshot] = await db
+    .insert(discoveryClusterSnapshotsTable)
+    .values({
+      runId: latestPreviousRun.id,
+      clusterKey: "JAVASCRIPT:FINANCE",
+      sourcePlatform: "JAVASCRIPT",
+      category: "FINANCE",
+      actorCount: 501,
+      activeActorCount: 501,
+      usageKnownActorCount: 501,
+      aggregateTotalUsers30Days: 50_100,
+      aggregateTotalUsers7Days: 10_020,
+      aggregateTotalUsers90Days: 60_120,
+      newActorCount: 0,
+      newActorPercentile: 0,
+      snapshotNewnessPercentile: 0,
+      usagePercentile: 1,
+      thinSupplyPercentile: 1,
+      hhi: 0.001996007984031936,
+      concentrationPercentile: 0.001996007984031936,
+      fragmentationPercentile: 0.998003992015968,
+      persistence: true,
+      emergence: false,
+      recentUsageMix: 0.2,
+      pricingModelCounts: { unknown: 501 },
+      formulaVersion: "fixture",
+    })
+    .returning();
+
+  const [candidate] = await db
+    .insert(discoveryCandidatesTable)
+    .values({
+      discoveryKey: fixtureCandidateKey,
+      clusterKey: "JAVASCRIPT:FINANCE",
+      sourcePlatform: "JAVASCRIPT",
+      category: "FINANCE",
+      primaryAnomalyType: "HIGH_USAGE_FRAGMENTED",
+      anomalyTags: ["HIGH_USAGE_FRAGMENTED"],
+      latestPriorityScore: 70,
+      scoreBreakdown: { HIGH_USAGE_FRAGMENTED: 70 },
+      structureObservations: { fixture: true },
+      sourceSnapshotIds: [previousSnapshot.id],
+    })
+    .returning();
+
+  const protectedActors = await db
+    .insert(discoveryActorsTable)
+    .values([
+      {
+        actorKey: "fixture:protected-history",
+        actorId: "protected-history",
+        username: "protected-history",
+        name: "Protected History",
+        title: "Protected History",
+        url: "https://apify.com/protected-history",
+        platformMatches: ["JAVASCRIPT"],
+        categories: ["finance"],
+        latestCompleteRunId: staleRun.id,
+        latestMetadataHash: "protected-history",
+        latestMetadata: { fixture: true },
+      },
+      {
+        actorKey: "fixture:retention-cleanup",
+        actorId: "retention-cleanup",
+        username: "retention-cleanup",
+        name: "Retention Cleanup",
+        title: "Retention Cleanup",
+        url: "https://apify.com/retention-cleanup",
+        platformMatches: ["JAVASCRIPT"],
+        categories: ["finance"],
+        latestCompleteRunId: staleRun.id,
+        latestMetadataHash: "retention-cleanup",
+        latestMetadata: { fixture: true },
+      },
+    ])
+    .returning();
+  const staleObservations = await db
+    .insert(discoveryActorObservationsTable)
+    .values(
+      protectedActors.map((actor) => ({
+        runId: staleRun.id,
+        actorId: actor.id,
+        actorKey: actor.actorKey,
+        categoryKeys: ["FINANCE"],
+        platformKeys: ["JAVASCRIPT"],
+        totalUsers: 100,
+        totalUsers7Days: 20,
+        totalUsers30Days: 100,
+        totalUsers90Days: 120,
+        metadataHash: actor.actorKey,
+        selectedRaw: { fixture: true },
+      })),
+    )
+    .returning();
+  await db.insert(discoveryObservationLinksTable).values({
+    observationId: staleObservations[0].id,
+    candidateId: candidate.id,
+  });
+
+  const [runToFinalize] = await db
+    .insert(discoveryRunsTable)
+    .values({
+      queryDefinition: { fixture: "multi-batch-finalization" },
+      pageSize: 1_000,
+      pacingMs: 0,
+      formulaVersion: "fixture",
+    })
+    .returning();
+  runIds.push(runToFinalize.id, ...retentionRuns.map((run) => run.id));
+
+  const stagedRows = fixtureStagedActorKeys.map((actorKey, index) => ({
+    runId: runToFinalize.id,
+    actorKey,
+    actorId: `staged-${index}`,
+    username: `staged-${index}`,
+    name: `Staged Actor ${index}`,
+    title: `Staged Actor ${index}`,
+    url: `https://apify.com/staged-${index}`,
+    description: "Multi-batch finalization fixture",
+    categories: ["finance"],
+    platformMatches: ["JAVASCRIPT"],
+    categoryKeys: ["FINANCE"],
+    totalUsers: 100,
+    totalUsers7Days: 20,
+    totalUsers30Days: 100,
+    totalUsers90Days: 120,
+    totalRuns: 10,
+    totalBuilds: 5,
+    metadataHash: `staged-${index}`,
+    selectedRaw: { fixture: true, index },
+  }));
+  assert.equal(stagedRows.length > 500, true);
+  await db.insert(discoveryStagingActorsTable).values(stagedRows);
+
+  await finalizeStagedDiscoveryResult(runToFinalize.id, {
+    ok: true,
+    total: stagedRows.length,
+    pages: [],
+    actors: [],
+    progress: {
+      offset: 0,
+      total: stagedRows.length,
+      effectivePageSize: 1_000,
+      pagesFetched: 1,
+      requestCount: 1,
+      retryCount: 0,
+      uniqueActorCount: stagedRows.length,
+      duplicateActorCount: 0,
+    },
+  });
+
+  const persistedActors = await db
+    .select()
+    .from(discoveryActorsTable)
+    .where(inArray(discoveryActorsTable.actorKey, stagedRows.map((row) => row.actorKey)));
+  assert.equal(persistedActors.length, stagedRows.length);
+
+  const currentObservations = await db
+    .select()
+    .from(discoveryActorObservationsTable)
+    .where(eq(discoveryActorObservationsTable.runId, runToFinalize.id));
+  assert.equal(currentObservations.length, stagedRows.length);
+
+  const [completedRun] = await db
+    .select()
+    .from(discoveryRunsTable)
+    .where(eq(discoveryRunsTable.id, runToFinalize.id));
+  assert.equal(completedRun.status, "COMPLETE");
+  assert.equal(completedRun.clusterCount, 1);
+  assert.equal(completedRun.candidateCount, 1);
+
+  const [currentSnapshot] = await db
+    .select()
+    .from(discoveryClusterSnapshotsTable)
+    .where(eq(discoveryClusterSnapshotsTable.runId, runToFinalize.id));
+  assert.equal(currentSnapshot.clusterKey, "JAVASCRIPT:FINANCE");
+  assert.equal(currentSnapshot.actorCount, stagedRows.length);
+
+  const [updatedCandidate] = await db
+    .select()
+    .from(discoveryCandidatesTable)
+    .where(eq(discoveryCandidatesTable.id, candidate.id));
+  assert.equal(updatedCandidate.occurrenceCount, 2);
+  assert.deepEqual(
+    updatedCandidate.sourceSnapshotIds.sort((left, right) => left - right),
+    [previousSnapshot.id, currentSnapshot.id].sort((left, right) => left - right),
+  );
+
+  const currentLinks = await db
+    .select()
+    .from(discoveryObservationLinksTable)
+    .where(
+      and(
+        eq(discoveryObservationLinksTable.candidateId, candidate.id),
+        inArray(
+          discoveryObservationLinksTable.observationId,
+          currentObservations.map((observation) => observation.id),
+        ),
+      ),
+    );
+  assert.equal(currentLinks.length, stagedRows.length);
+
+  const staleObservationsAfterRetention = await db
+    .select()
+    .from(discoveryActorObservationsTable)
+    .where(eq(discoveryActorObservationsTable.runId, staleRun.id));
+  assert.deepEqual(staleObservationsAfterRetention.map((observation) => observation.id), [staleObservations[0].id]);
+
+  const [remainingStaging] = await db
+    .select({ count: discoveryStagingActorsTable.id })
+    .from(discoveryStagingActorsTable)
+    .where(eq(discoveryStagingActorsTable.runId, runToFinalize.id));
+  assert.equal(remainingStaging, undefined);
+
+  await db.delete(discoveryCandidatesTable).where(eq(discoveryCandidatesTable.id, candidate.id));
+  await db.delete(discoveryActorsTable).where(
+    inArray(discoveryActorsTable.actorKey, [
+      ...stagedRows.map((row) => row.actorKey),
+      ...protectedActors.map((actor) => actor.actorKey),
+    ]),
+  );
+});
 
 await run("manual discovery returns 202 and status polling reaches COMPLETE", async () => {
   setDiscoveryFetchPageForTests(async (offset, limit) => ({
