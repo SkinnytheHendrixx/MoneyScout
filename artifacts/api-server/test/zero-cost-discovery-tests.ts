@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   aggregateClusters,
   buildDiscoveryKey,
+  DISCOVERY_PAGE_SIZE,
   normalizeActor,
   scoreClusters,
   traverseStore,
@@ -87,6 +88,86 @@ await run("incomplete and failed traversals produce no scored actors", async () 
   assert.match(failed.error, /fixture outage/);
 });
 
+await run("traversal caps page size and validates the first page length", async () => {
+  const requestedLimits: number[] = [];
+  const capped = await traverseStore({
+    pageSize: DISCOVERY_PAGE_SIZE * 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => {
+      requestedLimits.push(limit);
+      return {
+        total: 1,
+        offset,
+        limit,
+        items: [actorFixture(1)],
+      };
+    },
+  });
+  assert.equal(capped.ok, true);
+  assert.deepEqual(requestedLimits, [DISCOVERY_PAGE_SIZE]);
+
+  const malformedFirstPage = await traverseStore({
+    pageSize: 1_000,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: 2,
+      offset,
+      limit,
+      items: [actorFixture(1)],
+    }),
+  });
+  assert.equal(malformedFirstPage.ok, false);
+  assert.match(malformedFirstPage.error, /invalid first page/);
+});
+
+await run("request timeouts and cancellation become failed traversals", async () => {
+  const timedOut = await traverseStore({
+    pageSize: 1_000,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    maxRetries: 0,
+    requestTimeoutMs: 5,
+    fetchPage: async () => new Promise<never>(() => undefined),
+  });
+  assert.equal(timedOut.ok, false);
+  assert.match(timedOut.error, /timed out/);
+
+  const controller = new AbortController();
+  controller.abort(new Error("fixture cancellation"));
+  const cancelled = await traverseStore({
+    pageSize: 1_000,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    maxRetries: 0,
+    signal: controller.signal,
+    fetchPage: async () => ({
+      total: 0,
+      offset: 0,
+      limit: 1_000,
+      items: [],
+    }),
+  });
+  assert.equal(cancelled.ok, false);
+  assert.match(cancelled.error, /fixture cancellation/);
+
+  const activeController = new AbortController();
+  const cancellationPromise = traverseStore({
+    pageSize: 1_000,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    maxRetries: 0,
+    requestTimeoutMs: 10_000,
+    signal: activeController.signal,
+    fetchPage: async () => new Promise<never>(() => undefined),
+  });
+  setTimeout(() => activeController.abort(new Error("fixture active cancellation")), 5);
+  const cancelledDuringRequest = await cancellationPromise;
+  assert.equal(cancelledDuringRequest.ok, false);
+  assert.match(cancelledDuringRequest.error, /fixture active cancellation/);
+});
+
 await run("duplicates are detected without creating duplicate actors", async () => {
   const result = await traverseStore({
     pageSize: 2,
@@ -108,13 +189,21 @@ await run("duplicates are detected without creating duplicate actors", async () 
 });
 
 await run("one-actor clusters never receive both thin-supply and concentration", () => {
-  const actor = normalizeActor(actorFixture(1)) as NormalizedActor;
+  const actor = normalizeActor(actorFixture(1, { platform: "github" })) as NormalizedActor;
   const snapshots = aggregateClusters([actor]);
   const [scored] = scoreClusters(snapshots);
   assert.equal(scored.actorCount, 1);
   assert.equal(scored.anomalyTags.includes("HIGH_USAGE_THIN_SUPPLY"), true);
   assert.equal(scored.anomalyTags.includes("HIGH_USAGE_CONCENTRATED"), false);
   assert.equal(scored.priorityScore, Math.max(...Object.values(scored.scoreBreakdown)));
+});
+
+await run("UNKNOWN clusters cannot qualify", () => {
+  const actor = normalizeActor(actorFixture(1, { platform: "unclassified source" })) as NormalizedActor;
+  const [scored] = scoreClusters(aggregateClusters([actor]));
+  assert.equal(scored.sourcePlatform, "UNKNOWN");
+  assert.equal(scored.priorityScore, 0);
+  assert.deepEqual(scored.anomalyTags, []);
 });
 
 await run("discovery keys remain stable and candidates are usage-labeled", () => {

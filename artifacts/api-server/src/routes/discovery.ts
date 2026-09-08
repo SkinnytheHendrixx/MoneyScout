@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -29,10 +29,12 @@ import {
 } from "@workspace/api-zod";
 import {
   DISCOVERY_FORMULA_VERSION,
+  DISCOVERY_MAX_RETRIES,
   DISCOVERY_NORMALIZATION_VERSION,
   DISCOVERY_PAGE_SIZE,
   DISCOVERY_PLATFORM_ALIAS_VERSION,
   DISCOVERY_PACING_MS,
+  DISCOVERY_REQUEST_TIMEOUT_MS,
   clearDiscoveryStaging,
   discoveryQueryDefinition,
   finalizeStagedDiscoveryResult,
@@ -47,11 +49,28 @@ import { logger } from "../lib/logger";
 const router: IRouter = Router();
 const activeRuns = new Set<number>();
 let fetchDiscoveryPage = fetchApifyStorePage;
+let finalizeDiscovery = finalizeStagedDiscoveryResult;
+let discoveryRequestTimeoutMs = DISCOVERY_REQUEST_TIMEOUT_MS;
+let discoveryMaxRetries = DISCOVERY_MAX_RETRIES;
 
 export function setDiscoveryFetchPageForTests(
   fetchPage: typeof fetchApifyStorePage | null,
 ) {
   fetchDiscoveryPage = fetchPage ?? fetchApifyStorePage;
+}
+
+export function setDiscoveryFinalizeForTests(
+  finalize: typeof finalizeStagedDiscoveryResult | null,
+) {
+  finalizeDiscovery = finalize ?? finalizeStagedDiscoveryResult;
+}
+
+export function setDiscoveryRequestTimeoutForTests(timeoutMs: number | null) {
+  discoveryRequestTimeoutMs = timeoutMs ?? DISCOVERY_REQUEST_TIMEOUT_MS;
+}
+
+export function setDiscoveryMaxRetriesForTests(maxRetries: number | null) {
+  discoveryMaxRetries = maxRetries ?? DISCOVERY_MAX_RETRIES;
 }
 
 const toApiRun = (run: typeof discoveryRunsTable.$inferSelect) => ({
@@ -119,47 +138,85 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
 };
 
 async function executeDiscoveryRun(runId: number): Promise<void> {
+  const controller = new AbortController();
+  const markFailure = async (
+    error: unknown,
+    progress?: TraversalProgress,
+    status: "FAILED" | "INCOMPLETE" = "FAILED",
+  ) => {
+    const message = error instanceof Error ? error.message : "Unknown discovery run failure";
+    try {
+      await clearDiscoveryStaging(runId);
+    } catch (cleanupError) {
+      logger.error({ err: cleanupError, runId }, "Failed to clear Discovery staging after failure");
+    }
+    const terminalValues = {
+      status,
+      coverageStatus: "INCOMPLETE" as const,
+      finishedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      error: message,
+      ...(progress
+        ? {
+            pagesFetched: progress.pagesFetched,
+            currentOffset: progress.offset,
+            requestCount: progress.requestCount,
+            retryCount: progress.retryCount,
+            uniqueActorCount: progress.uniqueActorCount,
+            duplicateActorCount: progress.duplicateActorCount,
+          }
+        : {}),
+    };
+    try {
+      await db
+        .update(discoveryRunsTable)
+        .set(terminalValues)
+        .where(eq(discoveryRunsTable.id, runId));
+    } catch (updateError) {
+      logger.error(
+        { err: updateError, runId, originalError: message },
+        "Failed to persist terminal Discovery failure",
+      );
+      try {
+        await db
+          .update(discoveryRunsTable)
+          .set({
+            status: "FAILED",
+            coverageStatus: "INCOMPLETE",
+            finishedAt: new Date(),
+            lastHeartbeatAt: new Date(),
+            error: message,
+          })
+          .where(eq(discoveryRunsTable.id, runId));
+      } catch (retryError) {
+        logger.error({ err: retryError, runId }, "Retrying terminal Discovery failure failed");
+      }
+    }
+  };
   try {
     const traversal = await traverseStoreToStaging(runId, {
       fetchPage: fetchDiscoveryPage,
       pageSize: DISCOVERY_PAGE_SIZE,
       pacingMs: DISCOVERY_PACING_MS,
+      requestTimeoutMs: discoveryRequestTimeoutMs,
+      maxRetries: discoveryMaxRetries,
+      signal: controller.signal,
       onProgress: (progress) => updateProgress(runId, progress),
     });
     if (!traversal.ok) {
-      await db
-        .update(discoveryRunsTable)
-        .set({
-          status: traversal.progress.pagesFetched > 0 ? "INCOMPLETE" : "FAILED",
-          coverageStatus: "INCOMPLETE",
-          finishedAt: new Date(),
-          lastHeartbeatAt: new Date(),
-          pagesFetched: traversal.progress.pagesFetched,
-          currentOffset: traversal.progress.offset,
-          requestCount: traversal.progress.requestCount,
-          retryCount: traversal.progress.retryCount,
-          uniqueActorCount: traversal.progress.uniqueActorCount,
-          duplicateActorCount: traversal.progress.duplicateActorCount,
-          error: traversal.error,
-        })
-        .where(eq(discoveryRunsTable.id, runId));
+      await markFailure(
+        new Error(traversal.error),
+        traversal.progress,
+        traversal.progress.pagesFetched > 0 ? "INCOMPLETE" : "FAILED",
+      );
       return;
     }
-    await finalizeStagedDiscoveryResult(runId, traversal);
+    await finalizeDiscovery(runId, traversal);
   } catch (error) {
     logger.error({ err: error, runId }, "Discovery run failed");
-    await clearDiscoveryStaging(runId);
-    await db
-      .update(discoveryRunsTable)
-      .set({
-        status: "FAILED",
-        coverageStatus: "INCOMPLETE",
-        finishedAt: new Date(),
-        lastHeartbeatAt: new Date(),
-        error: error instanceof Error ? error.message : "Unknown discovery run failure",
-      })
-      .where(eq(discoveryRunsTable.id, runId));
+    await markFailure(error);
   } finally {
+    controller.abort();
     activeRuns.delete(runId);
   }
 }
@@ -314,19 +371,9 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
         ? `${structure.aggregateTotalUsers30Days} reported 30-day users`
         : "30-day user telemetry unavailable";
     const observationSummary = `${structure.actorCount ?? "unknown"} Actors, ${structure.activeActorCount ?? "unknown"} active; ${aggregateUsers30Days}`;
-    const existingFact = await tx
-      .select({ id: evidenceTable.id })
-      .from(evidenceTable)
-      .where(
-        and(
-          eq(evidenceTable.opportunityId, opportunity.id),
-          eq(evidenceTable.evaluationDimension, "discovery_scout"),
-          eq(evidenceTable.classification, "FACT"),
-        ),
-      )
-      .limit(1);
-    if (existingFact.length === 0) {
-      await tx.insert(evidenceTable).values({
+    await tx
+      .insert(evidenceTable)
+      .values({
         claim: `Apify Store usage telemetry reported a ${candidate.primaryAnomalyType.replaceAll("_", " ").toLowerCase()} pattern for the ${candidate.category} cluster (${observationSummary}). This is observational telemetry, not revenue or validated buyer demand.`,
         sourceUrl: `https://apify.com/store?category=${encodeURIComponent(candidate.category)}`,
         sourceTitle: "Apify Store Discovery Scout",
@@ -335,8 +382,15 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
         opportunityId: opportunity.id,
         evaluationDimension: "discovery_scout",
         researchRunId: null,
+      })
+      .onConflictDoNothing({
+        target: [
+          evidenceTable.opportunityId,
+          evidenceTable.evaluationDimension,
+          evidenceTable.classification,
+        ],
+        where: sql`evidence.evaluation_dimension = 'discovery_scout' AND evidence.classification = 'FACT'`,
       });
-    }
     await tx
       .update(discoveryObservationLinksTable)
       .set({ opportunityId: opportunity.id })

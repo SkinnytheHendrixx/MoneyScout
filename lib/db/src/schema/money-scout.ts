@@ -102,7 +102,11 @@ export const evidenceTable = pgTable("evidence", {
   researchRunId: integer("research_run_id").references(() => researchRunsTable.id, {
     onDelete: "set null",
   }),
-});
+}, (table) => [
+  uniqueIndex("evidence_discovery_fact_unique")
+    .on(table.opportunityId, table.evaluationDimension, table.classification)
+    .where(sql`${table.evaluationDimension} = 'discovery_scout' AND ${table.classification} = 'FACT'`),
+]);
 
 export const evaluationsTable = pgTable("evaluations", {
   id: serial("id").primaryKey(),

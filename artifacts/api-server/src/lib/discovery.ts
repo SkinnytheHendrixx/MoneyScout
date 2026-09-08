@@ -1,5 +1,18 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, isNotNull, lt, notInArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   db,
   discoveryActorObservationsTable,
@@ -22,6 +35,8 @@ export type DiscoveryAnomalyType =
 export const DISCOVERY_PAGE_SIZE = 1_000;
 export const DISCOVERY_PACING_MS = 500;
 export const DISCOVERY_MAX_RETRIES = 3;
+export const DISCOVERY_REQUEST_TIMEOUT_MS = 30_000;
+export const DISCOVERY_BATCH_SIZE = 500;
 export const DISCOVERY_FORMULA_VERSION = "discovery-v0.2";
 export const DISCOVERY_NORMALIZATION_VERSION = "normalization-v0.2";
 export const DISCOVERY_PLATFORM_ALIAS_VERSION = "platform-aliases-v1";
@@ -98,11 +113,13 @@ export interface TraversalFailure {
 export type TraversalResult = TraversalSuccess | TraversalFailure;
 
 export interface TraversalOptions {
-  fetchPage: (offset: number, limit: number) => Promise<StorePage>;
+  fetchPage: (offset: number, limit: number, signal?: AbortSignal) => Promise<StorePage>;
   sleep?: (milliseconds: number) => Promise<void>;
   pacingMs?: number;
   pageSize?: number;
   maxRetries?: number;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
   onProgress?: (progress: TraversalProgress) => Promise<void>;
   onActors?: (actors: NormalizedActor[]) => Promise<void>;
   collectActors?: boolean;
@@ -343,31 +360,100 @@ export function parseStorePage(raw: unknown, requestedOffset: number, requestedL
 }
 
 async function fetchWithRetry(
-  fetchPage: (offset: number, limit: number) => Promise<StorePage>,
+  fetchPage: (offset: number, limit: number, signal?: AbortSignal) => Promise<StorePage>,
   offset: number,
   limit: number,
   maxRetries: number,
   sleepFn: (milliseconds: number) => Promise<void>,
   pacingMs: number,
   firstRequest: boolean,
+  requestTimeoutMs: number,
+  signal?: AbortSignal,
 ) {
   if (!firstRequest) await sleepFn(pacingMs);
   let retryCount = 0;
   while (true) {
     try {
-      return { page: await fetchPage(offset, limit), retryCount };
+      throwIfAborted(signal);
+      return {
+        page: await fetchPageWithTimeout(fetchPage, offset, limit, signal, requestTimeoutMs),
+        retryCount,
+      };
     } catch (error) {
       if (retryCount >= maxRetries) throw error;
       retryCount += 1;
       await sleepFn(Math.min(10_000, pacingMs * 2 ** retryCount));
+      throwIfAborted(signal);
     }
   }
 }
 
+function throwIfAborted(signal?: AbortSignal) {
+  if (!signal?.aborted) return;
+  const reason = signal.reason;
+  throw reason instanceof Error ? reason : new Error("Discovery request cancelled");
+}
+
+async function fetchPageWithTimeout(
+  fetchPage: (offset: number, limit: number, signal?: AbortSignal) => Promise<StorePage>,
+  offset: number,
+  limit: number,
+  parentSignal: AbortSignal | undefined,
+  timeoutMs: number,
+) {
+  throwIfAborted(parentSignal);
+  const controller = new AbortController();
+  let timedOut = false;
+  let rejectParent!: (error: Error) => void;
+  const parentFailure = new Promise<never>((_, reject) => {
+    rejectParent = reject;
+  });
+  const abortFromParent = () => {
+    const reason =
+      parentSignal?.reason instanceof Error
+        ? parentSignal.reason
+        : new Error("Discovery request cancelled");
+    controller.abort(reason);
+    rejectParent(reason);
+  };
+  parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  let rejectTimeout!: (error: Error) => void;
+  const timeoutFailure = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    const error = new Error(`Discovery request timed out after ${timeoutMs}ms`);
+    controller.abort(error);
+    rejectTimeout(error);
+  }, timeoutMs);
+  try {
+    const request = fetchPage(offset, limit, controller.signal);
+    try {
+      return await Promise.race([request, timeoutFailure, parentFailure]);
+    } catch (error) {
+      if (timedOut) {
+        throw new Error(`Discovery request timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    }
+  } finally {
+    clearTimeout(timeout);
+    parentSignal?.removeEventListener("abort", abortFromParent);
+  }
+}
+
 export async function traverseStore(options: TraversalOptions): Promise<TraversalResult> {
-  const pageSize = options.pageSize ?? DISCOVERY_PAGE_SIZE;
+  const requestedPageSize = options.pageSize ?? DISCOVERY_PAGE_SIZE;
+  const pageSize = Number.isFinite(requestedPageSize)
+    ? Math.min(DISCOVERY_PAGE_SIZE, Math.max(1, Math.floor(requestedPageSize)))
+    : DISCOVERY_PAGE_SIZE;
   const pacingMs = Math.max(options.pacingMs ?? DISCOVERY_PACING_MS, DISCOVERY_PACING_MS);
   const maxRetries = options.maxRetries ?? DISCOVERY_MAX_RETRIES;
+  const requestTimeoutMs = Math.max(
+    options.requestTimeoutMs ?? DISCOVERY_REQUEST_TIMEOUT_MS,
+    1,
+  );
   const sleepFn = options.sleep ?? sleep;
   const pages: StorePage[] = [];
   const actors: NormalizedActor[] = [];
@@ -392,6 +478,8 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       sleepFn,
       pacingMs,
       true,
+      requestTimeoutMs,
+      options.signal,
     );
     progress.requestCount += 1;
     progress.retryCount += first.retryCount;
@@ -399,7 +487,8 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       first.page.offset !== 0 ||
       first.page.limit <= 0 ||
       first.page.limit > pageSize ||
-      first.page.total < 0
+      first.page.total < 0 ||
+      first.page.items.length !== Math.min(first.page.limit, first.page.total)
     ) {
       throw new Error("Apify Store returned an invalid first page");
     }
@@ -419,7 +508,7 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     }
     await options.onActors?.(firstUniqueActors);
     if (options.collectActors !== false) actors.push(...firstUniqueActors);
-    progress.uniqueActorCount = actors.length;
+    progress.uniqueActorCount = seenKeys.size;
     await options.onProgress?.({ ...progress });
 
     const expectedOffsets = [];
@@ -435,6 +524,8 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
         sleepFn,
         pacingMs,
         false,
+        requestTimeoutMs,
+        options.signal,
       );
       progress.requestCount += 1;
       progress.retryCount += next.retryCount;
@@ -467,15 +558,15 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       }
       await options.onActors?.(pageActors);
       if (options.collectActors !== false) actors.push(...pageActors);
-      progress.uniqueActorCount = actors.length;
+       progress.uniqueActorCount = seenKeys.size;
       await options.onProgress?.({ ...progress });
     }
     if (progress.total === 0 && first.page.items.length !== 0) {
       throw new Error("Apify Store reported zero total with non-empty results");
     }
-    if (actors.length !== progress.total) {
+    if (progress.uniqueActorCount !== progress.total) {
       throw new Error(
-        `Apify Store returned ${progress.total} records but ${actors.length} unique actors were normalized`,
+        `Apify Store returned ${progress.total} records but ${progress.uniqueActorCount} unique actors were normalized`,
       );
     }
     return { ok: true, total: progress.total, pages, actors, progress };
@@ -690,6 +781,167 @@ export function aggregateClusters(
   }));
 }
 
+type PreviousClusterSnapshot = Pick<
+  ClusterSnapshotInput,
+  "clusterKey" | "aggregateTotalUsers30Days" | "aggregateTotalUsers7Days" | "actorCount"
+>;
+
+type ClusterAccumulator = {
+  clusterKey: string;
+  sourcePlatform: string;
+  category: string;
+  actorCount: number;
+  activeActorCount: number;
+  usageKnownActorCount: number;
+  aggregateTotalUsers30Days: number;
+  aggregateTotalUsers7Days: number;
+  aggregateTotalUsers90Days: number;
+  missingUsers7Days: boolean;
+  missingUsers90Days: boolean;
+  totalUsers30DaysSquared: number;
+  pricingModelCounts: Record<string, number>;
+};
+
+function addActorToClusterAccumulators(
+  accumulators: Map<string, ClusterAccumulator>,
+  actor: NormalizedActor,
+) {
+  for (const platform of actor.platformMatches.length > 0 ? actor.platformMatches : ["UNKNOWN"]) {
+    for (const category of actor.categoryKeys.length > 0 ? actor.categoryKeys : ["UNKNOWN"]) {
+      const clusterKey = `${platform}:${category}`;
+      const accumulator = accumulators.get(clusterKey) ?? {
+        clusterKey,
+        sourcePlatform: platform,
+        category,
+        actorCount: 0,
+        activeActorCount: 0,
+        usageKnownActorCount: 0,
+        aggregateTotalUsers30Days: 0,
+        aggregateTotalUsers7Days: 0,
+        aggregateTotalUsers90Days: 0,
+        missingUsers7Days: false,
+        missingUsers90Days: false,
+        totalUsers30DaysSquared: 0,
+        pricingModelCounts: {},
+      };
+      accumulator.actorCount += 1;
+      if (actor.totalUsers30Days !== null) {
+        accumulator.usageKnownActorCount += 1;
+        accumulator.aggregateTotalUsers30Days += actor.totalUsers30Days;
+        accumulator.totalUsers30DaysSquared += actor.totalUsers30Days ** 2;
+        if (actor.totalUsers30Days > 0) accumulator.activeActorCount += 1;
+      }
+      if (actor.totalUsers7Days === null) accumulator.missingUsers7Days = true;
+      else accumulator.aggregateTotalUsers7Days += actor.totalUsers7Days;
+      if (actor.totalUsers90Days === null) accumulator.missingUsers90Days = true;
+      else accumulator.aggregateTotalUsers90Days += actor.totalUsers90Days;
+      const pricingModel = actor.pricingModel ?? "unknown";
+      accumulator.pricingModelCounts[pricingModel] =
+        (accumulator.pricingModelCounts[pricingModel] ?? 0) + 1;
+      accumulators.set(clusterKey, accumulator);
+    }
+  }
+}
+
+function finishClusterAccumulators(
+  accumulators: Map<string, ClusterAccumulator>,
+  previous: PreviousClusterSnapshot[],
+): ClusterSnapshotInput[] {
+  const previousByKey = new Map(previous.map((snapshot) => [snapshot.clusterKey, snapshot]));
+  const baseSnapshots = [...accumulators.values()].map((accumulator) => {
+    const prior = previousByKey.get(accumulator.clusterKey);
+    const aggregateTotalUsers30Days =
+      accumulator.usageKnownActorCount > 0 ? accumulator.aggregateTotalUsers30Days : null;
+    const aggregateTotalUsers7Days = accumulator.missingUsers7Days
+      ? null
+      : accumulator.aggregateTotalUsers7Days;
+    const aggregateTotalUsers90Days = accumulator.missingUsers90Days
+      ? null
+      : accumulator.aggregateTotalUsers90Days;
+    const hhi =
+      accumulator.usageKnownActorCount === accumulator.actorCount &&
+      aggregateTotalUsers30Days !== null &&
+      aggregateTotalUsers30Days > 0
+        ? accumulator.totalUsers30DaysSquared / aggregateTotalUsers30Days ** 2
+        : null;
+    const priorUsage = prior?.aggregateTotalUsers30Days ?? null;
+    return {
+      clusterKey: accumulator.clusterKey,
+      sourcePlatform: accumulator.sourcePlatform,
+      category: accumulator.category,
+      actorCount: accumulator.actorCount,
+      activeActorCount: accumulator.activeActorCount,
+      providerCount: accumulator.actorCount,
+      usageKnownActorCount: accumulator.usageKnownActorCount,
+      aggregateTotalUsers30Days,
+      aggregateTotalUsers7Days,
+      aggregateTotalUsers90Days,
+      usagePercentile: null,
+      thinSupplyPercentile: null,
+      hhi,
+      concentrationPercentile: hhi,
+      fragmentationPercentile: hhi === null ? null : Math.max(0, 1 - hhi),
+      persistence: Boolean(prior),
+      emergence:
+        !prior && aggregateTotalUsers30Days !== null && aggregateTotalUsers30Days > 0,
+      recentUsageMix:
+        aggregateTotalUsers30Days !== null &&
+        aggregateTotalUsers7Days !== null &&
+        aggregateTotalUsers30Days > 0
+          ? Math.min(1, aggregateTotalUsers7Days / aggregateTotalUsers30Days)
+          : null,
+      newActorCount: prior
+        ? Math.max(0, accumulator.actorCount - prior.actorCount)
+        : accumulator.actorCount,
+      newActorPercentile: null,
+      snapshotNewnessPercentile: prior ? 0 : 1,
+      materialActorChangeScore: prior
+        ? Math.min(1, Math.abs(accumulator.actorCount - prior.actorCount) / Math.max(1, prior.actorCount))
+        : null,
+      materialUsageChangeScore:
+        prior &&
+        aggregateTotalUsers30Days !== null &&
+        priorUsage !== null
+          ? Math.min(
+              1,
+              Math.abs(aggregateTotalUsers30Days - priorUsage) / Math.max(1, priorUsage),
+            )
+          : null,
+      pricingModelCounts: accumulator.pricingModelCounts,
+    };
+  });
+  const usageValues = baseSnapshots
+    .map((snapshot) => snapshot.aggregateTotalUsers30Days)
+    .filter((value): value is number => value !== null);
+  const supplyValues = baseSnapshots.map((snapshot) => 1 / Math.max(1, snapshot.actorCount));
+  const newActorValues = baseSnapshots.map((snapshot) => snapshot.newActorCount);
+  return baseSnapshots.map((snapshot) => ({
+    ...snapshot,
+    usagePercentile: percentile(
+      usageValues,
+      snapshot.usageKnownActorCount === snapshot.actorCount
+        ? snapshot.aggregateTotalUsers30Days
+        : null,
+    ),
+    thinSupplyPercentile: percentile(
+      supplyValues,
+      1 / Math.max(1, snapshot.actorCount),
+    ),
+    newActorPercentile: percentile(newActorValues, snapshot.newActorCount),
+  }));
+}
+
+async function aggregateActorBatches(
+  actorBatches: AsyncIterable<NormalizedActor[]>,
+  previous: PreviousClusterSnapshot[],
+) {
+  const accumulators = new Map<string, ClusterAccumulator>();
+  for await (const batch of actorBatches) {
+    for (const actor of batch) addActorToClusterAccumulators(accumulators, actor);
+  }
+  return finishClusterAccumulators(accumulators, previous);
+}
+
 export function scoreClusters(
   snapshots: ClusterSnapshotInput[],
   _previous: Array<
@@ -702,7 +954,11 @@ export function scoreClusters(
   // Each anomaly is scored independently from deterministic components in [0, 1].
   // A candidate receives only the maximum eligible type score, never a correlated sum.
   return snapshots.map((snapshot) => {
+    const knownCluster =
+      snapshot.sourcePlatform !== "UNKNOWN" &&
+      snapshot.category !== "UNKNOWN";
     const thinEligible =
+      knownCluster &&
       snapshot.activeActorCount <= 2 &&
       snapshot.activeActorCount > 0 &&
       snapshot.usageKnownActorCount === snapshot.actorCount &&
@@ -711,6 +967,7 @@ export function scoreClusters(
       snapshot.thinSupplyPercentile !== null &&
       snapshot.thinSupplyPercentile >= 0.75;
     const concentrationEligible =
+      knownCluster &&
       snapshot.activeActorCount >= 3 &&
       snapshot.usageKnownActorCount === snapshot.actorCount &&
       snapshot.usagePercentile !== null &&
@@ -718,6 +975,7 @@ export function scoreClusters(
       snapshot.concentrationPercentile !== null &&
       snapshot.concentrationPercentile >= 0.65;
     const fragmentationEligible =
+      knownCluster &&
       snapshot.activeActorCount >= 3 &&
       snapshot.providerCount >= 3 &&
       snapshot.usageKnownActorCount === snapshot.actorCount &&
@@ -726,6 +984,7 @@ export function scoreClusters(
       snapshot.fragmentationPercentile !== null &&
       snapshot.fragmentationPercentile >= 0.65;
     const emergingEligible =
+      knownCluster &&
       snapshot.emergence &&
       snapshot.newActorPercentile !== null &&
       snapshot.newActorPercentile >= 0.6 &&
@@ -734,6 +993,7 @@ export function scoreClusters(
       snapshot.recentUsageMix !== null &&
       snapshot.recentUsageMix >= 0.25;
     const materialEligible =
+      knownCluster &&
       snapshot.materialActorChangeScore !== null &&
       snapshot.materialUsageChangeScore !== null &&
       snapshot.materialActorChangeScore >= 0.25 &&
@@ -784,12 +1044,27 @@ function storeUrl(offset: number, limit: number) {
   return url.toString();
 }
 
-export async function fetchApifyStorePage(offset: number, limit: number): Promise<StorePage> {
-  const response = await fetch(storeUrl(offset, limit));
-  if (!response.ok) {
-    throw new Error(`Apify Store request failed with HTTP ${response.status}`);
+export async function fetchApifyStorePage(
+  offset: number,
+  limit: number,
+  signal?: AbortSignal,
+): Promise<StorePage> {
+  const controller = new AbortController();
+  const abortFromParent = () => controller.abort(signal?.reason);
+  signal?.addEventListener("abort", abortFromParent, { once: true });
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`Apify Store request timed out after ${DISCOVERY_REQUEST_TIMEOUT_MS}ms`));
+  }, DISCOVERY_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(storeUrl(offset, limit), { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`Apify Store request failed with HTTP ${response.status}`);
+    }
+    return parseStorePage(await response.json(), offset, limit);
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortFromParent);
   }
-  return parseStorePage(await response.json(), offset, limit);
 }
 
 const actorInsert = (actor: NormalizedActor, runId: number) => ({
@@ -1012,7 +1287,9 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
               materialUsageChangeScore: snapshot.materialUsageChangeScore,
               usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
             },
-            sourceSnapshotIds,
+            sourceSnapshotIds: sql.raw(
+              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
+            ),
           },
         });
     }
@@ -1158,20 +1435,344 @@ function stagedRowToActor(row: typeof discoveryStagingActorsTable.$inferSelect):
   };
 }
 
+async function previousDiscoverySnapshots(runId: number) {
+  const [previousRun] = await db
+    .select({ id: discoveryRunsTable.id })
+    .from(discoveryRunsTable)
+    .where(and(eq(discoveryRunsTable.status, "COMPLETE"), lt(discoveryRunsTable.id, runId)))
+    .orderBy(desc(discoveryRunsTable.id))
+    .limit(1);
+  const snapshots = previousRun
+    ? await db
+        .select()
+        .from(discoveryClusterSnapshotsTable)
+        .where(eq(discoveryClusterSnapshotsTable.runId, previousRun.id))
+    : [];
+  return snapshots.map((snapshot) => ({
+    clusterKey: snapshot.clusterKey,
+    aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+    aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
+    actorCount: snapshot.actorCount,
+  }));
+}
+
+async function persistActorBatches(
+  runId: number,
+  actorBatches: AsyncIterable<NormalizedActor[]>,
+  accumulators: Map<string, ClusterAccumulator>,
+) {
+  await db.transaction(async (tx) => {
+    for await (const actors of actorBatches) {
+      if (actors.length === 0) continue;
+      const actorKeys = actors.map((actor) => actor.actorKey);
+      const existingActors = await tx
+        .select()
+        .from(discoveryActorsTable)
+        .where(inArray(discoveryActorsTable.actorKey, actorKeys));
+      const existingByKey = new Map(existingActors.map((actor) => [actor.actorKey, actor]));
+      await tx
+        .insert(discoveryActorsTable)
+        .values(actors.map((actor) => actorInsert(actor, runId)))
+        .onConflictDoUpdate({
+          target: discoveryActorsTable.actorKey,
+          set: {
+            lastSeenAt: new Date(),
+            latestCompleteRunId: runId,
+            latestMetadataHash: sqlExcluded("latest_metadata_hash"),
+            latestMetadata: sqlExcluded("latest_metadata"),
+            title: sqlExcluded("title"),
+            name: sqlExcluded("name"),
+            description: sqlExcluded("description"),
+            categories: sqlExcluded("categories"),
+            platformMatches: sqlExcluded("platform_matches"),
+          },
+        });
+      const savedActors = await tx
+        .select()
+        .from(discoveryActorsTable)
+        .where(inArray(discoveryActorsTable.actorKey, actorKeys));
+      const actorIdByKey = new Map(savedActors.map((actor) => [actor.actorKey, actor.id]));
+      const observations = actors
+        .map((actor) => {
+          const actorId = actorIdByKey.get(actor.actorKey);
+          if (!actorId) return null;
+          const previous = existingByKey.get(actor.actorKey);
+          return {
+            runId,
+            actorId,
+            actorKey: actor.actorKey,
+            categoryKeys: actor.categoryKeys,
+            platformKeys: actor.platformMatches,
+            totalUsers: actor.totalUsers,
+            totalUsers7Days: actor.totalUsers7Days,
+            totalUsers30Days: actor.totalUsers30Days,
+            totalUsers90Days: actor.totalUsers90Days,
+            totalRuns: actor.totalRuns,
+            totalBuilds: actor.totalBuilds,
+            lastRunStartedAt: actor.lastRunStartedAt,
+            actorReviewCount: actor.actorReviewCount,
+            actorReviewRating: actor.actorReviewRating,
+            bookmarkCount: actor.bookmarkCount,
+            pricingModel: actor.pricingModel,
+            minimalMaxTotalChargeUsd: actor.minimalMaxTotalChargeUsd,
+            metadataHash: actor.metadataHash,
+            changedSincePrevious: previous?.latestMetadataHash !== actor.metadataHash,
+            selectedRaw: previous?.latestMetadataHash !== actor.metadataHash ? actor.selectedRaw : null,
+          };
+        })
+        .filter((observation): observation is NonNullable<typeof observation> => Boolean(observation));
+      if (observations.length > 0) {
+        await tx
+          .insert(discoveryActorObservationsTable)
+          .values(observations)
+          .onConflictDoNothing({
+            target: [discoveryActorObservationsTable.runId, discoveryActorObservationsTable.actorId],
+          });
+      }
+      for (const actor of actors) addActorToClusterAccumulators(accumulators, actor);
+    }
+  });
+}
+
+async function persistDerivedDiscoveryResult(
+  runId: number,
+  traversal: Extract<TraversalResult, { ok: true }>,
+  scored: ScoredCluster[],
+) {
+  await db.transaction(async (tx) => {
+    const savedSnapshots =
+      scored.length === 0
+        ? []
+        : await tx
+            .insert(discoveryClusterSnapshotsTable)
+            .values(
+              scored.map((snapshot) => ({
+                runId,
+                clusterKey: snapshot.clusterKey,
+                sourcePlatform: snapshot.sourcePlatform,
+                category: snapshot.category,
+                actorCount: snapshot.actorCount,
+                activeActorCount: snapshot.activeActorCount,
+                usageKnownActorCount: snapshot.usageKnownActorCount,
+                aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+                aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
+                aggregateTotalUsers90Days: snapshot.aggregateTotalUsers90Days,
+                newActorCount: snapshot.newActorCount,
+                newActorPercentile: snapshot.newActorPercentile,
+                snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
+                materialActorChangeScore: snapshot.materialActorChangeScore,
+                materialUsageChangeScore: snapshot.materialUsageChangeScore,
+                usagePercentile: snapshot.usagePercentile,
+                thinSupplyPercentile: snapshot.thinSupplyPercentile,
+                hhi: snapshot.hhi,
+                concentrationPercentile: snapshot.concentrationPercentile,
+                fragmentationPercentile: snapshot.fragmentationPercentile,
+                persistence: snapshot.persistence,
+                emergence: snapshot.emergence,
+                recentUsageMix: snapshot.recentUsageMix,
+                pricingModelCounts: snapshot.pricingModelCounts,
+                formulaVersion: DISCOVERY_FORMULA_VERSION,
+              })),
+            )
+            .returning();
+    const snapshotIdByKey = new Map(savedSnapshots.map((snapshot) => [snapshot.clusterKey, snapshot.id]));
+    const qualified = scored
+      .filter((candidate) => candidate.priorityScore >= DISCOVERY_QUALIFICATION_THRESHOLD)
+      .sort((left, right) =>
+        right.priorityScore - left.priorityScore ||
+        left.clusterKey.localeCompare(right.clusterKey) ||
+        left.primaryAnomalyType.localeCompare(right.primaryAnomalyType),
+      )
+      .slice(0, DISCOVERY_CANDIDATE_CAP);
+    for (const snapshot of qualified) {
+      const snapshotId = snapshotIdByKey.get(snapshot.clusterKey);
+      const sourceSnapshotIds = snapshotId ? [snapshotId] : [];
+      const structureObservations = {
+        actorCount: snapshot.actorCount,
+        activeActorCount: snapshot.activeActorCount,
+        usageKnownActorCount: snapshot.usageKnownActorCount,
+        aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+        aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
+        hhi: snapshot.hhi,
+        persistence: snapshot.persistence,
+        emergence: snapshot.emergence,
+        recentUsageMix: snapshot.recentUsageMix,
+        newActorCount: snapshot.newActorCount,
+        newActorPercentile: snapshot.newActorPercentile,
+        snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
+        materialActorChangeScore: snapshot.materialActorChangeScore,
+        materialUsageChangeScore: snapshot.materialUsageChangeScore,
+        usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
+      };
+      await tx
+        .insert(discoveryCandidatesTable)
+        .values({
+          discoveryKey: buildDiscoveryKey(snapshot.clusterKey, snapshot.primaryAnomalyType),
+          clusterKey: snapshot.clusterKey,
+          sourcePlatform: snapshot.sourcePlatform,
+          category: snapshot.category,
+          primaryAnomalyType: snapshot.primaryAnomalyType,
+          anomalyTags: snapshot.anomalyTags,
+          status: "NEW",
+          lastSeenAt: new Date(),
+          occurrenceCount: 1,
+          latestPriorityScore: snapshot.priorityScore,
+          scoreBreakdown: snapshot.scoreBreakdown,
+          structureObservations,
+          sourceSnapshotIds,
+        })
+        .onConflictDoUpdate({
+          target: discoveryCandidatesTable.discoveryKey,
+          set: {
+            lastSeenAt: new Date(),
+            occurrenceCount: sqlIncrement("occurrence_count"),
+            latestPriorityScore: snapshot.priorityScore,
+            anomalyTags: snapshot.anomalyTags,
+            scoreBreakdown: snapshot.scoreBreakdown,
+            structureObservations,
+            sourceSnapshotIds: sql.raw(
+              `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
+            ),
+          },
+        });
+    }
+    if (qualified.length > 0) {
+      const persistedCandidates = await tx
+        .select({
+          id: discoveryCandidatesTable.id,
+          discoveryKey: discoveryCandidatesTable.discoveryKey,
+        })
+        .from(discoveryCandidatesTable)
+        .where(
+          inArray(
+            discoveryCandidatesTable.discoveryKey,
+            qualified.map((snapshot) => buildDiscoveryKey(snapshot.clusterKey, snapshot.primaryAnomalyType)),
+          ),
+        );
+      const currentObservations = await tx
+        .select({
+          id: discoveryActorObservationsTable.id,
+          categoryKeys: discoveryActorObservationsTable.categoryKeys,
+          platformKeys: discoveryActorObservationsTable.platformKeys,
+        })
+        .from(discoveryActorObservationsTable)
+        .where(eq(discoveryActorObservationsTable.runId, runId));
+      const observationLinks = [];
+      for (const candidate of persistedCandidates) {
+        const snapshot = qualified.find(
+          (candidateSnapshot) =>
+            buildDiscoveryKey(candidateSnapshot.clusterKey, candidateSnapshot.primaryAnomalyType) ===
+            candidate.discoveryKey,
+        );
+        if (!snapshot) continue;
+        for (const observation of currentObservations) {
+          if (
+            observation.categoryKeys.includes(snapshot.category) &&
+            observation.platformKeys.includes(snapshot.sourcePlatform)
+          ) {
+            observationLinks.push({
+              observationId: observation.id,
+              candidateId: candidate.id,
+              opportunityId: null,
+              auditRecordId: null,
+            });
+          }
+        }
+      }
+      if (observationLinks.length > 0) {
+        await tx.insert(discoveryObservationLinksTable).values(observationLinks).onConflictDoNothing();
+      }
+    }
+    await tx
+      .update(discoveryRunsTable)
+      .set({
+        status: "COMPLETE",
+        coverageStatus: "COMPLETE",
+        finishedAt: new Date(),
+        lastHeartbeatAt: new Date(),
+        advertisedTotal: traversal.total,
+        observedTotal: traversal.progress.uniqueActorCount,
+        effectivePageSize: traversal.progress.effectivePageSize,
+        expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
+        pagesFetched: traversal.progress.pagesFetched,
+        currentOffset: traversal.progress.offset,
+        requestCount: traversal.progress.requestCount,
+        retryCount: traversal.progress.retryCount,
+        uniqueActorCount: traversal.progress.uniqueActorCount,
+        duplicateActorCount: traversal.progress.duplicateActorCount,
+        clusterCount: scored.length,
+        candidateCount: qualified.length,
+        error: null,
+      })
+      .where(eq(discoveryRunsTable.id, runId));
+
+    const detailedRunsToKeep = await tx
+      .select({ id: discoveryRunsTable.id })
+      .from(discoveryRunsTable)
+      .where(eq(discoveryRunsTable.status, "COMPLETE"))
+      .orderBy(desc(discoveryRunsTable.startedAt))
+      .limit(DISCOVERY_DETAILED_RUN_RETENTION);
+    const protectedObservations = await tx
+      .select({ observationId: discoveryObservationLinksTable.observationId })
+      .from(discoveryObservationLinksTable)
+      .where(
+        or(
+          isNotNull(discoveryObservationLinksTable.candidateId),
+          isNotNull(discoveryObservationLinksTable.opportunityId),
+          isNotNull(discoveryObservationLinksTable.auditRecordId),
+        ),
+      );
+    const retentionPredicates = [];
+    if (detailedRunsToKeep.length > 0) {
+      retentionPredicates.push(
+        notInArray(
+          discoveryActorObservationsTable.runId,
+          detailedRunsToKeep.map((run) => run.id),
+        ),
+      );
+    }
+    if (protectedObservations.length > 0) {
+      retentionPredicates.push(
+        notInArray(
+          discoveryActorObservationsTable.id,
+          protectedObservations.map((row) => row.observationId),
+        ),
+      );
+    }
+    if (retentionPredicates.length > 0) {
+      await tx.delete(discoveryActorObservationsTable).where(and(...retentionPredicates));
+    }
+  });
+}
+
 export async function finalizeStagedDiscoveryResult(
   runId: number,
   traversal: Extract<TraversalResult, { ok: true }>,
 ) {
-  const stagedRows = await db
-    .select()
-    .from(discoveryStagingActorsTable)
-    .where(eq(discoveryStagingActorsTable.runId, runId))
-    .orderBy(discoveryStagingActorsTable.id);
-  await persistDiscoveryResult(runId, {
-    ...traversal,
-    actors: stagedRows.map(stagedRowToActor),
-    pages: [],
-  });
+  const previous = await previousDiscoverySnapshots(runId);
+  const accumulators = new Map<string, ClusterAccumulator>();
+  async function* stagedBatches() {
+    let afterId = 0;
+    while (true) {
+      const rows = await db
+        .select()
+        .from(discoveryStagingActorsTable)
+        .where(
+          and(
+            eq(discoveryStagingActorsTable.runId, runId),
+            gt(discoveryStagingActorsTable.id, afterId),
+          ),
+        )
+        .orderBy(asc(discoveryStagingActorsTable.id))
+        .limit(DISCOVERY_BATCH_SIZE);
+      if (rows.length === 0) return;
+      afterId = rows[rows.length - 1].id;
+      yield rows.map(stagedRowToActor);
+    }
+  }
+  await persistActorBatches(runId, stagedBatches(), accumulators);
+  const scored = scoreClusters(finishClusterAccumulators(accumulators, previous), previous);
+  await persistDerivedDiscoveryResult(runId, traversal, scored);
   await clearDiscoveryStaging(runId);
 }
 
@@ -1184,6 +1785,7 @@ function sqlIncrement(column: string) {
 }
 
 export async function reconcileStaleDiscoveryRuns(): Promise<void> {
+  const staleBefore = new Date(Date.now() - DISCOVERY_HEARTBEAT_STALE_MS);
   const stale = await db
     .update(discoveryRunsTable)
     .set({
@@ -1193,7 +1795,13 @@ export async function reconcileStaleDiscoveryRuns(): Promise<void> {
       error: "Server restarted while the run heartbeat was stale.",
     })
     .where(
-      eq(discoveryRunsTable.status, "RUNNING"),
+      and(
+        eq(discoveryRunsTable.status, "RUNNING"),
+        or(
+          isNull(discoveryRunsTable.lastHeartbeatAt),
+          lt(discoveryRunsTable.lastHeartbeatAt, staleBefore),
+        ),
+      ),
     )
     .returning({ id: discoveryRunsTable.id });
   if (stale.length > 0) {
