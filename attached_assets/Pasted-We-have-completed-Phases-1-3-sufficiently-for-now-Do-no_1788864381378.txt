@@ -1,0 +1,71 @@
+We have completed Phases 1–3 sufficiently for now. Do not modify code yet.
+
+I want to plan the next phase of Money Scout while paid AI integrations are unavailable.
+
+Goal
+
+Build the first automated Discovery Scout so Money Scout begins finding and creating opportunity candidates itself instead of requiring me to manually create them.
+
+This phase must operate with $0 paid external research cost.
+
+Allowed inputs:
+
+public APIs
+direct HTTP
+public JSON feeds
+RSS
+sitemap/index data
+free marketplace/store endpoints
+deterministic calculations
+local database analysis
+
+Not allowed for this phase:
+
+Anthropic/Claude
+paid web search
+Firecrawl or other paid tools
+automatic product building
+autonomous purchasing
+broad scraping that violates platform rules
+Strong candidate starting point
+
+Investigate using the public Apify Store API as the first machine-readable discovery source.
+
+We know the Store can expose Actor listings and public usage/marketplace metadata. The purpose is not simply to copy every Actor into Money Scout. We need to detect useful market structure such as:
+
+categories/source platforms with measurable usage
+crowded vs relatively underserved niches
+concentration of demand among a few Actors
+recently growing or newly emerging Actor categories
+pricing/business-model patterns if publicly available
+repeated source/platform names
+areas where demand appears to exist but supply is thin
+
+Treat usage metrics as usage signals, not revenue. Never infer revenue from MAU/users.
+
+What I want from Plan Mode
+
+Inspect the existing Money Scout code/database and investigate the current public Apify Store API capabilities.
+
+Then propose Phase 4: Discovery Scout v0.
+
+The plan should specify:
+
+Exactly what free data we can retrieve.
+Which fields we should persist.
+How to normalize Actors into source/platform/category clusters.
+Which deterministic signals can identify candidate anomalies without AI.
+How candidates would become opportunities without flooding the database.
+Deduplication rules so killed/known opportunities are not rediscovered.
+A simple candidate score based only on observable facts, clearly separate from the later full Opportunity Score.
+Manual controls for Run Discovery and reviewing discovered candidates.
+Zero-cost fixture tests.
+Expected API request volume and whether normal usage stays within Apify’s public limits.
+
+Also tell me what cannot be inferred from this data alone so we do not accidentally turn weak proxies into fake demand evidence.
+
+Do not build anything.
+Do not make paid calls.
+You may perform free/read-only research necessary to design the plan.
+
+Return the proposed architecture, data flow, schema changes, scoring logic, and implementation sequence. Then stop for approval.
