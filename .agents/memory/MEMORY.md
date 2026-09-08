@@ -1,1 +1,2 @@
 - [Anthropic web-search citations](anthropic-web-search-citations.md) — strict JSON may omit text citations; validate findings against authoritative returned result URLs.
+- [Replit AI access prerequisites](replit-ai-access-prerequisites.md) — managed Anthropic access depends on paid-plan and organization-level eligibility, not deployment.
