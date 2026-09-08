@@ -686,6 +686,9 @@ components:
     DiscoveryCoverageStatus:
       type: string
       enum: [UNKNOWN, COMPLETE, INCOMPLETE]
+    DiscoveryVerificationStatus:
+      type: string
+      enum: [UNVERIFIED, VERIFIED_CONVERGENCE]
     DiscoveryCandidateStatus:
       type: string
       enum: [NEW, ACCEPTED, DISMISSED, SUPPRESSED, DUPLICATE]
@@ -704,6 +707,7 @@ components:
         - source
         - status
         - coverage_status
+        - verification_status
         - started_at
         - finished_at
         - last_heartbeat_at
@@ -713,12 +717,16 @@ components:
         - formula_version
         - advertised_total
         - observed_total
+        - min_observed_total
         - expected_pages
         - pages_fetched
         - current_offset
         - current_pass
         - max_observed_total
+        - total_drift
         - request_count
+        - network_attempt_count
+        - max_network_attempts
         - retry_count
         - unique_actor_count
         - duplicate_actor_count
@@ -732,6 +740,7 @@ components:
         source: { type: string }
         status: { $ref: "#/components/schemas/DiscoveryRunStatus" }
         coverage_status: { $ref: "#/components/schemas/DiscoveryCoverageStatus" }
+        verification_status: { $ref: "#/components/schemas/DiscoveryVerificationStatus" }
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
         last_heartbeat_at: { type: [string, "null"], format: date-time }
@@ -741,12 +750,16 @@ components:
         formula_version: { type: string }
         advertised_total: { type: [integer, "null"] }
         observed_total: { type: [integer, "null"] }
+        min_observed_total: { type: [integer, "null"] }
         expected_pages: { type: [integer, "null"] }
         pages_fetched: { type: integer }
         current_offset: { type: integer }
         current_pass: { type: [integer, "null"] }
         max_observed_total: { type: [integer, "null"] }
+        total_drift: { type: integer }
         request_count: { type: integer }
+        network_attempt_count: { type: integer }
+        max_network_attempts: { type: [integer, "null"] }
         retry_count: { type: integer }
         unique_actor_count: { type: integer }
         duplicate_actor_count: { type: integer }

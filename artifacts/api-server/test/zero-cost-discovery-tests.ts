@@ -58,6 +58,8 @@ await run("complete traversal uses exact offsets and validates coverage", async 
   assert.deepEqual(offsets, [0, 1_000, 2_000, 3_000]);
   assert.equal(result.progress.uniqueActorCount, 2_001);
   assert.equal(result.progress.duplicateActorCount, 0);
+  assert.equal(result.progress.minObservedTotal, 2_001);
+  assert.equal(result.progress.totalDrift, 0);
 });
 
 await run("bounded total growth permits one extra page and records convergence telemetry", async () => {
@@ -78,6 +80,8 @@ await run("bounded total growth permits one extra page and records convergence t
   assert.equal(result.progress.initialTotal, 5);
   assert.equal(result.progress.maxObservedTotal, 7);
   assert.equal(result.progress.initialPageCount, 3);
+  assert.equal(result.progress.minObservedTotal, 5);
+  assert.equal(result.progress.totalDrift, 2);
 });
 
 await run("growth beyond one extra page is hard bounded with exact failure telemetry", async () => {
@@ -99,7 +103,29 @@ await run("growth beyond one extra page is hard bounded with exact failure telem
   assert.equal(result.failureTelemetry?.expectedTotal, 5);
 });
 
-await run("shrinkage and mutable duplicate windows cannot verify a pass", async () => {
+await run("bounded shrinkage remains verifiable when the initial range is covered", async () => {
+  const bounded = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: offset === 0 ? 3 : 2,
+      offset,
+      limit,
+      items: offset === 0
+        ? [actorFixture(1), actorFixture(2)]
+        : offset === 2
+          ? [actorFixture(3)]
+          : [],
+    }),
+  });
+  assert.equal(bounded.ok, true);
+  assert.equal(bounded.progress.minObservedTotal, 2);
+  assert.equal(bounded.progress.maxObservedTotal, 3);
+  assert.equal(bounded.progress.totalDrift, 1);
+});
+
+await run("premature shrinkage and mutable duplicate windows cannot verify a pass", async () => {
   const shrank = await traverseStore({
     pageSize: 2,
     pacingMs: 500,
@@ -108,11 +134,11 @@ await run("shrinkage and mutable duplicate windows cannot verify a pass", async 
       total: offset === 0 ? 3 : 2,
       offset,
       limit,
-      items: offset === 0 ? [actorFixture(1), actorFixture(2)] : [actorFixture(3)],
+      items: offset === 0 ? [actorFixture(1), actorFixture(2)] : [],
     }),
   });
   assert.equal(shrank.ok, false);
-  assert.equal(shrank.failureTelemetry?.invariant, "total_shrank");
+  assert.equal(shrank.failureTelemetry?.invariant, "item_count_mismatch");
 
   const duplicateWindow = await traverseStore({
     pageSize: 2,
@@ -131,7 +157,7 @@ await run("shrinkage and mutable duplicate windows cannot verify a pass", async 
   });
   assert.equal(duplicateWindow.ok, false);
   assert.equal(duplicateWindow.progress.duplicateActorCount, 1);
-  assert.equal(duplicateWindow.failureTelemetry?.invariant, "unique_count_mismatch");
+  assert.equal(duplicateWindow.failureTelemetry?.invariant, "unique_count_outside_observed_total_envelope");
 });
 
 await run("incomplete and failed traversals produce no scored actors", async () => {
@@ -262,6 +288,32 @@ await run("duplicates are detected without creating duplicate actors", async () 
   assert.equal(result.ok, false);
   assert.deepEqual(result.actors, []);
   assert.equal(result.progress.duplicateActorCount, 1);
+});
+
+await run("network attempts are bounded and reported separately from page requests", async () => {
+  let attempts = 0;
+  const result = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    maxRetries: 2,
+    fetchPage: async (offset, limit) => {
+      attempts += 1;
+      if (attempts <= 2) throw new Error("fixture retry");
+      return {
+        total: 1,
+        offset,
+        limit,
+        items: offset === 0 ? [actorFixture(1)] : [],
+      };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.progress.requestCount, 2);
+  assert.equal(result.progress.networkAttemptCount, 4);
+  assert.equal(result.progress.retryCount, 2);
+  assert.equal(result.progress.maxNetworkAttempts, 6);
+  assert.equal(result.progress.networkAttemptCount <= result.progress.maxNetworkAttempts, true);
 });
 
 await run("one-actor clusters never receive both thin-supply and concentration", () => {

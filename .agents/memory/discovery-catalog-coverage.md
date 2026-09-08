@@ -20,3 +20,9 @@ When a pass reaches its initially advertised last page, make exactly one bounded
 **Why:** A live catalog can grow immediately after the initial last page, so stopping exactly at the first advertised boundary cannot distinguish stable coverage from newly exposed records.
 
 **How to apply:** Keep the probe inside the pass hard bound, treat shrinkage and short required pages as failures, and never turn the probe into an unbounded convergence loop.
+
+Provider totals are an observed envelope, not an immutable snapshot: track the minimum, maximum, and drift per pass, require the unique normalized Actor count to stay within that envelope, and require both passes to have identical canonical membership.
+
+**Why:** Live catalog totals can move during traversal without invalidating a pass when the initial range remains covered; exact equality would reject safe runs, while unconstrained drift would hide coverage gaps.
+
+**How to apply:** Allow only bounded drift (no more than one effective page), persist the envelope and actual request-attempt telemetry, and publish results only as `VERIFIED_CONVERGENCE` after the database anti-join is empty.

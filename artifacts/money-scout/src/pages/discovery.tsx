@@ -363,7 +363,11 @@ export default function Discovery() {
 
   useEffect(() => {
     if (statusQuery.data && statusQuery.data.status !== "RUNNING") {
-      void queryClient.invalidateQueries({ queryKey: getListDiscoveryRunsQueryKey() })
+      void Promise.all([
+        queryClient.invalidateQueries({ queryKey: getListDiscoveryRunsQueryKey() }),
+        queryClient.invalidateQueries({ queryKey: getListDiscoveryCandidatesQueryKey() }),
+        queryClient.invalidateQueries({ queryKey: getListOpportunitiesQueryKey() }),
+      ])
     }
   }, [queryClient, statusQuery.data?.status])
 
@@ -487,7 +491,7 @@ export default function Discovery() {
         </header>
 
         <section className="mb-7 grid grid-cols-2 gap-4 rounded-[1.2rem] border border-[#d7d5ca] bg-[#fbfaf5] p-4 shadow-[0_12px_35px_rgba(40,54,40,0.035)] sm:grid-cols-4 sm:p-5">
-          <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Verification" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? `${titleCase(activeRun.coverage_status)} · pass ${activeRun.current_pass ?? "—"} / 2` : "Awaiting scan"} />
+          <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Verification" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? `${titleCase(activeRun.verification_status)} · pass ${activeRun.current_pass ?? "—"} / 2` : "Awaiting scan"} />
           <Metric icon={<Fingerprint className="h-3.5 w-3.5 text-[#5f796b]" />} label="Canonical actors" value={activeRun ? activeRun.unique_actor_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.duplicate_actor_count} duplicate records` : "No scan yet"} />
           <Metric icon={<Layers3 className="h-3.5 w-3.5 text-[#8c671e]" />} label="Clusters" value={activeRun ? activeRun.cluster_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.candidate_count} candidate leads` : "No sample yet"} />
           <Metric icon={<Target className="h-3.5 w-3.5 text-[#a5542f]" />} label="Queue" value={candidatesQuery.isLoading ? "…" : candidates.length.toLocaleString()} note={queueFilter === "NEW" ? "Needs review" : titleCase(queueFilter)} />
@@ -575,8 +579,9 @@ export default function Discovery() {
                       <div className="mt-1 font-mono text-sm font-bold">{activeRun.current_pass ?? "—"} / 2</div>
                     </div>
                     <div>
-                      <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Requests</div>
-                      <div className="mt-1 font-mono text-sm font-bold">{activeRun.request_count}</div>
+                      <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Network attempts</div>
+                      <div className="mt-1 font-mono text-sm font-bold">{activeRun.network_attempt_count}</div>
+                      <div className="mt-1 text-[10px] text-[#c7d2c5]">{activeRun.request_count} page requests</div>
                     </div>
                     <div>
                       <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pacing</div>

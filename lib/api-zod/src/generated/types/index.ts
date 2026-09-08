@@ -27,6 +27,7 @@ export * from './discoveryCandidateStructureObservations';
 export * from './discoveryCoverageStatus';
 export * from './discoveryRun';
 export * from './discoveryRunStatus';
+export * from './discoveryVerificationStatus';
 export * from './evidence';
 export * from './evidenceClassification';
 export * from './evidenceInput';

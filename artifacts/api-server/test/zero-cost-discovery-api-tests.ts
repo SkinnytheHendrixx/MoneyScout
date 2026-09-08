@@ -9,6 +9,8 @@ import {
   discoveryClusterSnapshotsTable,
   discoveryObservationLinksTable,
   discoveryRunsTable,
+  discoveryRunPassesTable,
+  discoveryRunPassMembershipsTable,
   discoveryStagingActorsTable,
   evidenceTable,
   opportunitiesTable,
@@ -55,6 +57,32 @@ const run = async (name: string, test: () => Promise<void>) => {
 
 const runIds: number[] = [];
 setDiscoverySleepForTests(async () => undefined);
+
+const convergenceActor = (id: string) => ({
+  id,
+  username: id,
+  name: id,
+  title: id,
+  url: `https://apify.com/${id}`,
+  platform: "unclassified",
+  categories: ["unclassified"],
+});
+
+const startFixtureRun = async (pages: Array<{ total: number; items: unknown[] }>) => {
+  let pageIndex = 0;
+  setDiscoveryMaxRetriesForTests(0);
+  setDiscoveryFetchPageForTests(async (offset, limit) => {
+    const page = pages[pageIndex++];
+    if (!page) throw new Error(`unexpected fixture page at offset ${offset}`);
+    return { ...page, offset, limit };
+  });
+  const response = await fetch(`http://127.0.0.1:${port}/api/discovery/runs`, { method: "POST" });
+  assert.equal(response.status, 202);
+  const started = await response.json() as { id: number };
+  runIds.push(started.id);
+  const finished = await waitForStatus(started.id);
+  return { startedId: started.id, finished };
+};
 
 await run("staged finalization persists multiple batches and protects linked history", async () => {
   const fixtureCandidateKey = "apify:JAVASCRIPT:FINANCE:HIGH_USAGE_FRAGMENTED";
@@ -340,6 +368,138 @@ await run("manual discovery returns 202 and status polling reaches COMPLETE", as
   assert.equal(finished.status, "COMPLETE");
   assert.equal(finished.coverage_status, "COMPLETE");
   assert.equal(finished.candidate_count, 0);
+});
+
+await run("canonical membership converges despite reordered actors and changed observed totals", async () => {
+  const actorA = convergenceActor("convergence-a");
+  const actorB = convergenceActor("convergence-b");
+  const { startedId, finished } = await startFixtureRun([
+    { total: 2, items: [actorA, actorB] },
+    { total: 3, items: [] },
+    { total: 2, items: [actorB, actorA] },
+    { total: 2, items: [] },
+  ]);
+  const terminal = finished as {
+    status: string;
+    verification_status: string;
+    candidate_count: number;
+  };
+  assert.equal(terminal.status, "COMPLETE");
+  assert.equal(terminal.verification_status, "VERIFIED_CONVERGENCE");
+  assert.equal(terminal.candidate_count, 0);
+
+  const passes = await db
+    .select()
+    .from(discoveryRunPassesTable)
+    .where(eq(discoveryRunPassesTable.runId, startedId));
+  assert.equal(passes.length, 2);
+  assert.deepEqual(
+    passes.map((pass) => ({
+      status: pass.status,
+      uniqueActorCount: pass.uniqueActorCount,
+      minObservedTotal: pass.minObservedTotal,
+      maxObservedTotal: pass.maxObservedTotal,
+      totalDrift: pass.totalDrift,
+      pass1OnlyCount: pass.pass1OnlyCount,
+      pass2OnlyCount: pass.pass2OnlyCount,
+    })),
+    [
+      {
+        status: "COMPLETE",
+        uniqueActorCount: 2,
+        minObservedTotal: 2,
+        maxObservedTotal: 3,
+        totalDrift: 1,
+        pass1OnlyCount: 0,
+        pass2OnlyCount: 0,
+      },
+      {
+        status: "COMPLETE",
+        uniqueActorCount: 2,
+        minObservedTotal: 2,
+        maxObservedTotal: 2,
+        totalDrift: 0,
+        pass1OnlyCount: 0,
+        pass2OnlyCount: 0,
+      },
+    ],
+  );
+  const memberships = await db
+    .select()
+    .from(discoveryRunPassMembershipsTable)
+    .where(eq(discoveryRunPassMembershipsTable.runId, startedId));
+  assert.equal(memberships.length, 0);
+});
+
+await run("same totals with changed canonical membership remain incomplete", async () => {
+  const { startedId, finished } = await startFixtureRun([
+    { total: 2, items: [convergenceActor("same-total-a"), convergenceActor("same-total-b")] },
+    { total: 2, items: [] },
+    { total: 2, items: [convergenceActor("same-total-a"), convergenceActor("same-total-c")] },
+    { total: 2, items: [] },
+  ]);
+  const terminal = finished as { status: string; verification_status: string };
+  assert.equal(terminal.status, "INCOMPLETE");
+  assert.equal(terminal.verification_status, "UNVERIFIED");
+  const passes = await db
+    .select()
+    .from(discoveryRunPassesTable)
+    .where(eq(discoveryRunPassesTable.runId, startedId));
+  assert.deepEqual(
+    passes.map((pass) => [pass.status, pass.pass1OnlyCount, pass.pass2OnlyCount]),
+    [
+      ["UNVERIFIED", 1, 1],
+      ["UNVERIFIED", 1, 1],
+    ],
+  );
+});
+
+await run("actor additions and removals are both rejected by the anti-join", async () => {
+  const added = await startFixtureRun([
+    { total: 2, items: [convergenceActor("addition-a"), convergenceActor("addition-b")] },
+    { total: 2, items: [] },
+    { total: 3, items: [convergenceActor("addition-a"), convergenceActor("addition-b"), convergenceActor("addition-c")] },
+    { total: 3, items: [] },
+  ]);
+  assert.equal((added.finished as { status: string }).status, "INCOMPLETE");
+
+  const removed = await startFixtureRun([
+    { total: 3, items: [convergenceActor("removal-a"), convergenceActor("removal-b"), convergenceActor("removal-c")] },
+    { total: 3, items: [] },
+    { total: 2, items: [convergenceActor("removal-a"), convergenceActor("removal-b")] },
+    { total: 2, items: [] },
+  ]);
+  assert.equal((removed.finished as { status: string }).status, "INCOMPLETE");
+
+  for (const runId of [added.startedId, removed.startedId]) {
+    const passes = await db
+      .select()
+      .from(discoveryRunPassesTable)
+      .where(eq(discoveryRunPassesTable.runId, runId));
+    assert.equal(passes.every((pass) => pass.pass1OnlyCount !== 0 || pass.pass2OnlyCount !== 0), true);
+  }
+});
+
+await run("a failed second pass persists exact failure telemetry and no published result", async () => {
+  const actorA = convergenceActor("failure-a");
+  const actorB = convergenceActor("failure-b");
+  const { startedId, finished } = await startFixtureRun([
+    { total: 2, items: [actorA, actorB] },
+    { total: 2, items: [] },
+    { total: 2, items: [actorA] },
+  ]);
+  const terminal = finished as { status: string; candidate_count: number };
+  assert.equal(terminal.status, "FAILED");
+  assert.equal(terminal.candidate_count, 0);
+  const passes = await db
+    .select()
+    .from(discoveryRunPassesTable)
+    .where(eq(discoveryRunPassesTable.runId, startedId));
+  const failedPass = passes.find((pass) => pass.passNumber === 2);
+  assert.equal(failedPass?.status, "FAILED");
+  assert.equal(failedPass?.requestCount, 1);
+  assert.equal(failedPass?.networkAttemptCount, 1);
+  assert.equal(failedPass?.failureTelemetry?.invariant, "item_count_mismatch");
 });
 
 await run("malformed async runs become terminal failures with no scored candidates", async () => {

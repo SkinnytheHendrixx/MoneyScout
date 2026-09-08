@@ -107,13 +107,17 @@ export interface TraversalProgress {
   offset: number;
   total: number;
   initialTotal: number;
+  minObservedTotal: number;
   initialPageCount: number;
   maxObservedTotal: number;
+  totalDrift: number;
   firstObservedTotal: number;
   lastObservedTotal: number;
   effectivePageSize: number;
   pagesFetched: number;
   requestCount: number;
+  networkAttemptCount: number;
+  maxNetworkAttempts: number;
   retryCount: number;
   uniqueActorCount: number;
   duplicateActorCount: number;
@@ -413,20 +417,49 @@ async function fetchWithRetry(
 ) {
   if (!firstRequest) await sleepFn(pacingMs);
   let retryCount = 0;
+  let attemptCount = 0;
   while (true) {
+    attemptCount += 1;
     try {
       throwIfAborted(signal);
       return {
         page: await fetchPageWithTimeout(fetchPage, offset, limit, signal, requestTimeoutMs),
         retryCount,
+        attemptCount,
       };
     } catch (error) {
-      if (retryCount >= maxRetries) throw error;
+      if (retryCount >= maxRetries) {
+        throw new DiscoveryRequestError(
+          error instanceof Error ? error.message : "Discovery request failed",
+          attemptCount,
+          retryCount,
+          { cause: error },
+        );
+      }
       retryCount += 1;
       await sleepFn(Math.min(10_000, pacingMs * 2 ** retryCount));
       throwIfAborted(signal);
     }
   }
+}
+
+class DiscoveryRequestError extends Error {
+  constructor(
+    message: string,
+    readonly attemptCount: number,
+    readonly retryCount: number,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "DiscoveryRequestError";
+  }
+}
+
+function requestFailureStats(error: unknown) {
+  if (error instanceof DiscoveryRequestError) {
+    return { attemptCount: error.attemptCount, retryCount: error.retryCount };
+  }
+  return { attemptCount: 1, retryCount: 0 };
 }
 
 function throwIfAborted(signal?: AbortSignal) {
@@ -490,7 +523,10 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     ? Math.min(DISCOVERY_PAGE_SIZE, Math.max(1, Math.floor(requestedPageSize)))
     : DISCOVERY_PAGE_SIZE;
   const pacingMs = Math.max(options.pacingMs ?? DISCOVERY_PACING_MS, DISCOVERY_PACING_MS);
-  const maxRetries = options.maxRetries ?? DISCOVERY_MAX_RETRIES;
+  const requestedMaxRetries = options.maxRetries ?? DISCOVERY_MAX_RETRIES;
+  const maxRetries = Number.isFinite(requestedMaxRetries)
+    ? Math.min(DISCOVERY_MAX_RETRIES, Math.max(0, Math.floor(requestedMaxRetries)))
+    : DISCOVERY_MAX_RETRIES;
   const requestTimeoutMs = Math.max(
     options.requestTimeoutMs ?? DISCOVERY_REQUEST_TIMEOUT_MS,
     1,
@@ -505,18 +541,46 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     offset: 0,
     total: 0,
     initialTotal: 0,
+    minObservedTotal: 0,
     initialPageCount: 0,
     maxObservedTotal: 0,
+    totalDrift: 0,
     firstObservedTotal: 0,
     lastObservedTotal: 0,
     effectivePageSize: pageSize,
     pagesFetched: 0,
     requestCount: 0,
+    networkAttemptCount: 0,
+    maxNetworkAttempts: 0,
     retryCount: 0,
     uniqueActorCount: 0,
     duplicateActorCount: 0,
   };
   let failureTelemetry: TraversalFailureTelemetry | null = null;
+  const fetchTracked = async (offset: number, limit: number, firstRequest: boolean) => {
+    progress.requestCount += 1;
+    try {
+      const result = await fetchWithRetry(
+        options.fetchPage,
+        offset,
+        limit,
+        maxRetries,
+        sleepFn,
+        pacingMs,
+        firstRequest,
+        requestTimeoutMs,
+        options.signal,
+      );
+      progress.networkAttemptCount += result.attemptCount;
+      progress.retryCount += result.retryCount;
+      return result;
+    } catch (error) {
+      const stats = requestFailureStats(error);
+      progress.networkAttemptCount += stats.attemptCount;
+      progress.retryCount += stats.retryCount;
+      throw error;
+    }
+  };
 
   const fail = (
     error: string,
@@ -544,19 +608,7 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
   };
 
   try {
-    const first = await fetchWithRetry(
-      options.fetchPage,
-      0,
-      pageSize,
-      maxRetries,
-      sleepFn,
-      pacingMs,
-      true,
-      requestTimeoutMs,
-      options.signal,
-    );
-    progress.requestCount += 1;
-    progress.retryCount += first.retryCount;
+    const first = await fetchTracked(0, pageSize, true);
     if (first.page.offset !== 0)
       fail("Apify Store returned an invalid first page", first.page, 0, pageSize, null, null, "offset_mismatch");
     if (first.page.limit <= 0 || first.page.limit > pageSize)
@@ -568,11 +620,14 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       fail("Apify Store returned an invalid first page", first.page, 0, first.page.limit, firstExpectedCount, first.page.total, "item_count_mismatch");
     progress.total = first.page.total;
     progress.initialTotal = first.page.total;
+    progress.minObservedTotal = first.page.total;
     progress.firstObservedTotal = first.page.total;
     progress.lastObservedTotal = first.page.total;
     progress.maxObservedTotal = first.page.total;
     progress.effectivePageSize = first.page.limit;
     progress.initialPageCount = Math.ceil(first.page.total / first.page.limit);
+    progress.maxNetworkAttempts =
+      Math.max(1, progress.initialPageCount + DISCOVERY_MAX_EXTRA_PAGES) * (maxRetries + 1);
     if (options.collectActors !== false) pages.push(first.page);
     progress.pagesFetched = 1;
     const pageSignatures = new Set([sha256(JSON.stringify(first.page.items))]);
@@ -597,28 +652,19 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     ) {
       const offset = progress.pagesFetched * progress.effectivePageSize;
       progress.offset = offset;
-      const next = await fetchWithRetry(
-        options.fetchPage,
-        offset,
-        progress.effectivePageSize,
-        maxRetries,
-        sleepFn,
-        pacingMs,
-        false,
-        requestTimeoutMs,
-        options.signal,
-      );
-      progress.requestCount += 1;
-      progress.retryCount += next.retryCount;
+      const next = await fetchTracked(offset, progress.effectivePageSize, false);
       if (next.page.offset !== offset)
         fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.total, "offset_mismatch");
       if (next.page.limit !== progress.effectivePageSize)
         fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.total, "limit_mismatch");
-      if (next.page.total < progress.initialTotal)
-        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.initialTotal, "total_shrank");
+      progress.minObservedTotal = Math.min(progress.minObservedTotal, next.page.total);
+      progress.maxObservedTotal = Math.max(progress.maxObservedTotal, next.page.total);
+      progress.totalDrift = progress.maxObservedTotal - progress.minObservedTotal;
+      progress.lastObservedTotal = next.page.total;
+      progress.total = progress.maxObservedTotal;
       const expectedLength = Math.min(
         progress.effectivePageSize,
-        Math.max(0, next.page.total - offset),
+        Math.max(0, Math.max(progress.initialTotal, next.page.total) - offset),
       );
       if (next.page.items.length !== expectedLength)
         fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, expectedLength, next.page.total, "item_count_mismatch");
@@ -630,12 +676,19 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       if (options.collectActors !== false) pages.push(next.page);
       progress.pagesFetched += 1;
       progress.offset = offset;
-      progress.lastObservedTotal = next.page.total;
-      progress.maxObservedTotal = Math.max(progress.maxObservedTotal, next.page.total);
-      progress.total = progress.maxObservedTotal;
       requiredPageCount = Math.ceil(progress.maxObservedTotal / progress.effectivePageSize);
       if (requiredPageCount > progress.initialPageCount + DISCOVERY_MAX_EXTRA_PAGES)
         fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, expectedLength, next.page.total, "growth_exceeds_one_extra_page");
+      if (progress.totalDrift > progress.effectivePageSize)
+        fail(
+          `Apify Store total drift exceeded one effective page at offset ${offset}`,
+          next.page,
+          offset,
+          progress.effectivePageSize,
+          expectedLength,
+          progress.maxObservedTotal,
+          "total_drift_exceeds_page_size",
+        );
       const pageActors: NormalizedActor[] = [];
       for (const actor of next.page.items
         .map(normalizeActor)
@@ -654,15 +707,18 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     if (progress.total === 0 && first.page.items.length !== 0) {
       fail("Apify Store reported zero total with non-empty results", first.page, 0, progress.effectivePageSize, 0, 0, "zero_total_with_items");
     }
-    if (progress.uniqueActorCount !== progress.total) {
+    if (
+      progress.uniqueActorCount < progress.minObservedTotal ||
+      progress.uniqueActorCount > progress.maxObservedTotal
+    ) {
       fail(
-        `Apify Store returned ${progress.total} records but ${progress.uniqueActorCount} unique actors were normalized`,
+        `Apify Store returned totals from ${progress.minObservedTotal} to ${progress.maxObservedTotal} records but ${progress.uniqueActorCount} unique actors were normalized`,
         null,
         progress.offset,
         progress.effectivePageSize,
-        progress.total,
-        progress.total,
-        "unique_count_mismatch",
+        null,
+        progress.maxObservedTotal,
+        "unique_count_outside_observed_total_envelope",
       );
     }
     return { ok: true, total: progress.total, pages, actors, progress };
@@ -743,13 +799,17 @@ async function saveDiscoveryPassProgress(runId: number, progress: TraversalProgr
     .update(discoveryRunPassesTable)
     .set({
       initialTotal: progress.initialTotal,
+      minObservedTotal: progress.minObservedTotal,
       effectivePageSize: progress.effectivePageSize,
       initialPageCount: progress.initialPageCount,
       maxObservedTotal: progress.maxObservedTotal,
+      totalDrift: progress.totalDrift,
       firstObservedTotal: progress.firstObservedTotal,
       lastObservedTotal: progress.lastObservedTotal,
       pagesFetched: progress.pagesFetched,
       requestCount: progress.requestCount,
+      networkAttemptCount: progress.networkAttemptCount,
+      maxNetworkAttempts: progress.maxNetworkAttempts,
       retryCount: progress.retryCount,
       uniqueActorCount: progress.uniqueActorCount,
       duplicateActorCount: progress.duplicateActorCount,
@@ -825,13 +885,17 @@ export async function traverseStoreToStaging(
         ? null
         : (result.failureTelemetry as Record<string, unknown> | null),
       initialTotal: result.progress.initialTotal,
+      minObservedTotal: result.progress.minObservedTotal,
       effectivePageSize: result.progress.effectivePageSize,
       initialPageCount: result.progress.initialPageCount,
       maxObservedTotal: result.progress.maxObservedTotal,
+      totalDrift: result.progress.totalDrift,
       firstObservedTotal: result.progress.firstObservedTotal,
       lastObservedTotal: result.progress.lastObservedTotal,
       pagesFetched: result.progress.pagesFetched,
       requestCount: result.progress.requestCount,
+      networkAttemptCount: result.progress.networkAttemptCount,
+      maxNetworkAttempts: result.progress.maxNetworkAttempts,
       retryCount: result.progress.retryCount,
       uniqueActorCount: result.progress.uniqueActorCount,
       duplicateActorCount: result.progress.duplicateActorCount,
@@ -1659,17 +1723,22 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
       .set({
         status: "COMPLETE",
         coverageStatus: "COMPLETE",
+        verificationStatus: "VERIFIED_CONVERGENCE",
         finishedAt: new Date(),
         lastHeartbeatAt: new Date(),
         advertisedTotal: traversal.total,
         observedTotal: traversal.progress.uniqueActorCount,
+        minObservedTotal: traversal.progress.minObservedTotal,
         effectivePageSize: traversal.progress.effectivePageSize,
         expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
         pagesFetched: traversal.progress.pagesFetched,
         currentOffset: traversal.progress.offset,
         currentPass: traversal.progress.passNumber,
         maxObservedTotal: traversal.progress.maxObservedTotal,
+        totalDrift: traversal.progress.totalDrift,
         requestCount: traversal.progress.requestCount,
+        networkAttemptCount: traversal.progress.networkAttemptCount,
+        maxNetworkAttempts: traversal.progress.maxNetworkAttempts,
         retryCount: traversal.progress.retryCount,
         uniqueActorCount: traversal.progress.uniqueActorCount,
         duplicateActorCount: traversal.progress.duplicateActorCount,
@@ -2006,15 +2075,20 @@ async function persistDerivedDiscoveryResult(
       .set({
         status: "COMPLETE",
         coverageStatus: "COMPLETE",
+        verificationStatus: "VERIFIED_CONVERGENCE",
         finishedAt: new Date(),
         lastHeartbeatAt: new Date(),
         advertisedTotal: traversal.total,
         observedTotal: traversal.progress.uniqueActorCount,
+        minObservedTotal: traversal.progress.minObservedTotal,
         effectivePageSize: traversal.progress.effectivePageSize,
         expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
         pagesFetched: traversal.progress.pagesFetched,
         currentOffset: traversal.progress.offset,
         requestCount: traversal.progress.requestCount,
+        networkAttemptCount: traversal.progress.networkAttemptCount,
+        maxNetworkAttempts: traversal.progress.maxNetworkAttempts,
+        totalDrift: traversal.progress.totalDrift,
         retryCount: traversal.progress.retryCount,
         uniqueActorCount: traversal.progress.uniqueActorCount,
         duplicateActorCount: traversal.progress.duplicateActorCount,
@@ -2114,6 +2188,7 @@ export async function reconcileStaleDiscoveryRuns(): Promise<void> {
     .set({
       status: "INTERRUPTED",
       coverageStatus: "INCOMPLETE",
+      verificationStatus: "UNVERIFIED",
       finishedAt: new Date(),
       error: "Server restarted while the run heartbeat was stale.",
     })

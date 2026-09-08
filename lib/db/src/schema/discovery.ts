@@ -29,6 +29,11 @@ export const discoveryCoverageStatusEnum = pgEnum("discovery_coverage_status", [
   "INCOMPLETE",
 ]);
 
+export const discoveryVerificationStatusEnum = pgEnum("discovery_verification_status", [
+  "UNVERIFIED",
+  "VERIFIED_CONVERGENCE",
+]);
+
 export const discoveryPassStatusEnum = pgEnum("discovery_pass_status", [
   "RUNNING",
   "COMPLETE",
@@ -61,6 +66,9 @@ export const discoveryRunsTable = pgTable(
     coverageStatus: discoveryCoverageStatusEnum("coverage_status")
       .notNull()
       .default("UNKNOWN"),
+    verificationStatus: discoveryVerificationStatusEnum("verification_status")
+      .notNull()
+      .default("UNVERIFIED"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
@@ -73,12 +81,16 @@ export const discoveryRunsTable = pgTable(
     platformAliasVersion: text("platform_alias_version").notNull().default("platform-aliases-v1"),
     advertisedTotal: integer("advertised_total"),
     observedTotal: integer("observed_total"),
+    minObservedTotal: integer("min_observed_total"),
     expectedPages: integer("expected_pages"),
     pagesFetched: integer("pages_fetched").notNull().default(0),
     currentOffset: integer("current_offset").notNull().default(0),
     currentPass: integer("current_pass"),
     maxObservedTotal: integer("max_observed_total"),
+    totalDrift: integer("total_drift").notNull().default(0),
     requestCount: integer("request_count").notNull().default(0),
+    networkAttemptCount: integer("network_attempt_count").notNull().default(0),
+    maxNetworkAttempts: integer("max_network_attempts"),
     retryCount: integer("retry_count").notNull().default(0),
     uniqueActorCount: integer("unique_actor_count").notNull().default(0),
     duplicateActorCount: integer("duplicate_actor_count").notNull().default(0),
@@ -107,13 +119,17 @@ export const discoveryRunPassesTable = pgTable(
     passNumber: integer("pass_number").notNull(),
     status: discoveryPassStatusEnum("status").notNull().default("RUNNING"),
     initialTotal: integer("initial_total"),
+    minObservedTotal: integer("min_observed_total"),
     effectivePageSize: integer("effective_page_size"),
     initialPageCount: integer("initial_page_count"),
     maxObservedTotal: integer("max_observed_total"),
+    totalDrift: integer("total_drift").notNull().default(0),
     firstObservedTotal: integer("first_observed_total"),
     lastObservedTotal: integer("last_observed_total"),
     pagesFetched: integer("pages_fetched").notNull().default(0),
     requestCount: integer("request_count").notNull().default(0),
+    networkAttemptCount: integer("network_attempt_count").notNull().default(0),
+    maxNetworkAttempts: integer("max_network_attempts"),
     retryCount: integer("retry_count").notNull().default(0),
     uniqueActorCount: integer("unique_actor_count").notNull().default(0),
     duplicateActorCount: integer("duplicate_actor_count").notNull().default(0),

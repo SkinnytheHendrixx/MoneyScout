@@ -7,12 +7,14 @@
  */
 import type { DiscoveryCoverageStatus } from './discoveryCoverageStatus';
 import type { DiscoveryRunStatus } from './discoveryRunStatus';
+import type { DiscoveryVerificationStatus } from './discoveryVerificationStatus';
 
 export interface DiscoveryRun {
   id: number;
   source: string;
   status: DiscoveryRunStatus;
   coverage_status: DiscoveryCoverageStatus;
+  verification_status: DiscoveryVerificationStatus;
   started_at: Date;
   /** @nullable */
   finished_at: Date | null;
@@ -28,6 +30,8 @@ export interface DiscoveryRun {
   /** @nullable */
   observed_total: number | null;
   /** @nullable */
+  min_observed_total: number | null;
+  /** @nullable */
   expected_pages: number | null;
   pages_fetched: number;
   current_offset: number;
@@ -35,7 +39,11 @@ export interface DiscoveryRun {
   current_pass: number | null;
   /** @nullable */
   max_observed_total: number | null;
+  total_drift: number;
   request_count: number;
+  network_attempt_count: number;
+  /** @nullable */
+  max_network_attempts: number | null;
   retry_count: number;
   unique_actor_count: number;
   duplicate_actor_count: number;

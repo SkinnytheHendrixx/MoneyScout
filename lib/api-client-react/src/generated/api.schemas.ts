@@ -268,6 +268,14 @@ export const DiscoveryCoverageStatus = {
   INCOMPLETE: 'INCOMPLETE',
 } as const;
 
+export type DiscoveryVerificationStatus = typeof DiscoveryVerificationStatus[keyof typeof DiscoveryVerificationStatus];
+
+
+export const DiscoveryVerificationStatus = {
+  UNVERIFIED: 'UNVERIFIED',
+  VERIFIED_CONVERGENCE: 'VERIFIED_CONVERGENCE',
+} as const;
+
 export type DiscoveryCandidateStatus = typeof DiscoveryCandidateStatus[keyof typeof DiscoveryCandidateStatus];
 
 
@@ -295,6 +303,7 @@ export interface DiscoveryRun {
   source: string;
   status: DiscoveryRunStatus;
   coverage_status: DiscoveryCoverageStatus;
+  verification_status: DiscoveryVerificationStatus;
   started_at: string;
   /** @nullable */
   finished_at: string | null;
@@ -310,6 +319,8 @@ export interface DiscoveryRun {
   /** @nullable */
   observed_total: number | null;
   /** @nullable */
+  min_observed_total: number | null;
+  /** @nullable */
   expected_pages: number | null;
   pages_fetched: number;
   current_offset: number;
@@ -317,7 +328,11 @@ export interface DiscoveryRun {
   current_pass: number | null;
   /** @nullable */
   max_observed_total: number | null;
+  total_drift: number;
   request_count: number;
+  network_attempt_count: number;
+  /** @nullable */
+  max_network_attempts: number | null;
   retry_count: number;
   unique_actor_count: number;
   duplicate_actor_count: number;
