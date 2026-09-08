@@ -1,22 +1,19 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Money Scout API
 servers:
   - url: /api
-    description: Base API path
 tags:
   - name: health
-    description: Health operations
+  - name: opportunities
+  - name: evidence
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
-      summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +21,244 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /opportunities:
+    get:
+      operationId: listOpportunities
+      tags: [opportunities]
+      responses:
+        "200":
+          description: Opportunities
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Opportunity"
+    post:
+      operationId: createOpportunity
+      tags: [opportunities]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpportunityInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+  /opportunities/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getOpportunity
+      tags: [opportunities]
+      responses:
+        "200":
+          description: Opportunity with evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpportunityDetail"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateOpportunity
+      tags: [opportunities]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OpportunityUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Opportunity"
+    delete:
+      operationId: deleteOpportunity
+      tags: [opportunities]
+      responses:
+        "204":
+          description: Deleted
+  /opportunities/{opportunityId}/evidence:
+    parameters:
+      - name: opportunityId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: listEvidence
+      tags: [evidence]
+      responses:
+        "200":
+          description: Evidence
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Evidence"
+    post:
+      operationId: createEvidence
+      tags: [evidence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evidence"
+  /evidence/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      operationId: getEvidence
+      tags: [evidence]
+      responses:
+        "200":
+          description: Evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evidence"
+    patch:
+      operationId: updateEvidence
+      tags: [evidence]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvidenceUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Evidence"
+    delete:
+      operationId: deleteEvidence
+      tags: [evidence]
+      responses:
+        "204":
+          description: Deleted
 components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
-
+    PolicyStatus:
+      type: string
+      enum: [GREEN, YELLOW, RED, UNKNOWN]
+    Verdict:
+      type: string
+      enum: [NEW, RESEARCH, WATCH, TEST, BUILD, KILL]
+    EvidenceClassification:
+      type: string
+      enum: [FACT, CLAIM, INFERENCE, UNKNOWN]
+    Opportunity:
+      type: object
+      required: [id, name, source_platform, source_url, opportunity_type, thesis, first_seen, last_researched, status, overall_score, policy_status, verdict, kill_reason, engine_family]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        source_platform: { type: string }
+        source_url: { type: string, format: uri }
+        opportunity_type: { type: string }
+        thesis: { type: string }
+        first_seen: { type: string, format: date }
+        last_researched: { type: string, format: date }
+        status: { type: string }
+        overall_score: { type: number }
+        policy_status: { $ref: "#/components/schemas/PolicyStatus" }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        kill_reason: { type: [string, "null"] }
+        engine_family: { type: string }
+    OpportunityInput:
+      type: object
+      required: [name, source_platform, source_url, opportunity_type, thesis, first_seen, last_researched, status, overall_score, policy_status, verdict, engine_family]
+      properties:
+        name: { type: string, minLength: 1 }
+        source_platform: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+        opportunity_type: { type: string, minLength: 1 }
+        thesis: { type: string, minLength: 1 }
+        first_seen: { type: string, format: date }
+        last_researched: { type: string, format: date }
+        status: { type: string, minLength: 1 }
+        overall_score: { type: number }
+        policy_status: { $ref: "#/components/schemas/PolicyStatus" }
+        verdict: { $ref: "#/components/schemas/Verdict" }
+        kill_reason: { type: [string, "null"] }
+        engine_family: { type: string, minLength: 1 }
+    OpportunityUpdate:
+      allOf:
+        - $ref: "#/components/schemas/OpportunityInput"
+    OpportunityDetail:
+      allOf:
+        - $ref: "#/components/schemas/Opportunity"
+        - type: object
+          required: [evidence]
+          properties:
+            evidence:
+              type: array
+              items:
+                $ref: "#/components/schemas/Evidence"
+    Evidence:
+      type: object
+      required: [id, claim, source_url, source_title, observed_date, classification, opportunity_id, evaluation_dimension]
+      properties:
+        id: { type: integer }
+        claim: { type: string }
+        source_url: { type: string, format: uri }
+        source_title: { type: string }
+        observed_date: { type: string, format: date }
+        classification: { $ref: "#/components/schemas/EvidenceClassification" }
+        opportunity_id: { type: integer }
+        evaluation_dimension: { type: string }
+    EvidenceInput:
+      type: object
+      required: [claim, source_url, source_title, observed_date, classification, evaluation_dimension]
+      properties:
+        claim: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+        source_title: { type: string, minLength: 1 }
+        observed_date: { type: string, format: date }
+        classification: { $ref: "#/components/schemas/EvidenceClassification" }
+        evaluation_dimension: { type: string, minLength: 1 }
+    EvidenceUpdate:
+      type: object
+      required: [claim, source_url, source_title, observed_date, classification, opportunity_id, evaluation_dimension]
+      properties:
+        claim: { type: string, minLength: 1 }
+        source_url: { type: string, format: uri }
+        source_title: { type: string, minLength: 1 }
+        observed_date: { type: string, format: date }
+        classification: { $ref: "#/components/schemas/EvidenceClassification" }
+        opportunity_id: { type: integer }
+        evaluation_dimension: { type: string, minLength: 1 }

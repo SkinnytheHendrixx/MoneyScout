@@ -1,6 +1,6 @@
-# [Project name]
+# Money Scout
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A private internal tool for evidence-driven opportunity tracking and human review.
 
 ## Run & Operate
 
@@ -22,15 +22,23 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — opportunities and evidence API contract
+- `lib/db/src/schema/money-scout.ts` — PostgreSQL schema for all six Phase 1 tables
+- `artifacts/api-server/src/routes/` — opportunities and evidence CRUD routes
+- `artifacts/money-scout/src/` — dashboard, detail views, and forms
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Phase 1 is deliberately manual: no AI, research automation, scraping, scheduling, or scoring logic.
+- Calendar dates use PostgreSQL `date` columns; research run timestamps use timezone-aware timestamps.
+- Deleting an opportunity cascades to its linked evidence, evaluations, snapshots, and experiments.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Sort and search the opportunity review queue.
+- Create, inspect, edit, and delete opportunities.
+- Add, edit, inspect, and remove evidence linked to an opportunity.
+- Preserve all records in PostgreSQL across refreshes and restarts.
 
 ## User preferences
 
@@ -38,7 +46,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Update `lib/api-spec/openapi.yaml` before API/client behavior, then run codegen.
+- Keep future phases out of the Phase 1 review surface unless the user explicitly expands scope.
 
 ## Pointers
 

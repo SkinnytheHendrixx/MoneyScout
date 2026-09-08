@@ -4,6 +4,7 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
+import { Layout } from '@/components/layout';
 import {
   Route,
   Switch,
@@ -11,33 +12,26 @@ import {
   Router as WouterRouter,
 } from 'wouter';
 
-const queryClient = new QueryClient();
+import OpportunitiesList from '@/pages/opportunities-list';
+import OpportunityNew from '@/pages/opportunity-new';
+import OpportunityDetail from '@/pages/opportunity-detail';
+import OpportunityEdit from '@/pages/opportunity-edit';
 
-function Home() {
-  return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Replit Agent is building...
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Your app will appear here once it's ready.
-        </p>
-      </div>
-    </div>
-  );
-}
+const queryClient = new QueryClient();
 
 function Router() {
   return (
-    // Keep a shared shell (sidebar, navbar) outside the boundary so it
-    // survives a page crash.
-    <RoutedErrorBoundary>
-      <Switch>
-        <Route path="/" component={Home} />
-        <Route component={NotFound} />
-      </Switch>
-    </RoutedErrorBoundary>
+    <Layout>
+      <RoutedErrorBoundary>
+        <Switch>
+          <Route path="/" component={OpportunitiesList} />
+          <Route path="/opportunities/new" component={OpportunityNew} />
+          <Route path="/opportunities/:id" component={OpportunityDetail} />
+          <Route path="/opportunities/:id/edit" component={OpportunityEdit} />
+          <Route component={NotFound} />
+        </Switch>
+      </RoutedErrorBoundary>
+    </Layout>
   );
 }
 
