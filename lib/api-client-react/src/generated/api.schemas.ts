@@ -124,3 +124,28 @@ export interface EvidenceUpdate {
   evaluation_dimension: string;
 }
 
+export type PolicyCheckRetrievalMethod = typeof PolicyCheckRetrievalMethod[keyof typeof PolicyCheckRetrievalMethod];
+
+
+export const PolicyCheckRetrievalMethod = {
+  HTTP: 'HTTP',
+  HTTP_AND_BROWSERBASE: 'HTTP_AND_BROWSERBASE',
+  HTTP_INSUFFICIENT: 'HTTP_INSUFFICIENT',
+} as const;
+
+export interface PolicyCheck {
+  id: number;
+  opportunity_id: number;
+  status: PolicyStatus;
+  summary: string;
+  checked_at: string;
+  retrieval_method: PolicyCheckRetrievalMethod;
+  evidence_created: number;
+  /** @nullable */
+  external_cost_usd: number | null;
+  /** @nullable */
+  ai_input_tokens: number | null;
+  /** @nullable */
+  ai_output_tokens: number | null;
+}
+

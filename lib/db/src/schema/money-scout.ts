@@ -105,3 +105,24 @@ export const experimentsTable = pgTable("experiments", {
   status: text("status").notNull(),
   result: text("result"),
 });
+
+export const policyChecksTable = pgTable("policy_checks", {
+  id: serial("id").primaryKey(),
+  opportunityId: integer("opportunity_id")
+    .notNull()
+    .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
+  status: policyStatusEnum("status").notNull(),
+  summary: text("summary").notNull(),
+  checkedAt: timestamp("checked_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  retrievalMethod: text("retrieval_method").notNull(),
+  evidenceCreated: integer("evidence_created").notNull().default(0),
+  externalCostUsd: numeric("external_cost_usd", {
+    precision: 8,
+    scale: 4,
+    mode: "number",
+  }),
+  aiInputTokens: integer("ai_input_tokens"),
+  aiOutputTokens: integer("ai_output_tokens"),
+});

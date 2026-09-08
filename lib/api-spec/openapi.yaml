@@ -122,6 +122,39 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Evidence"
+  /opportunities/{opportunityId}/policy-checks:
+    parameters:
+      - name: opportunityId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: listPolicyChecks
+      tags: [opportunities]
+      responses:
+        "200":
+          description: Policy check history, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PolicyCheck"
+    post:
+      operationId: runPolicyCheck
+      tags: [opportunities]
+      responses:
+        "201":
+          description: Completed policy check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyCheck"
+        "404":
+          description: Opportunity not found
+        "409":
+          description: Policy check already running
   /evidence/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -262,3 +295,19 @@ components:
         classification: { $ref: "#/components/schemas/EvidenceClassification" }
         opportunity_id: { type: integer }
         evaluation_dimension: { type: string, minLength: 1 }
+    PolicyCheck:
+      type: object
+      required: [id, opportunity_id, status, summary, checked_at, retrieval_method, evidence_created, external_cost_usd, ai_input_tokens, ai_output_tokens]
+      properties:
+        id: { type: integer }
+        opportunity_id: { type: integer }
+        status: { $ref: "#/components/schemas/PolicyStatus" }
+        summary: { type: string }
+        checked_at: { type: string, format: date-time }
+        retrieval_method:
+          type: string
+          enum: [HTTP, HTTP_AND_BROWSERBASE, HTTP_INSUFFICIENT]
+        evidence_created: { type: integer }
+        external_cost_usd: { type: [number, "null"] }
+        ai_input_tokens: { type: [integer, "null"] }
+        ai_output_tokens: { type: [integer, "null"] }

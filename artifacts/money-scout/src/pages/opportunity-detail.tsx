@@ -1,8 +1,7 @@
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { useLocation, useParams, Link } from "wouter"
 import { ArrowLeft, Edit, ExternalLink, Plus, Trash2, ShieldAlert } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
-import { format } from "date-fns"
 
 import { 
   useGetOpportunity, 
@@ -10,7 +9,11 @@ import {
   getListOpportunitiesQueryKey,
   useListEvidence,
   useDeleteEvidence,
-  getListEvidenceQueryKey
+  getListEvidenceQueryKey,
+  useListPolicyChecks,
+  useRunPolicyCheck,
+  getListPolicyChecksQueryKey,
+  getGetOpportunityQueryKey
 } from "@workspace/api-client-react"
 
 import { getPolicyBadge, getVerdictBadge, getClassificationBadge } from "@/components/badges"
@@ -29,6 +32,7 @@ export default function OpportunityDetail() {
 
   const { data: opportunity, isLoading: oppLoading } = useGetOpportunity(id)
   const { data: evidenceList, isLoading: evLoading } = useListEvidence(id)
+  const { data: policyChecks, isLoading: policyChecksLoading } = useListPolicyChecks(id)
 
   const [evidenceToEdit, setEvidenceToEdit] = useState<number | null>(null)
   const [evidenceDialogOpen, setEvidenceDialogOpen] = useState(false)
@@ -54,6 +58,26 @@ export default function OpportunityDetail() {
     }
   })
 
+  const runPolicyCheckMutation = useRunPolicyCheck({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListPolicyChecksQueryKey(id) })
+        queryClient.invalidateQueries({ queryKey: getGetOpportunityQueryKey(id) })
+        queryClient.invalidateQueries({ queryKey: getListOpportunitiesQueryKey() })
+        queryClient.invalidateQueries({ queryKey: getListEvidenceQueryKey(id) })
+        toast({ title: "Policy check completed" })
+      },
+      onError: (error: any) => {
+        const isConflict = error?.status === 409 || error?.response?.status === 409 || String(error).includes("409")
+        toast({ 
+          title: "Policy check failed", 
+          description: isConflict ? "A policy check is already in progress or cannot be run right now." : "An error occurred while running the check.",
+          variant: "destructive" 
+        })
+      }
+    }
+  })
+
   const handleDelete = () => {
     if (window.confirm("Are you sure you want to delete this opportunity? This cannot be undone.")) {
       deleteOppMutation.mutate({ id })
@@ -64,6 +88,10 @@ export default function OpportunityDetail() {
     if (window.confirm("Remove this evidence?")) {
       deleteEvMutation.mutate({ id: evId })
     }
+  }
+
+  const handleRunPolicyCheck = () => {
+    runPolicyCheckMutation.mutate({ opportunityId: id })
   }
 
   if (oppLoading) {
@@ -239,6 +267,49 @@ export default function OpportunityDetail() {
                 <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Last Researched</div>
                 <div>{formatDateTime(opportunity.last_researched)}</div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3 border-b">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Policy Checks</CardTitle>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={handleRunPolicyCheck}
+                  disabled={runPolicyCheckMutation.isPending}
+                >
+                  {runPolicyCheckMutation.isPending ? "Running..." : "Run Check"}
+                </Button>
+              </div>
+              <CardDescription className="text-xs">Checks are limited to policy and access rules.</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-4">
+              {policyChecksLoading ? (
+                <div className="text-sm text-muted-foreground animate-pulse text-center py-4">Loading checks...</div>
+              ) : policyChecks && policyChecks.length > 0 ? (
+                <div className="space-y-4">
+                  {policyChecks.map((check) => (
+                    <div key={check.id} className="text-sm border-b border-dashed last:border-0 pb-4 last:pb-0 space-y-2">
+                      <div className="flex items-center justify-between">
+                        {getPolicyBadge(check.status)}
+                        <span className="text-xs text-muted-foreground">{formatDateTime(check.checked_at)}</span>
+                      </div>
+                      {check.summary && <p className="text-xs leading-relaxed text-muted-foreground">{check.summary}</p>}
+                      <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                        <span className="bg-muted px-1.5 py-0.5 rounded font-mono">{check.retrieval_method}</span>
+                        <span className="bg-muted px-1.5 py-0.5 rounded font-mono">Evidence: {check.evidence_created}</span>
+                        {check.external_cost_usd !== null && (
+                          <span className="bg-muted px-1.5 py-0.5 rounded font-mono">Cost: ${check.external_cost_usd.toFixed(4)}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground text-center py-4">No policy checks run yet.</div>
+              )}
             </CardContent>
           </Card>
         </div>

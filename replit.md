@@ -30,6 +30,8 @@ A private internal tool for evidence-driven opportunity tracking and human revie
 ## Architecture decisions
 
 - Phase 1 is deliberately manual: no AI, research automation, scraping, scheduling, or scoring logic.
+- Phase 2 adds only a user-triggered policy review. It performs bounded direct HTTP retrieval and at most one Claude Sonnet interpretation call; failures return `UNKNOWN` without paid retries.
+- Policy checks are capped at four fetched documents, 32,000 excerpt characters, and a conservative $0.50 estimated external-service ceiling.
 - Calendar dates use PostgreSQL `date` columns; research run timestamps use timezone-aware timestamps.
 - Deleting an opportunity cascades to its linked evidence, evaluations, snapshots, and experiments.
 
@@ -38,6 +40,7 @@ A private internal tool for evidence-driven opportunity tracking and human revie
 - Sort and search the opportunity review queue.
 - Create, inspect, edit, and delete opportunities.
 - Add, edit, inspect, and remove evidence linked to an opportunity.
+- Manually run a bounded policy/access check and review its status, summary, cost estimate, and source-backed evidence.
 - Preserve all records in PostgreSQL across refreshes and restarts.
 
 ## User preferences
@@ -48,6 +51,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 - Update `lib/api-spec/openapi.yaml` before API/client behavior, then run codegen.
 - Keep future phases out of the Phase 1 review surface unless the user explicitly expands scope.
+- Never automatically retry policy retrieval or Claude calls; a user must explicitly run another check.
 
 ## Pointers
 

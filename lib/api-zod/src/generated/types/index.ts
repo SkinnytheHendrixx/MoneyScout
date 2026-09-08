@@ -15,5 +15,7 @@ export * from './opportunity';
 export * from './opportunityDetail';
 export * from './opportunityInput';
 export * from './opportunityUpdate';
+export * from './policyCheck';
+export * from './policyCheckRetrievalMethod';
 export * from './policyStatus';
 export * from './verdict';

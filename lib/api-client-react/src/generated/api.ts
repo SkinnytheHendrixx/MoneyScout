@@ -27,7 +27,8 @@ import type {
   Opportunity,
   OpportunityDetail,
   OpportunityInput,
-  OpportunityUpdate
+  OpportunityUpdate,
+  PolicyCheck
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -601,6 +602,142 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getCreateEvidenceMutationOptions(options));
+    }
+
+export const getListPolicyChecksUrl = (opportunityId: number,) => {
+
+
+
+
+  return `/api/opportunities/${opportunityId}/policy-checks`
+}
+
+export const listPolicyChecks = async (opportunityId: number, options?: Parameters<typeof customFetch>[1]): Promise<PolicyCheck[]> => {
+
+  return customFetch<PolicyCheck[]>(getListPolicyChecksUrl(opportunityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPolicyChecksQueryKey = (opportunityId: number,) => {
+    return [
+    `/api/opportunities/${opportunityId}/policy-checks`
+    ] as const;
+    }
+
+
+export const getListPolicyChecksQueryOptions = <TData = Awaited<ReturnType<typeof listPolicyChecks>>, TError = ErrorType<unknown>>(opportunityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPolicyChecks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPolicyChecksQueryKey(opportunityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPolicyChecks>>> = ({ signal }) => listPolicyChecks(opportunityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: opportunityId !== null && opportunityId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPolicyChecks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPolicyChecksQueryResult = NonNullable<Awaited<ReturnType<typeof listPolicyChecks>>>
+export type ListPolicyChecksQueryError = ErrorType<unknown>
+
+
+
+export function useListPolicyChecks<TData = Awaited<ReturnType<typeof listPolicyChecks>>, TError = ErrorType<unknown>>(
+ opportunityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPolicyChecks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPolicyChecksQueryOptions(opportunityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunPolicyCheckUrl = (opportunityId: number,) => {
+
+
+
+
+  return `/api/opportunities/${opportunityId}/policy-checks`
+}
+
+export const runPolicyCheck = async (opportunityId: number, options?: Parameters<typeof customFetch>[1]): Promise<PolicyCheck> => {
+
+  return customFetch<PolicyCheck>(getRunPolicyCheckUrl(opportunityId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRunPolicyCheckMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPolicyCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runPolicyCheck>>, TError,{opportunityId: number}, TContext> => {
+
+const mutationKey = ['runPolicyCheck'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runPolicyCheck>>, {opportunityId: number}> = (props) => {
+          const {opportunityId} = props ?? {};
+
+          return  runPolicyCheck(opportunityId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunPolicyCheckMutationResult = NonNullable<Awaited<ReturnType<typeof runPolicyCheck>>>
+
+    export type RunPolicyCheckMutationError = ErrorType<void>
+
+    export const useRunPolicyCheck = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runPolicyCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runPolicyCheck>>,
+        TError,
+        {opportunityId: number},
+        TContext
+      > => {
+      return useMutation(getRunPolicyCheckMutationOptions(options));
     }
 
 export const getGetEvidenceUrl = (id: number,) => {

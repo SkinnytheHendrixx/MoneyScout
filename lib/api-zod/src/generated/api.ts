@@ -207,6 +207,43 @@ export const CreateEvidenceResponse = zod.object({
 })
 
 
+export const ListPolicyChecksParams = zod.object({
+  "opportunityId": zod.coerce.number().int()
+})
+
+export const ListPolicyChecksResponseItem = zod.object({
+  "id": zod.number().int(),
+  "opportunity_id": zod.number().int(),
+  "status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
+  "summary": zod.string(),
+  "checked_at": zod.coerce.date(),
+  "retrieval_method": zod.enum(['HTTP', 'HTTP_AND_BROWSERBASE', 'HTTP_INSUFFICIENT']),
+  "evidence_created": zod.number().int(),
+  "external_cost_usd": zod.number().nullable(),
+  "ai_input_tokens": zod.number().int().nullable(),
+  "ai_output_tokens": zod.number().int().nullable()
+})
+export const ListPolicyChecksResponse = zod.array(ListPolicyChecksResponseItem)
+
+
+export const RunPolicyCheckParams = zod.object({
+  "opportunityId": zod.coerce.number().int()
+})
+
+export const RunPolicyCheckResponse = zod.object({
+  "id": zod.number().int(),
+  "opportunity_id": zod.number().int(),
+  "status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
+  "summary": zod.string(),
+  "checked_at": zod.coerce.date(),
+  "retrieval_method": zod.enum(['HTTP', 'HTTP_AND_BROWSERBASE', 'HTTP_INSUFFICIENT']),
+  "evidence_created": zod.number().int(),
+  "external_cost_usd": zod.number().nullable(),
+  "ai_input_tokens": zod.number().int().nullable(),
+  "ai_output_tokens": zod.number().int().nullable()
+})
+
+
 export const GetEvidenceParams = zod.object({
   "id": zod.coerce.number().int()
 })
