@@ -194,6 +194,172 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AIIntegrationUnavailable"
+  /discovery/runs:
+    get:
+      operationId: listDiscoveryRuns
+      tags: [discovery]
+      responses:
+        "200":
+          description: Discovery runs, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiscoveryRun"
+    post:
+      operationId: startDiscoveryRun
+      tags: [discovery]
+      responses:
+        "202":
+          description: Discovery run started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryRun"
+        "409":
+          description: Discovery run already active
+  /discovery/runs/{runId}:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getDiscoveryRun
+      tags: [discovery]
+      responses:
+        "200":
+          description: Discovery run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryRun"
+        "404":
+          description: Discovery run not found
+  /discovery/runs/{runId}/status:
+    parameters:
+      - name: runId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getDiscoveryRunStatus
+      tags: [discovery]
+      responses:
+        "200":
+          description: Discovery run progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryRun"
+        "404":
+          description: Discovery run not found
+  /discovery/candidates:
+    get:
+      operationId: listDiscoveryCandidates
+      tags: [discovery]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DiscoveryCandidateStatus"
+      responses:
+        "200":
+          description: Discovery candidates, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiscoveryCandidate"
+  /discovery/candidates/{candidateId}/accept:
+    parameters:
+      - name: candidateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: acceptDiscoveryCandidate
+      tags: [discovery]
+      responses:
+        "200":
+          description: Candidate accepted or already accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryCandidateAction"
+        "404":
+          description: Discovery candidate not found
+        "409":
+          description: Candidate cannot be accepted
+  /discovery/candidates/{candidateId}/dismiss:
+    parameters:
+      - name: candidateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: dismissDiscoveryCandidate
+      tags: [discovery]
+      responses:
+        "200":
+          description: Candidate dismissed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryCandidate"
+        "404":
+          description: Discovery candidate not found
+  /discovery/candidates/{candidateId}/suppress:
+    parameters:
+      - name: candidateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: suppressDiscoveryCandidate
+      tags: [discovery]
+      responses:
+        "200":
+          description: Candidate suppressed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryCandidate"
+        "404":
+          description: Discovery candidate not found
+  /discovery/candidates/{candidateId}/duplicate:
+    parameters:
+      - name: candidateId
+        in: path
+        required: true
+        schema:
+          type: integer
+    post:
+      operationId: markDiscoveryCandidateDuplicate
+      tags: [discovery]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscoveryCandidateDuplicateInput"
+      responses:
+        "200":
+          description: Candidate linked to an existing opportunity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryCandidate"
+        "404":
+          description: Candidate or opportunity not found
   /evidence/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -271,6 +437,7 @@ components:
         verdict: { $ref: "#/components/schemas/Verdict" }
         kill_reason: { type: [string, "null"] }
         engine_family: { type: string }
+        discovery_key: { type: [string, "null"] }
     OpportunityInput:
       type: object
       required: [name, source_platform, source_url, opportunity_type, thesis, first_seen, last_researched, status, overall_score, policy_status, verdict, engine_family]
@@ -424,3 +591,123 @@ components:
           type: string
           enum: [AI_INTEGRATION_UNAVAILABLE]
         message: { type: string }
+    DiscoveryRunStatus:
+      type: string
+      enum: [RUNNING, COMPLETE, INCOMPLETE, FAILED, INTERRUPTED]
+    DiscoveryCoverageStatus:
+      type: string
+      enum: [UNKNOWN, COMPLETE, INCOMPLETE]
+    DiscoveryCandidateStatus:
+      type: string
+      enum: [NEW, ACCEPTED, DISMISSED, SUPPRESSED, DUPLICATE]
+    DiscoveryAnomalyType:
+      type: string
+      enum:
+        - HIGH_USAGE_THIN_SUPPLY
+        - HIGH_USAGE_CONCENTRATED
+        - HIGH_USAGE_FRAGMENTED
+        - EMERGING_CLUSTER
+        - MATERIAL_SNAPSHOT_CHANGE
+    DiscoveryRun:
+      type: object
+      required:
+        - id
+        - source
+        - status
+        - coverage_status
+        - started_at
+        - finished_at
+        - last_heartbeat_at
+        - page_size
+        - effective_page_size
+        - pacing_ms
+        - formula_version
+        - advertised_total
+        - observed_total
+        - expected_pages
+        - pages_fetched
+        - current_offset
+        - request_count
+        - retry_count
+        - unique_actor_count
+        - duplicate_actor_count
+        - cluster_count
+        - candidate_count
+        - error
+      properties:
+        id: { type: integer }
+        source: { type: string }
+        status: { $ref: "#/components/schemas/DiscoveryRunStatus" }
+        coverage_status: { $ref: "#/components/schemas/DiscoveryCoverageStatus" }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+        last_heartbeat_at: { type: [string, "null"], format: date-time }
+        page_size: { type: integer }
+        effective_page_size: { type: [integer, "null"] }
+        pacing_ms: { type: integer }
+        formula_version: { type: string }
+        advertised_total: { type: [integer, "null"] }
+        observed_total: { type: [integer, "null"] }
+        expected_pages: { type: [integer, "null"] }
+        pages_fetched: { type: integer }
+        current_offset: { type: integer }
+        request_count: { type: integer }
+        retry_count: { type: integer }
+        unique_actor_count: { type: integer }
+        duplicate_actor_count: { type: integer }
+        cluster_count: { type: integer }
+        candidate_count: { type: integer }
+        error: { type: [string, "null"] }
+    DiscoveryCandidate:
+      type: object
+      required:
+        - id
+        - discovery_key
+        - cluster_key
+        - source_platform
+        - category
+        - primary_anomaly_type
+        - anomaly_tags
+        - status
+        - first_seen_at
+        - last_seen_at
+        - occurrence_count
+        - latest_priority_score
+        - score_breakdown
+        - structure_observations
+        - source_snapshot_ids
+        - created_opportunity_id
+        - duplicate_of_opportunity_id
+      properties:
+        id: { type: integer }
+        discovery_key: { type: string }
+        cluster_key: { type: string }
+        source_platform: { type: string }
+        category: { type: string }
+        primary_anomaly_type: { $ref: "#/components/schemas/DiscoveryAnomalyType" }
+        anomaly_tags:
+          type: array
+          items: { $ref: "#/components/schemas/DiscoveryAnomalyType" }
+        status: { $ref: "#/components/schemas/DiscoveryCandidateStatus" }
+        first_seen_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+        occurrence_count: { type: integer }
+        latest_priority_score: { type: [number, "null"] }
+        score_breakdown: { type: [object, "null"], additionalProperties: true }
+        structure_observations: { type: [object, "null"], additionalProperties: true }
+        source_snapshot_ids:
+          type: array
+          items: { type: integer }
+        created_opportunity_id: { type: [integer, "null"] }
+        duplicate_of_opportunity_id: { type: [integer, "null"] }
+    DiscoveryCandidateAction:
+      type: object
+      required: [candidate, opportunity_id]
+      properties:
+        candidate: { $ref: "#/components/schemas/DiscoveryCandidate" }
+        opportunity_id: { type: integer }
+    DiscoveryCandidateDuplicateInput:
+      type: object
+      required: [opportunity_id]
+      properties:
+        opportunity_id: { type: integer }

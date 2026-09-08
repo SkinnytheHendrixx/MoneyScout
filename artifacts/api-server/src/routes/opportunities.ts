@@ -36,6 +36,7 @@ const toApi = (row: typeof opportunitiesTable.$inferSelect) => ({
   verdict: row.verdict,
   kill_reason: row.killReason,
   engine_family: row.engineFamily,
+  discovery_key: row.discoveryKey,
 });
 
 const fromApi = (data: typeof CreateOpportunityBody._type) => ({

@@ -22,10 +22,15 @@ import type {
 import type {
   AIIntegrationUnavailable,
   DemandCheckResult,
+  DiscoveryCandidate,
+  DiscoveryCandidateAction,
+  DiscoveryCandidateDuplicateInput,
+  DiscoveryRun,
   Evidence,
   EvidenceInput,
   EvidenceUpdate,
   HealthStatus,
+  ListDiscoveryCandidatesParams,
   Opportunity,
   OpportunityDetail,
   OpportunityInput,
@@ -876,6 +881,623 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getRunDemandCheckMutationOptions(options));
+    }
+
+export const getListDiscoveryRunsUrl = () => {
+
+
+
+
+  return `/api/discovery/runs`
+}
+
+export const listDiscoveryRuns = async ( options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryRun[]> => {
+
+  return customFetch<DiscoveryRun[]>(getListDiscoveryRunsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDiscoveryRunsQueryKey = () => {
+    return [
+    `/api/discovery/runs`
+    ] as const;
+    }
+
+
+export const getListDiscoveryRunsQueryOptions = <TData = Awaited<ReturnType<typeof listDiscoveryRuns>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDiscoveryRunsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDiscoveryRuns>>> = ({ signal }) => listDiscoveryRuns({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryRuns>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDiscoveryRunsQueryResult = NonNullable<Awaited<ReturnType<typeof listDiscoveryRuns>>>
+export type ListDiscoveryRunsQueryError = ErrorType<unknown>
+
+
+
+export function useListDiscoveryRuns<TData = Awaited<ReturnType<typeof listDiscoveryRuns>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryRuns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDiscoveryRunsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getStartDiscoveryRunUrl = () => {
+
+
+
+
+  return `/api/discovery/runs`
+}
+
+export const startDiscoveryRun = async ( options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryRun> => {
+
+  return customFetch<DiscoveryRun>(getStartDiscoveryRunUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getStartDiscoveryRunMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscoveryRun>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof startDiscoveryRun>>, TError,void, TContext> => {
+
+const mutationKey = ['startDiscoveryRun'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDiscoveryRun>>, void> = () => {
+
+
+          return  startDiscoveryRun(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartDiscoveryRunMutationResult = NonNullable<Awaited<ReturnType<typeof startDiscoveryRun>>>
+
+    export type StartDiscoveryRunMutationError = ErrorType<void>
+
+    export const useStartDiscoveryRun = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDiscoveryRun>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof startDiscoveryRun>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getStartDiscoveryRunMutationOptions(options));
+    }
+
+export const getGetDiscoveryRunUrl = (runId: number,) => {
+
+
+
+
+  return `/api/discovery/runs/${runId}`
+}
+
+export const getDiscoveryRun = async (runId: number, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryRun> => {
+
+  return customFetch<DiscoveryRun>(getGetDiscoveryRunUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDiscoveryRunQueryKey = (runId: number,) => {
+    return [
+    `/api/discovery/runs/${runId}`
+    ] as const;
+    }
+
+
+export const getGetDiscoveryRunQueryOptions = <TData = Awaited<ReturnType<typeof getDiscoveryRun>>, TError = ErrorType<void>>(runId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDiscoveryRunQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDiscoveryRun>>> = ({ signal }) => getDiscoveryRun(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRun>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDiscoveryRunQueryResult = NonNullable<Awaited<ReturnType<typeof getDiscoveryRun>>>
+export type GetDiscoveryRunQueryError = ErrorType<void>
+
+
+
+export function useGetDiscoveryRun<TData = Awaited<ReturnType<typeof getDiscoveryRun>>, TError = ErrorType<void>>(
+ runId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRun>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDiscoveryRunQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDiscoveryRunStatusUrl = (runId: number,) => {
+
+
+
+
+  return `/api/discovery/runs/${runId}/status`
+}
+
+export const getDiscoveryRunStatus = async (runId: number, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryRun> => {
+
+  return customFetch<DiscoveryRun>(getGetDiscoveryRunStatusUrl(runId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDiscoveryRunStatusQueryKey = (runId: number,) => {
+    return [
+    `/api/discovery/runs/${runId}/status`
+    ] as const;
+    }
+
+
+export const getGetDiscoveryRunStatusQueryOptions = <TData = Awaited<ReturnType<typeof getDiscoveryRunStatus>>, TError = ErrorType<void>>(runId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRunStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDiscoveryRunStatusQueryKey(runId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDiscoveryRunStatus>>> = ({ signal }) => getDiscoveryRunStatus(runId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: runId !== null && runId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRunStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDiscoveryRunStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getDiscoveryRunStatus>>>
+export type GetDiscoveryRunStatusQueryError = ErrorType<void>
+
+
+
+export function useGetDiscoveryRunStatus<TData = Awaited<ReturnType<typeof getDiscoveryRunStatus>>, TError = ErrorType<void>>(
+ runId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDiscoveryRunStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDiscoveryRunStatusQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListDiscoveryCandidatesUrl = (params?: ListDiscoveryCandidatesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/discovery/candidates?${stringifiedParams}` : `/api/discovery/candidates`
+}
+
+export const listDiscoveryCandidates = async (params?: ListDiscoveryCandidatesParams, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryCandidate[]> => {
+
+  return customFetch<DiscoveryCandidate[]>(getListDiscoveryCandidatesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDiscoveryCandidatesQueryKey = (params?: ListDiscoveryCandidatesParams,) => {
+    return [
+    `/api/discovery/candidates`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListDiscoveryCandidatesQueryOptions = <TData = Awaited<ReturnType<typeof listDiscoveryCandidates>>, TError = ErrorType<unknown>>(params?: ListDiscoveryCandidatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryCandidates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDiscoveryCandidatesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDiscoveryCandidates>>> = ({ signal }) => listDiscoveryCandidates(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryCandidates>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDiscoveryCandidatesQueryResult = NonNullable<Awaited<ReturnType<typeof listDiscoveryCandidates>>>
+export type ListDiscoveryCandidatesQueryError = ErrorType<unknown>
+
+
+
+export function useListDiscoveryCandidates<TData = Awaited<ReturnType<typeof listDiscoveryCandidates>>, TError = ErrorType<unknown>>(
+ params?: ListDiscoveryCandidatesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDiscoveryCandidates>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDiscoveryCandidatesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getAcceptDiscoveryCandidateUrl = (candidateId: number,) => {
+
+
+
+
+  return `/api/discovery/candidates/${candidateId}/accept`
+}
+
+export const acceptDiscoveryCandidate = async (candidateId: number, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryCandidateAction> => {
+
+  return customFetch<DiscoveryCandidateAction>(getAcceptDiscoveryCandidateUrl(candidateId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getAcceptDiscoveryCandidateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof acceptDiscoveryCandidate>>, TError,{candidateId: number}, TContext> => {
+
+const mutationKey = ['acceptDiscoveryCandidate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof acceptDiscoveryCandidate>>, {candidateId: number}> = (props) => {
+          const {candidateId} = props ?? {};
+
+          return  acceptDiscoveryCandidate(candidateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AcceptDiscoveryCandidateMutationResult = NonNullable<Awaited<ReturnType<typeof acceptDiscoveryCandidate>>>
+
+    export type AcceptDiscoveryCandidateMutationError = ErrorType<void>
+
+    export const useAcceptDiscoveryCandidate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof acceptDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof acceptDiscoveryCandidate>>,
+        TError,
+        {candidateId: number},
+        TContext
+      > => {
+      return useMutation(getAcceptDiscoveryCandidateMutationOptions(options));
+    }
+
+export const getDismissDiscoveryCandidateUrl = (candidateId: number,) => {
+
+
+
+
+  return `/api/discovery/candidates/${candidateId}/dismiss`
+}
+
+export const dismissDiscoveryCandidate = async (candidateId: number, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryCandidate> => {
+
+  return customFetch<DiscoveryCandidate>(getDismissDiscoveryCandidateUrl(candidateId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getDismissDiscoveryCandidateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof dismissDiscoveryCandidate>>, TError,{candidateId: number}, TContext> => {
+
+const mutationKey = ['dismissDiscoveryCandidate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dismissDiscoveryCandidate>>, {candidateId: number}> = (props) => {
+          const {candidateId} = props ?? {};
+
+          return  dismissDiscoveryCandidate(candidateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DismissDiscoveryCandidateMutationResult = NonNullable<Awaited<ReturnType<typeof dismissDiscoveryCandidate>>>
+
+    export type DismissDiscoveryCandidateMutationError = ErrorType<void>
+
+    export const useDismissDiscoveryCandidate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof dismissDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof dismissDiscoveryCandidate>>,
+        TError,
+        {candidateId: number},
+        TContext
+      > => {
+      return useMutation(getDismissDiscoveryCandidateMutationOptions(options));
+    }
+
+export const getSuppressDiscoveryCandidateUrl = (candidateId: number,) => {
+
+
+
+
+  return `/api/discovery/candidates/${candidateId}/suppress`
+}
+
+export const suppressDiscoveryCandidate = async (candidateId: number, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryCandidate> => {
+
+  return customFetch<DiscoveryCandidate>(getSuppressDiscoveryCandidateUrl(candidateId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getSuppressDiscoveryCandidateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof suppressDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof suppressDiscoveryCandidate>>, TError,{candidateId: number}, TContext> => {
+
+const mutationKey = ['suppressDiscoveryCandidate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof suppressDiscoveryCandidate>>, {candidateId: number}> = (props) => {
+          const {candidateId} = props ?? {};
+
+          return  suppressDiscoveryCandidate(candidateId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SuppressDiscoveryCandidateMutationResult = NonNullable<Awaited<ReturnType<typeof suppressDiscoveryCandidate>>>
+
+    export type SuppressDiscoveryCandidateMutationError = ErrorType<void>
+
+    export const useSuppressDiscoveryCandidate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof suppressDiscoveryCandidate>>, TError,{candidateId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof suppressDiscoveryCandidate>>,
+        TError,
+        {candidateId: number},
+        TContext
+      > => {
+      return useMutation(getSuppressDiscoveryCandidateMutationOptions(options));
+    }
+
+export const getMarkDiscoveryCandidateDuplicateUrl = (candidateId: number,) => {
+
+
+
+
+  return `/api/discovery/candidates/${candidateId}/duplicate`
+}
+
+export const markDiscoveryCandidateDuplicate = async (candidateId: number,
+    discoveryCandidateDuplicateInput: DiscoveryCandidateDuplicateInput, options?: Parameters<typeof customFetch>[1]): Promise<DiscoveryCandidate> => {
+
+  return customFetch<DiscoveryCandidate>(getMarkDiscoveryCandidateDuplicateUrl(candidateId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(discoveryCandidateDuplicateInput)
+  }
+);}
+
+
+
+
+
+export const getMarkDiscoveryCandidateDuplicateMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>, TError,{candidateId: number;data: BodyType<DiscoveryCandidateDuplicateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>, TError,{candidateId: number;data: BodyType<DiscoveryCandidateDuplicateInput>}, TContext> => {
+
+const mutationKey = ['markDiscoveryCandidateDuplicate'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>, {candidateId: number;data: BodyType<DiscoveryCandidateDuplicateInput>}> = (props) => {
+          const {candidateId,data} = props ?? {};
+
+          return  markDiscoveryCandidateDuplicate(candidateId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkDiscoveryCandidateDuplicateMutationResult = NonNullable<Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>>
+    export type MarkDiscoveryCandidateDuplicateMutationBody = BodyType<DiscoveryCandidateDuplicateInput>
+    export type MarkDiscoveryCandidateDuplicateMutationError = ErrorType<void>
+
+    export const useMarkDiscoveryCandidateDuplicate = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>, TError,{candidateId: number;data: BodyType<DiscoveryCandidateDuplicateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markDiscoveryCandidateDuplicate>>,
+        TError,
+        {candidateId: number;data: BodyType<DiscoveryCandidateDuplicateInput>},
+        TContext
+      > => {
+      return useMutation(getMarkDiscoveryCandidateDuplicateMutationOptions(options));
     }
 
 export const getGetEvidenceUrl = (id: number,) => {

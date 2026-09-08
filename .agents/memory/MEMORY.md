@@ -1,2 +1,3 @@
 - [Anthropic web-search citations](anthropic-web-search-citations.md) — strict JSON may omit text citations; validate findings against authoritative returned result URLs.
 - [Replit AI access prerequisites](replit-ai-access-prerequisites.md) — managed Anthropic access depends on paid-plan and organization-level eligibility, not deployment.
+- [Discovery catalog coverage](discovery-catalog-coverage.md) — discovery scoring is valid only after exact-offset catalog traversal proves total coverage and uniqueness.

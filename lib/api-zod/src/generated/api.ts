@@ -27,7 +27,8 @@ export const ListOpportunitiesResponseItem = zod.object({
   "policy_status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
   "verdict": zod.enum(['NEW', 'RESEARCH', 'WATCH', 'TEST', 'BUILD', 'KILL']),
   "kill_reason": zod.string().nullable(),
-  "engine_family": zod.string()
+  "engine_family": zod.string(),
+  "discovery_key": zod.string().nullish()
 })
 export const ListOpportunitiesResponse = zod.array(ListOpportunitiesResponseItem)
 
@@ -70,7 +71,8 @@ export const CreateOpportunityResponse = zod.object({
   "policy_status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
   "verdict": zod.enum(['NEW', 'RESEARCH', 'WATCH', 'TEST', 'BUILD', 'KILL']),
   "kill_reason": zod.string().nullable(),
-  "engine_family": zod.string()
+  "engine_family": zod.string(),
+  "discovery_key": zod.string().nullish()
 })
 
 
@@ -92,7 +94,8 @@ export const GetOpportunityResponse = zod.object({
   "policy_status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
   "verdict": zod.enum(['NEW', 'RESEARCH', 'WATCH', 'TEST', 'BUILD', 'KILL']),
   "kill_reason": zod.string().nullable(),
-  "engine_family": zod.string()
+  "engine_family": zod.string(),
+  "discovery_key": zod.string().nullish()
 }).and(zod.object({
   "evidence": zod.array(zod.object({
   "id": zod.number().int(),
@@ -149,7 +152,8 @@ export const UpdateOpportunityResponse = zod.object({
   "policy_status": zod.enum(['GREEN', 'YELLOW', 'RED', 'UNKNOWN']),
   "verdict": zod.enum(['NEW', 'RESEARCH', 'WATCH', 'TEST', 'BUILD', 'KILL']),
   "kill_reason": zod.string().nullable(),
-  "engine_family": zod.string()
+  "engine_family": zod.string(),
+  "discovery_key": zod.string().nullish()
 })
 
 
@@ -304,6 +308,256 @@ export const RunDemandCheckResponse = zod.object({
   "ai_output_tokens": zod.number().int(),
   "started_at": zod.coerce.date(),
   "finished_at": zod.coerce.date().nullable()
+})
+
+
+export const ListDiscoveryRunsResponseItem = zod.object({
+  "id": zod.number().int(),
+  "source": zod.string(),
+  "status": zod.enum(['RUNNING', 'COMPLETE', 'INCOMPLETE', 'FAILED', 'INTERRUPTED']),
+  "coverage_status": zod.enum(['UNKNOWN', 'COMPLETE', 'INCOMPLETE']),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable(),
+  "last_heartbeat_at": zod.coerce.date().nullable(),
+  "page_size": zod.number().int(),
+  "effective_page_size": zod.number().int().nullable(),
+  "pacing_ms": zod.number().int(),
+  "formula_version": zod.string(),
+  "advertised_total": zod.number().int().nullable(),
+  "observed_total": zod.number().int().nullable(),
+  "expected_pages": zod.number().int().nullable(),
+  "pages_fetched": zod.number().int(),
+  "current_offset": zod.number().int(),
+  "request_count": zod.number().int(),
+  "retry_count": zod.number().int(),
+  "unique_actor_count": zod.number().int(),
+  "duplicate_actor_count": zod.number().int(),
+  "cluster_count": zod.number().int(),
+  "candidate_count": zod.number().int(),
+  "error": zod.string().nullable()
+})
+export const ListDiscoveryRunsResponse = zod.array(ListDiscoveryRunsResponseItem)
+
+
+export const StartDiscoveryRunResponse = zod.object({
+  "id": zod.number().int(),
+  "source": zod.string(),
+  "status": zod.enum(['RUNNING', 'COMPLETE', 'INCOMPLETE', 'FAILED', 'INTERRUPTED']),
+  "coverage_status": zod.enum(['UNKNOWN', 'COMPLETE', 'INCOMPLETE']),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable(),
+  "last_heartbeat_at": zod.coerce.date().nullable(),
+  "page_size": zod.number().int(),
+  "effective_page_size": zod.number().int().nullable(),
+  "pacing_ms": zod.number().int(),
+  "formula_version": zod.string(),
+  "advertised_total": zod.number().int().nullable(),
+  "observed_total": zod.number().int().nullable(),
+  "expected_pages": zod.number().int().nullable(),
+  "pages_fetched": zod.number().int(),
+  "current_offset": zod.number().int(),
+  "request_count": zod.number().int(),
+  "retry_count": zod.number().int(),
+  "unique_actor_count": zod.number().int(),
+  "duplicate_actor_count": zod.number().int(),
+  "cluster_count": zod.number().int(),
+  "candidate_count": zod.number().int(),
+  "error": zod.string().nullable()
+})
+
+
+export const GetDiscoveryRunParams = zod.object({
+  "runId": zod.coerce.number().int()
+})
+
+export const GetDiscoveryRunResponse = zod.object({
+  "id": zod.number().int(),
+  "source": zod.string(),
+  "status": zod.enum(['RUNNING', 'COMPLETE', 'INCOMPLETE', 'FAILED', 'INTERRUPTED']),
+  "coverage_status": zod.enum(['UNKNOWN', 'COMPLETE', 'INCOMPLETE']),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable(),
+  "last_heartbeat_at": zod.coerce.date().nullable(),
+  "page_size": zod.number().int(),
+  "effective_page_size": zod.number().int().nullable(),
+  "pacing_ms": zod.number().int(),
+  "formula_version": zod.string(),
+  "advertised_total": zod.number().int().nullable(),
+  "observed_total": zod.number().int().nullable(),
+  "expected_pages": zod.number().int().nullable(),
+  "pages_fetched": zod.number().int(),
+  "current_offset": zod.number().int(),
+  "request_count": zod.number().int(),
+  "retry_count": zod.number().int(),
+  "unique_actor_count": zod.number().int(),
+  "duplicate_actor_count": zod.number().int(),
+  "cluster_count": zod.number().int(),
+  "candidate_count": zod.number().int(),
+  "error": zod.string().nullable()
+})
+
+
+export const GetDiscoveryRunStatusParams = zod.object({
+  "runId": zod.coerce.number().int()
+})
+
+export const GetDiscoveryRunStatusResponse = zod.object({
+  "id": zod.number().int(),
+  "source": zod.string(),
+  "status": zod.enum(['RUNNING', 'COMPLETE', 'INCOMPLETE', 'FAILED', 'INTERRUPTED']),
+  "coverage_status": zod.enum(['UNKNOWN', 'COMPLETE', 'INCOMPLETE']),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable(),
+  "last_heartbeat_at": zod.coerce.date().nullable(),
+  "page_size": zod.number().int(),
+  "effective_page_size": zod.number().int().nullable(),
+  "pacing_ms": zod.number().int(),
+  "formula_version": zod.string(),
+  "advertised_total": zod.number().int().nullable(),
+  "observed_total": zod.number().int().nullable(),
+  "expected_pages": zod.number().int().nullable(),
+  "pages_fetched": zod.number().int(),
+  "current_offset": zod.number().int(),
+  "request_count": zod.number().int(),
+  "retry_count": zod.number().int(),
+  "unique_actor_count": zod.number().int(),
+  "duplicate_actor_count": zod.number().int(),
+  "cluster_count": zod.number().int(),
+  "candidate_count": zod.number().int(),
+  "error": zod.string().nullable()
+})
+
+
+export const ListDiscoveryCandidatesQueryParams = zod.object({
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']).optional()
+})
+
+export const ListDiscoveryCandidatesResponseItem = zod.object({
+  "id": zod.number().int(),
+  "discovery_key": zod.string(),
+  "cluster_key": zod.string(),
+  "source_platform": zod.string(),
+  "category": zod.string(),
+  "primary_anomaly_type": zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE']),
+  "anomaly_tags": zod.array(zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE'])),
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']),
+  "first_seen_at": zod.coerce.date(),
+  "last_seen_at": zod.coerce.date(),
+  "occurrence_count": zod.number().int(),
+  "latest_priority_score": zod.number().nullable(),
+  "score_breakdown": zod.record(zod.string(), zod.unknown()).nullable(),
+  "structure_observations": zod.record(zod.string(), zod.unknown()).nullable(),
+  "source_snapshot_ids": zod.array(zod.number().int()),
+  "created_opportunity_id": zod.number().int().nullable(),
+  "duplicate_of_opportunity_id": zod.number().int().nullable()
+})
+export const ListDiscoveryCandidatesResponse = zod.array(ListDiscoveryCandidatesResponseItem)
+
+
+export const AcceptDiscoveryCandidateParams = zod.object({
+  "candidateId": zod.coerce.number().int()
+})
+
+export const AcceptDiscoveryCandidateResponse = zod.object({
+  "candidate": zod.object({
+  "id": zod.number().int(),
+  "discovery_key": zod.string(),
+  "cluster_key": zod.string(),
+  "source_platform": zod.string(),
+  "category": zod.string(),
+  "primary_anomaly_type": zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE']),
+  "anomaly_tags": zod.array(zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE'])),
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']),
+  "first_seen_at": zod.coerce.date(),
+  "last_seen_at": zod.coerce.date(),
+  "occurrence_count": zod.number().int(),
+  "latest_priority_score": zod.number().nullable(),
+  "score_breakdown": zod.record(zod.string(), zod.unknown()).nullable(),
+  "structure_observations": zod.record(zod.string(), zod.unknown()).nullable(),
+  "source_snapshot_ids": zod.array(zod.number().int()),
+  "created_opportunity_id": zod.number().int().nullable(),
+  "duplicate_of_opportunity_id": zod.number().int().nullable()
+}),
+  "opportunity_id": zod.number().int()
+})
+
+
+export const DismissDiscoveryCandidateParams = zod.object({
+  "candidateId": zod.coerce.number().int()
+})
+
+export const DismissDiscoveryCandidateResponse = zod.object({
+  "id": zod.number().int(),
+  "discovery_key": zod.string(),
+  "cluster_key": zod.string(),
+  "source_platform": zod.string(),
+  "category": zod.string(),
+  "primary_anomaly_type": zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE']),
+  "anomaly_tags": zod.array(zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE'])),
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']),
+  "first_seen_at": zod.coerce.date(),
+  "last_seen_at": zod.coerce.date(),
+  "occurrence_count": zod.number().int(),
+  "latest_priority_score": zod.number().nullable(),
+  "score_breakdown": zod.record(zod.string(), zod.unknown()).nullable(),
+  "structure_observations": zod.record(zod.string(), zod.unknown()).nullable(),
+  "source_snapshot_ids": zod.array(zod.number().int()),
+  "created_opportunity_id": zod.number().int().nullable(),
+  "duplicate_of_opportunity_id": zod.number().int().nullable()
+})
+
+
+export const SuppressDiscoveryCandidateParams = zod.object({
+  "candidateId": zod.coerce.number().int()
+})
+
+export const SuppressDiscoveryCandidateResponse = zod.object({
+  "id": zod.number().int(),
+  "discovery_key": zod.string(),
+  "cluster_key": zod.string(),
+  "source_platform": zod.string(),
+  "category": zod.string(),
+  "primary_anomaly_type": zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE']),
+  "anomaly_tags": zod.array(zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE'])),
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']),
+  "first_seen_at": zod.coerce.date(),
+  "last_seen_at": zod.coerce.date(),
+  "occurrence_count": zod.number().int(),
+  "latest_priority_score": zod.number().nullable(),
+  "score_breakdown": zod.record(zod.string(), zod.unknown()).nullable(),
+  "structure_observations": zod.record(zod.string(), zod.unknown()).nullable(),
+  "source_snapshot_ids": zod.array(zod.number().int()),
+  "created_opportunity_id": zod.number().int().nullable(),
+  "duplicate_of_opportunity_id": zod.number().int().nullable()
+})
+
+
+export const MarkDiscoveryCandidateDuplicateParams = zod.object({
+  "candidateId": zod.coerce.number().int()
+})
+
+export const MarkDiscoveryCandidateDuplicateBody = zod.object({
+  "opportunity_id": zod.number().int()
+})
+
+export const MarkDiscoveryCandidateDuplicateResponse = zod.object({
+  "id": zod.number().int(),
+  "discovery_key": zod.string(),
+  "cluster_key": zod.string(),
+  "source_platform": zod.string(),
+  "category": zod.string(),
+  "primary_anomaly_type": zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE']),
+  "anomaly_tags": zod.array(zod.enum(['HIGH_USAGE_THIN_SUPPLY', 'HIGH_USAGE_CONCENTRATED', 'HIGH_USAGE_FRAGMENTED', 'EMERGING_CLUSTER', 'MATERIAL_SNAPSHOT_CHANGE'])),
+  "status": zod.enum(['NEW', 'ACCEPTED', 'DISMISSED', 'SUPPRESSED', 'DUPLICATE']),
+  "first_seen_at": zod.coerce.date(),
+  "last_seen_at": zod.coerce.date(),
+  "occurrence_count": zod.number().int(),
+  "latest_priority_score": zod.number().nullable(),
+  "score_breakdown": zod.record(zod.string(), zod.unknown()).nullable(),
+  "structure_observations": zod.record(zod.string(), zod.unknown()).nullable(),
+  "source_snapshot_ids": zod.array(zod.number().int()),
+  "created_opportunity_id": zod.number().int().nullable(),
+  "duplicate_of_opportunity_id": zod.number().int().nullable()
 })
 
 

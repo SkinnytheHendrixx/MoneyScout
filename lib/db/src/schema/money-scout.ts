@@ -10,6 +10,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -80,7 +81,10 @@ export const opportunitiesTable = pgTable("opportunities", {
   verdict: verdictEnum("verdict").notNull().default("NEW"),
   killReason: text("kill_reason"),
   engineFamily: text("engine_family").notNull(),
-});
+  discoveryKey: text("discovery_key"),
+}, (table) => [
+  uniqueIndex("opportunities_discovery_key_unique").on(table.discoveryKey),
+]);
 
 export const evidenceTable = pgTable("evidence", {
   id: serial("id").primaryKey(),

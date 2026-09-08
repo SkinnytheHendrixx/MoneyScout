@@ -24,4 +24,6 @@ export interface Opportunity {
   /** @nullable */
   kill_reason: string | null;
   engine_family: string;
+  /** @nullable */
+  discovery_key?: string | null;
 }

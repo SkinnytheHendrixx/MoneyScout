@@ -57,6 +57,8 @@ export interface Opportunity {
   /** @nullable */
   kill_reason: string | null;
   engine_family: string;
+  /** @nullable */
+  discovery_key?: string | null;
 }
 
 export interface OpportunityInput {
@@ -228,4 +230,127 @@ export interface AIIntegrationUnavailable {
   error: AIIntegrationUnavailableError;
   message: string;
 }
+
+export type DiscoveryRunStatus = typeof DiscoveryRunStatus[keyof typeof DiscoveryRunStatus];
+
+
+export const DiscoveryRunStatus = {
+  RUNNING: 'RUNNING',
+  COMPLETE: 'COMPLETE',
+  INCOMPLETE: 'INCOMPLETE',
+  FAILED: 'FAILED',
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+export type DiscoveryCoverageStatus = typeof DiscoveryCoverageStatus[keyof typeof DiscoveryCoverageStatus];
+
+
+export const DiscoveryCoverageStatus = {
+  UNKNOWN: 'UNKNOWN',
+  COMPLETE: 'COMPLETE',
+  INCOMPLETE: 'INCOMPLETE',
+} as const;
+
+export type DiscoveryCandidateStatus = typeof DiscoveryCandidateStatus[keyof typeof DiscoveryCandidateStatus];
+
+
+export const DiscoveryCandidateStatus = {
+  NEW: 'NEW',
+  ACCEPTED: 'ACCEPTED',
+  DISMISSED: 'DISMISSED',
+  SUPPRESSED: 'SUPPRESSED',
+  DUPLICATE: 'DUPLICATE',
+} as const;
+
+export type DiscoveryAnomalyType = typeof DiscoveryAnomalyType[keyof typeof DiscoveryAnomalyType];
+
+
+export const DiscoveryAnomalyType = {
+  HIGH_USAGE_THIN_SUPPLY: 'HIGH_USAGE_THIN_SUPPLY',
+  HIGH_USAGE_CONCENTRATED: 'HIGH_USAGE_CONCENTRATED',
+  HIGH_USAGE_FRAGMENTED: 'HIGH_USAGE_FRAGMENTED',
+  EMERGING_CLUSTER: 'EMERGING_CLUSTER',
+  MATERIAL_SNAPSHOT_CHANGE: 'MATERIAL_SNAPSHOT_CHANGE',
+} as const;
+
+export interface DiscoveryRun {
+  id: number;
+  source: string;
+  status: DiscoveryRunStatus;
+  coverage_status: DiscoveryCoverageStatus;
+  started_at: string;
+  /** @nullable */
+  finished_at: string | null;
+  /** @nullable */
+  last_heartbeat_at: string | null;
+  page_size: number;
+  /** @nullable */
+  effective_page_size: number | null;
+  pacing_ms: number;
+  formula_version: string;
+  /** @nullable */
+  advertised_total: number | null;
+  /** @nullable */
+  observed_total: number | null;
+  /** @nullable */
+  expected_pages: number | null;
+  pages_fetched: number;
+  current_offset: number;
+  request_count: number;
+  retry_count: number;
+  unique_actor_count: number;
+  duplicate_actor_count: number;
+  cluster_count: number;
+  candidate_count: number;
+  /** @nullable */
+  error: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type DiscoveryCandidateScoreBreakdown = { [key: string]: unknown } | null;
+
+/**
+ * @nullable
+ */
+export type DiscoveryCandidateStructureObservations = { [key: string]: unknown } | null;
+
+export interface DiscoveryCandidate {
+  id: number;
+  discovery_key: string;
+  cluster_key: string;
+  source_platform: string;
+  category: string;
+  primary_anomaly_type: DiscoveryAnomalyType;
+  anomaly_tags: DiscoveryAnomalyType[];
+  status: DiscoveryCandidateStatus;
+  first_seen_at: string;
+  last_seen_at: string;
+  occurrence_count: number;
+  /** @nullable */
+  latest_priority_score: number | null;
+  /** @nullable */
+  score_breakdown: DiscoveryCandidateScoreBreakdown;
+  /** @nullable */
+  structure_observations: DiscoveryCandidateStructureObservations;
+  source_snapshot_ids: number[];
+  /** @nullable */
+  created_opportunity_id: number | null;
+  /** @nullable */
+  duplicate_of_opportunity_id: number | null;
+}
+
+export interface DiscoveryCandidateAction {
+  candidate: DiscoveryCandidate;
+  opportunity_id: number;
+}
+
+export interface DiscoveryCandidateDuplicateInput {
+  opportunity_id: number;
+}
+
+export type ListDiscoveryCandidatesParams = {
+status?: DiscoveryCandidateStatus;
+};
 

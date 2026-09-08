@@ -8,7 +8,9 @@
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:zero-cost": "node ./test-build.mjs"
+    "test:zero-cost": "node ./test-build.mjs",
+    "test:zero-cost-discovery": "node ./test-discovery-build.mjs",
+    "test:zero-cost-discovery-api": "node ./test-discovery-api-build.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

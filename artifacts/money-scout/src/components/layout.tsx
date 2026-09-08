@@ -1,6 +1,6 @@
 import { ReactNode } from "react"
 import { Link, useLocation } from "wouter"
-import { ShieldCheck, Target, FileText, Settings } from "lucide-react"
+import { ShieldCheck, Target, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -8,6 +8,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   const navItems = [
     { href: "/", label: "Opportunities", icon: Target },
+    { href: "/discovery", label: "Discovery Scout", icon: Radar },
   ]
 
   return (
