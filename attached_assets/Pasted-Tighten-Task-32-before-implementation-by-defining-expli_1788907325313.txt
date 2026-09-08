@@ -1,0 +1,68 @@
+Tighten Task #32 before implementation by defining explicit structural semantics for PARTIAL_OBSERVED_SLICE.
+
+The existing full-catalog structural rule minObservedTotal <= U <= maxObservedTotal must not be applied to partial-slice runs, because a deliberate 15,000-Actor slice will have U ≈ 15000 while the provider total may be ~70,000.
+
+For partial mode define the exact v0 acquisition scope:
+
+acquisitionMode = PARTIAL_OBSERVED_SLICE
+sortBy = lastUpdate unless an already-supported project setting explicitly differs
+pageSize = 1000
+exactly 15 required offsets: 0, 1000, ... 14000
+offset 15000 must never be requested
+maximum observed membership is therefore 15,000 canonical Actors before deduplication
+
+A partial-slice pass is structurally valid only when:
+
+All 15 required pages are successfully fetched.
+Each required page returns the expected offset and limit.
+Each required page contains exactly 1,000 items.
+No repeated page or duplicate canonical Actor identity occurs.
+Provider-total telemetry remains internally parseable and is retained for diagnostics.
+Provider total may be greater than U; do not require the partial membership count to equal or fall inside the global provider-total envelope.
+Preserve a bounded total-drift sanity check if justified, but it must not cause traversal beyond offset 14000.
+No extra-page probe is used in partial mode.
+
+Final partial verification still requires:
+
+Pass 1 structurally valid under these partial rules;
+Pass 2 structurally valid under these partial rules;
+exact canonical Actor-set equality between the two 15-page passes.
+
+Name the result something explicit such as:
+
+VERIFIED_PARTIAL_CONVERGENCE
+
+Never COMPLETE_CATALOG, FULL_COVERAGE, or equivalent.
+
+Also tighten MATERIAL_SNAPSHOT_CHANGE baseline eligibility:
+
+A previous run may be used as the comparison baseline only if it is itself verified and has the same acquisition scope, including:
+
+source/provider
+acquisition mode
+sort/order
+page size
+page cap / omitted boundary
+relevant filter/query configuration
+acquisition/scoring formula version where differences could affect comparability
+
+If no compatible prior verified slice exists, MATERIAL_SNAPSHOT_CHANGE is unavailable for that run.
+
+For compatible runs:
+
+only Actors present in both slices may be compared;
+only that Actor’s own telemetry delta may create the signal;
+slice entry or exit alone is never a change signal.
+
+Preserve the existing suppression of:
+
+EMERGING_CLUSTER
+HIGH_USAGE_THIN_SUPPLY
+HIGH_USAGE_CONCENTRATED
+HIGH_USAGE_FRAGMENTED
+catalog-relative percentiles
+complete-supply claims
+
+Update Task #33 afterward so its fixtures assert these exact partial-pass and baseline-compatibility rules.
+
+Planning only. Do not implement and do not run Discovery.
