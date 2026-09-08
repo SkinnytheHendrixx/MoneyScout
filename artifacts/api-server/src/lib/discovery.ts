@@ -21,6 +21,8 @@ import {
   discoveryClusterSnapshotsTable,
   discoveryObservationLinksTable,
   discoveryRunsTable,
+  discoveryRunPassMembershipsTable,
+  discoveryRunPassesTable,
   discoveryStagingActorsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
@@ -45,6 +47,8 @@ export const DISCOVERY_DETAILED_RUN_RETENTION = 3;
 export const DISCOVERY_QUALIFICATION_THRESHOLD = 60;
 export const DISCOVERY_CANDIDATE_CAP = 10;
 export const DISCOVERY_STORE_URL = "https://api.apify.com/v2/store";
+export const DISCOVERY_MAX_PASSES = 2;
+export const DISCOVERY_MAX_EXTRA_PAGES = 1;
 
 type JsonObject = Record<string, unknown>;
 type DiscoveryQueryExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete">;
@@ -99,8 +103,14 @@ export interface StorePage {
 }
 
 export interface TraversalProgress {
+  passNumber: number;
   offset: number;
   total: number;
+  initialTotal: number;
+  initialPageCount: number;
+  maxObservedTotal: number;
+  firstObservedTotal: number;
+  lastObservedTotal: number;
   effectivePageSize: number;
   pagesFetched: number;
   requestCount: number;
@@ -123,9 +133,24 @@ export interface TraversalFailure {
   pages: StorePage[];
   actors: NormalizedActor[];
   progress: TraversalProgress;
+  failureTelemetry: TraversalFailureTelemetry | null;
 }
 
 export type TraversalResult = TraversalSuccess | TraversalFailure;
+
+export interface TraversalFailureTelemetry {
+  pass: number;
+  requestedOffset: number;
+  returnedOffset: number | null;
+  returnedLimit: number | null;
+  returnedItemCount: number | null;
+  returnedTotal: number | null;
+  expectedOffset: number;
+  expectedLimit: number | null;
+  expectedItemCount: number | null;
+  expectedTotal: number | null;
+  invariant: string;
+}
 
 export interface TraversalOptions {
   fetchPage: (offset: number, limit: number, signal?: AbortSignal) => Promise<StorePage>;
@@ -138,6 +163,7 @@ export interface TraversalOptions {
   onProgress?: (progress: TraversalProgress) => Promise<void>;
   onActors?: (actors: NormalizedActor[]) => Promise<void>;
   collectActors?: boolean;
+  passNumber?: number;
 }
 
 const sleep = (milliseconds: number) =>
@@ -470,18 +496,51 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     1,
   );
   const sleepFn = options.sleep ?? sleep;
+  const passNumber = options.passNumber ?? 1;
   const pages: StorePage[] = [];
   const actors: NormalizedActor[] = [];
   const seenKeys = new Set<string>();
   const progress: TraversalProgress = {
+    passNumber,
     offset: 0,
     total: 0,
+    initialTotal: 0,
+    initialPageCount: 0,
+    maxObservedTotal: 0,
+    firstObservedTotal: 0,
+    lastObservedTotal: 0,
     effectivePageSize: pageSize,
     pagesFetched: 0,
     requestCount: 0,
     retryCount: 0,
     uniqueActorCount: 0,
     duplicateActorCount: 0,
+  };
+  let failureTelemetry: TraversalFailureTelemetry | null = null;
+
+  const fail = (
+    error: string,
+    page: StorePage | null,
+    expectedOffset: number,
+    expectedLimit: number | null,
+    expectedItemCount: number | null,
+    expectedTotal: number | null,
+    invariant: string,
+  ): never => {
+    failureTelemetry = {
+      pass: passNumber,
+      requestedOffset: expectedOffset,
+      returnedOffset: page?.offset ?? null,
+      returnedLimit: page?.limit ?? null,
+      returnedItemCount: page?.items.length ?? null,
+      returnedTotal: page?.total ?? null,
+      expectedOffset,
+      expectedLimit,
+      expectedItemCount,
+      expectedTotal,
+      invariant,
+    };
+    throw new Error(error);
   };
 
   try {
@@ -498,17 +557,22 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     );
     progress.requestCount += 1;
     progress.retryCount += first.retryCount;
-    if (
-      first.page.offset !== 0 ||
-      first.page.limit <= 0 ||
-      first.page.limit > pageSize ||
-      first.page.total < 0 ||
-      first.page.items.length !== Math.min(first.page.limit, first.page.total)
-    ) {
-      throw new Error("Apify Store returned an invalid first page");
-    }
+    if (first.page.offset !== 0)
+      fail("Apify Store returned an invalid first page", first.page, 0, pageSize, null, null, "offset_mismatch");
+    if (first.page.limit <= 0 || first.page.limit > pageSize)
+      fail("Apify Store returned an invalid first page", first.page, 0, pageSize, null, null, "limit_mismatch");
+    if (first.page.total < 0)
+      fail("Apify Store returned an invalid first page", first.page, 0, first.page.limit, null, null, "negative_total");
+    const firstExpectedCount = Math.min(first.page.limit, first.page.total);
+    if (first.page.items.length !== firstExpectedCount)
+      fail("Apify Store returned an invalid first page", first.page, 0, first.page.limit, firstExpectedCount, first.page.total, "item_count_mismatch");
     progress.total = first.page.total;
+    progress.initialTotal = first.page.total;
+    progress.firstObservedTotal = first.page.total;
+    progress.lastObservedTotal = first.page.total;
+    progress.maxObservedTotal = first.page.total;
     progress.effectivePageSize = first.page.limit;
+    progress.initialPageCount = Math.ceil(first.page.total / first.page.limit);
     if (options.collectActors !== false) pages.push(first.page);
     progress.pagesFetched = 1;
     const pageSignatures = new Set([sha256(JSON.stringify(first.page.items))]);
@@ -526,11 +590,13 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     progress.uniqueActorCount = seenKeys.size;
     await options.onProgress?.({ ...progress });
 
-    const expectedOffsets = [];
-    for (let offset = progress.effectivePageSize; offset < progress.total; offset += progress.effectivePageSize) {
-      expectedOffsets.push(offset);
-    }
-    for (const offset of expectedOffsets) {
+    let requiredPageCount = progress.initialPageCount;
+    while (
+      progress.pagesFetched < requiredPageCount ||
+      progress.pagesFetched < progress.initialPageCount + DISCOVERY_MAX_EXTRA_PAGES
+    ) {
+      const offset = progress.pagesFetched * progress.effectivePageSize;
+      progress.offset = offset;
       const next = await fetchWithRetry(
         options.fetchPage,
         offset,
@@ -544,23 +610,32 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       );
       progress.requestCount += 1;
       progress.retryCount += next.retryCount;
-      const expectedLength = Math.min(progress.effectivePageSize, progress.total - offset);
-      if (
-        next.page.offset !== offset ||
-        next.page.limit !== progress.effectivePageSize ||
-        next.page.total !== progress.total ||
-        next.page.items.length !== expectedLength
-      ) {
-        throw new Error(`Apify Store coverage gap at offset ${offset}`);
-      }
+      if (next.page.offset !== offset)
+        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.total, "offset_mismatch");
+      if (next.page.limit !== progress.effectivePageSize)
+        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.total, "limit_mismatch");
+      if (next.page.total < progress.initialTotal)
+        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, null, progress.initialTotal, "total_shrank");
+      const expectedLength = Math.min(
+        progress.effectivePageSize,
+        Math.max(0, next.page.total - offset),
+      );
+      if (next.page.items.length !== expectedLength)
+        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, expectedLength, next.page.total, "item_count_mismatch");
       const signature = sha256(JSON.stringify(next.page.items));
       if (pageSignatures.has(signature)) {
-        throw new Error(`Apify Store returned a repeated page at offset ${offset}`);
+        fail(`Apify Store returned a repeated page at offset ${offset}`, next.page, offset, progress.effectivePageSize, expectedLength, next.page.total, "repeated_page");
       }
       pageSignatures.add(signature);
       if (options.collectActors !== false) pages.push(next.page);
       progress.pagesFetched += 1;
       progress.offset = offset;
+      progress.lastObservedTotal = next.page.total;
+      progress.maxObservedTotal = Math.max(progress.maxObservedTotal, next.page.total);
+      progress.total = progress.maxObservedTotal;
+      requiredPageCount = Math.ceil(progress.maxObservedTotal / progress.effectivePageSize);
+      if (requiredPageCount > progress.initialPageCount + DISCOVERY_MAX_EXTRA_PAGES)
+        fail(`Apify Store coverage gap at offset ${offset}`, next.page, offset, progress.effectivePageSize, expectedLength, next.page.total, "growth_exceeds_one_extra_page");
       const pageActors: NormalizedActor[] = [];
       for (const actor of next.page.items
         .map(normalizeActor)
@@ -577,17 +652,38 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       await options.onProgress?.({ ...progress });
     }
     if (progress.total === 0 && first.page.items.length !== 0) {
-      throw new Error("Apify Store reported zero total with non-empty results");
+      fail("Apify Store reported zero total with non-empty results", first.page, 0, progress.effectivePageSize, 0, 0, "zero_total_with_items");
     }
     if (progress.uniqueActorCount !== progress.total) {
-      throw new Error(
+      fail(
         `Apify Store returned ${progress.total} records but ${progress.uniqueActorCount} unique actors were normalized`,
+        null,
+        progress.offset,
+        progress.effectivePageSize,
+        progress.total,
+        progress.total,
+        "unique_count_mismatch",
       );
     }
     return { ok: true, total: progress.total, pages, actors, progress };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown discovery traversal failure";
-    return { ok: false, error: message, pages, actors: [], progress };
+    if (!failureTelemetry) {
+      failureTelemetry = {
+        pass: passNumber,
+        requestedOffset: progress.offset,
+        returnedOffset: null,
+        returnedLimit: null,
+        returnedItemCount: null,
+        returnedTotal: null,
+        expectedOffset: progress.offset,
+        expectedLimit: progress.effectivePageSize,
+        expectedItemCount: null,
+        expectedTotal: progress.total,
+        invariant: "request_failed",
+      };
+    }
+    return { ok: false, error: message, pages, actors: [], progress, failureTelemetry };
   }
 }
 
@@ -622,19 +718,92 @@ function stagedActorValues(runId: number, actor: NormalizedActor) {
 }
 
 export async function clearDiscoveryStaging(runId: number) {
+  await db
+    .delete(discoveryRunPassMembershipsTable)
+    .where(eq(discoveryRunPassMembershipsTable.runId, runId));
   await db.delete(discoveryStagingActorsTable).where(eq(discoveryStagingActorsTable.runId, runId));
+}
+
+async function clearDiscoveryPassStaging(runId: number, passNumber: number) {
+  await db
+    .delete(discoveryRunPassMembershipsTable)
+    .where(
+      and(
+        eq(discoveryRunPassMembershipsTable.runId, runId),
+        eq(discoveryRunPassMembershipsTable.passNumber, passNumber),
+      ),
+    );
+  if (passNumber === 2) {
+    await db.delete(discoveryStagingActorsTable).where(eq(discoveryStagingActorsTable.runId, runId));
+  }
+}
+
+async function saveDiscoveryPassProgress(runId: number, progress: TraversalProgress) {
+  await db
+    .update(discoveryRunPassesTable)
+    .set({
+      initialTotal: progress.initialTotal,
+      effectivePageSize: progress.effectivePageSize,
+      initialPageCount: progress.initialPageCount,
+      maxObservedTotal: progress.maxObservedTotal,
+      firstObservedTotal: progress.firstObservedTotal,
+      lastObservedTotal: progress.lastObservedTotal,
+      pagesFetched: progress.pagesFetched,
+      requestCount: progress.requestCount,
+      retryCount: progress.retryCount,
+      uniqueActorCount: progress.uniqueActorCount,
+      duplicateActorCount: progress.duplicateActorCount,
+    })
+    .where(
+      and(
+        eq(discoveryRunPassesTable.runId, runId),
+        eq(discoveryRunPassesTable.passNumber, progress.passNumber),
+      ),
+    );
 }
 
 export async function traverseStoreToStaging(
   runId: number,
-  options: Omit<TraversalOptions, "onActors" | "collectActors">,
+  options: Omit<TraversalOptions, "onActors" | "collectActors"> & { passNumber?: number },
 ) {
-  await clearDiscoveryStaging(runId);
+  const passNumber = options.passNumber ?? 1;
+  await clearDiscoveryPassStaging(runId, passNumber);
+  await db
+    .insert(discoveryRunPassesTable)
+    .values({ runId, passNumber, status: "RUNNING" })
+    .onConflictDoUpdate({
+      target: [discoveryRunPassesTable.runId, discoveryRunPassesTable.passNumber],
+      set: {
+        status: "RUNNING",
+        error: null,
+        failureTelemetry: null,
+        pass1OnlyCount: null,
+        pass2OnlyCount: null,
+      },
+    });
   const result = await traverseStore({
     ...options,
+    passNumber,
     collectActors: false,
     onActors: async (actors) => {
       if (actors.length === 0) return;
+      await db
+        .insert(discoveryRunPassMembershipsTable)
+        .values(
+          actors.map((actor) => ({
+            runId,
+            passNumber,
+            actorKey: actor.actorKey,
+          })),
+        )
+        .onConflictDoNothing({
+          target: [
+            discoveryRunPassMembershipsTable.runId,
+            discoveryRunPassMembershipsTable.passNumber,
+            discoveryRunPassMembershipsTable.actorKey,
+          ],
+        });
+      if (passNumber !== 2) return;
       await db
         .insert(discoveryStagingActorsTable)
         .values(actors.map((actor) => stagedActorValues(runId, actor)))
@@ -642,9 +811,136 @@ export async function traverseStoreToStaging(
           target: [discoveryStagingActorsTable.runId, discoveryStagingActorsTable.actorKey],
         });
     },
+    onProgress: async (progress) => {
+      await saveDiscoveryPassProgress(runId, progress);
+      await options.onProgress?.(progress);
+    },
   });
+  await db
+    .update(discoveryRunPassesTable)
+    .set({
+      status: result.ok ? "COMPLETE" : result.progress.pagesFetched > 0 ? "UNVERIFIED" : "FAILED",
+      error: result.ok ? null : result.error,
+      failureTelemetry: result.ok
+        ? null
+        : (result.failureTelemetry as Record<string, unknown> | null),
+      initialTotal: result.progress.initialTotal,
+      effectivePageSize: result.progress.effectivePageSize,
+      initialPageCount: result.progress.initialPageCount,
+      maxObservedTotal: result.progress.maxObservedTotal,
+      firstObservedTotal: result.progress.firstObservedTotal,
+      lastObservedTotal: result.progress.lastObservedTotal,
+      pagesFetched: result.progress.pagesFetched,
+      requestCount: result.progress.requestCount,
+      retryCount: result.progress.retryCount,
+      uniqueActorCount: result.progress.uniqueActorCount,
+      duplicateActorCount: result.progress.duplicateActorCount,
+    })
+    .where(
+      and(
+        eq(discoveryRunPassesTable.runId, runId),
+        eq(discoveryRunPassesTable.passNumber, passNumber),
+      ),
+    );
   if (!result.ok) await clearDiscoveryStaging(runId);
   return result;
+}
+
+export interface DiscoveryConvergenceFailure {
+  ok: false;
+  error: string;
+  traversal: TraversalResult;
+  pass1OnlyCount: number;
+  pass2OnlyCount: number;
+}
+
+export interface DiscoveryConvergenceSuccess {
+  ok: true;
+  traversal: Extract<TraversalResult, { ok: true }>;
+  pass1OnlyCount: number;
+  pass2OnlyCount: number;
+}
+
+export type DiscoveryConvergenceResult =
+  | DiscoveryConvergenceSuccess
+  | DiscoveryConvergenceFailure;
+
+async function compareDiscoveryPassMemberships(runId: number) {
+  const pass1Result = await db.execute(sql`
+    SELECT COUNT(*)::int AS count
+    FROM discovery_run_pass_memberships first_pass
+    WHERE first_pass.run_id = ${runId} AND first_pass.pass_number = 1
+      AND NOT EXISTS (
+        SELECT 1 FROM discovery_run_pass_memberships second_pass
+        WHERE second_pass.run_id = first_pass.run_id
+          AND second_pass.pass_number = 2
+          AND second_pass.actor_key = first_pass.actor_key
+      )
+  `);
+  const pass2Result = await db.execute(sql`
+    SELECT COUNT(*)::int AS count
+    FROM discovery_run_pass_memberships second_pass
+    WHERE second_pass.run_id = ${runId} AND second_pass.pass_number = 2
+      AND NOT EXISTS (
+        SELECT 1 FROM discovery_run_pass_memberships first_pass
+        WHERE first_pass.run_id = second_pass.run_id
+          AND first_pass.pass_number = 1
+          AND first_pass.actor_key = second_pass.actor_key
+      )
+  `);
+  const pass1Only = pass1Result.rows[0] as { count?: number | string } | undefined;
+  const pass2Only = pass2Result.rows[0] as { count?: number | string } | undefined;
+  return {
+    pass1OnlyCount: Number(pass1Only?.count ?? 0),
+    pass2OnlyCount: Number(pass2Only?.count ?? 0),
+  };
+}
+
+export async function runDiscoveryConvergenceToStaging(
+  runId: number,
+  options: Omit<TraversalOptions, "onActors" | "collectActors" | "passNumber">,
+): Promise<DiscoveryConvergenceResult> {
+  await clearDiscoveryStaging(runId);
+  let pass1 = await traverseStoreToStaging(runId, { ...options, passNumber: 1 });
+  if (!pass1.ok) {
+    return {
+      ok: false,
+      error: pass1.error,
+      traversal: pass1,
+      pass1OnlyCount: 0,
+      pass2OnlyCount: 0,
+    };
+  }
+  const pass2 = await traverseStoreToStaging(runId, { ...options, passNumber: 2 });
+  if (!pass2.ok) {
+    return {
+      ok: false,
+      error: pass2.error,
+      traversal: pass2,
+      pass1OnlyCount: 0,
+      pass2OnlyCount: 0,
+    };
+  }
+  const differences = await compareDiscoveryPassMemberships(runId);
+  await db
+    .update(discoveryRunPassesTable)
+    .set(differences)
+    .where(eq(discoveryRunPassesTable.runId, runId));
+  if (differences.pass1OnlyCount !== 0 || differences.pass2OnlyCount !== 0) {
+    const error = `Discovery catalog membership did not converge: pass 1 only ${differences.pass1OnlyCount}, pass 2 only ${differences.pass2OnlyCount}`;
+    await db
+      .update(discoveryRunPassesTable)
+      .set({ status: "UNVERIFIED", error })
+      .where(eq(discoveryRunPassesTable.runId, runId));
+    await clearDiscoveryStaging(runId);
+    return {
+      ok: false,
+      error,
+      traversal: pass2,
+      ...differences,
+    };
+  }
+  return { ok: true, traversal: pass2, ...differences };
 }
 
 export interface ClusterSnapshotInput {
@@ -1371,6 +1667,8 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
         expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
         pagesFetched: traversal.progress.pagesFetched,
         currentOffset: traversal.progress.offset,
+        currentPass: traversal.progress.passNumber,
+        maxObservedTotal: traversal.progress.maxObservedTotal,
         requestCount: traversal.progress.requestCount,
         retryCount: traversal.progress.retryCount,
         uniqueActorCount: traversal.progress.uniqueActorCount,
@@ -1795,6 +2093,9 @@ export async function finalizeStagedDiscoveryResult(
     const scored = scoreClusters(finishClusterAccumulators(accumulators, previous), previous);
     await persistDerivedDiscoveryResult(runId, traversal, scored, tx);
     await tx.delete(discoveryStagingActorsTable).where(eq(discoveryStagingActorsTable.runId, runId));
+    await tx
+      .delete(discoveryRunPassMembershipsTable)
+      .where(eq(discoveryRunPassMembershipsTable.runId, runId));
   });
 }
 

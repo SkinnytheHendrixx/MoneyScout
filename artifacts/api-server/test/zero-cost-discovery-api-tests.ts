@@ -18,6 +18,7 @@ import discoveryRouter, {
   setDiscoveryFinalizeForTests,
   setDiscoveryMaxRetriesForTests,
   setDiscoveryRequestTimeoutForTests,
+  setDiscoverySleepForTests,
 } from "../src/routes/discovery";
 import {
   finalizeStagedDiscoveryResult,
@@ -53,6 +54,7 @@ const run = async (name: string, test: () => Promise<void>) => {
 };
 
 const runIds: number[] = [];
+setDiscoverySleepForTests(async () => undefined);
 
 await run("staged finalization persists multiple batches and protects linked history", async () => {
   const fixtureCandidateKey = "apify:JAVASCRIPT:FINANCE:HIGH_USAGE_FRAGMENTED";
@@ -421,7 +423,7 @@ await run("derived write failures roll back all finalized Discovery records", as
     total: 1,
     offset,
     limit,
-    items: [
+    items: offset === 0 ? [
       {
         id: "rollback-fixture",
         username: "rollback-fixture",
@@ -437,7 +439,7 @@ await run("derived write failures roll back all finalized Discovery records", as
           totalUsers90Days: 120,
         },
       },
-    ],
+    ] : [],
   }));
   setDiscoveryDerivedFailureForTests("fixture derived write failure");
   try {
@@ -572,6 +574,7 @@ setDiscoveryFetchPageForTests(null);
 setDiscoveryFinalizeForTests(null);
 setDiscoveryRequestTimeoutForTests(null);
 setDiscoveryMaxRetriesForTests(null);
+setDiscoverySleepForTests(null);
 if (runIds.length > 0) {
   await db.delete(discoveryRunsTable).where(inArray(discoveryRunsTable.id, runIds));
 }

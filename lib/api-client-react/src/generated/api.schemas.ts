@@ -313,10 +313,16 @@ export interface DiscoveryRun {
   expected_pages: number | null;
   pages_fetched: number;
   current_offset: number;
+  /** @nullable */
+  current_pass: number | null;
+  /** @nullable */
+  max_observed_total: number | null;
   request_count: number;
   retry_count: number;
   unique_actor_count: number;
   duplicate_actor_count: number;
+  pass1_only_count: number;
+  pass2_only_count: number;
   cluster_count: number;
   candidate_count: number;
   /** @nullable */

@@ -41,7 +41,7 @@ import {
   fetchApifyStorePage,
   getActiveDiscoveryRun,
   reconcileStaleDiscoveryRuns,
-  traverseStoreToStaging,
+  runDiscoveryConvergenceToStaging,
   type TraversalProgress,
 } from "../lib/discovery";
 import { logger } from "../lib/logger";
@@ -52,6 +52,7 @@ let fetchDiscoveryPage = fetchApifyStorePage;
 let finalizeDiscovery = finalizeStagedDiscoveryResult;
 let discoveryRequestTimeoutMs = DISCOVERY_REQUEST_TIMEOUT_MS;
 let discoveryMaxRetries = DISCOVERY_MAX_RETRIES;
+let discoverySleep: ((milliseconds: number) => Promise<void>) | undefined;
 
 export function setDiscoveryFetchPageForTests(
   fetchPage: typeof fetchApifyStorePage | null,
@@ -73,6 +74,12 @@ export function setDiscoveryMaxRetriesForTests(maxRetries: number | null) {
   discoveryMaxRetries = maxRetries ?? DISCOVERY_MAX_RETRIES;
 }
 
+export function setDiscoverySleepForTests(
+  sleepFn: ((milliseconds: number) => Promise<void>) | null,
+) {
+  discoverySleep = sleepFn ?? undefined;
+}
+
 const toApiRun = (run: typeof discoveryRunsTable.$inferSelect) => ({
   id: run.id,
   source: run.source,
@@ -90,10 +97,14 @@ const toApiRun = (run: typeof discoveryRunsTable.$inferSelect) => ({
   expected_pages: run.expectedPages,
   pages_fetched: run.pagesFetched,
   current_offset: run.currentOffset,
+    current_pass: run.currentPass,
+    max_observed_total: run.maxObservedTotal,
   request_count: run.requestCount,
   retry_count: run.retryCount,
   unique_actor_count: run.uniqueActorCount,
   duplicate_actor_count: run.duplicateActorCount,
+    pass1_only_count: run.pass1OnlyCount,
+    pass2_only_count: run.pass2OnlyCount,
   cluster_count: run.clusterCount,
   candidate_count: run.candidateCount,
   error: run.error,
@@ -128,6 +139,8 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
       effectivePageSize: progress.effectivePageSize,
       pagesFetched: progress.pagesFetched,
       currentOffset: progress.offset,
+      currentPass: progress.passNumber,
+      maxObservedTotal: progress.maxObservedTotal,
       requestCount: progress.requestCount,
       retryCount: progress.retryCount,
       uniqueActorCount: progress.uniqueActorCount,
@@ -160,6 +173,8 @@ async function executeDiscoveryRun(runId: number): Promise<void> {
         ? {
             pagesFetched: progress.pagesFetched,
             currentOffset: progress.offset,
+            currentPass: progress.passNumber,
+            maxObservedTotal: progress.maxObservedTotal,
             requestCount: progress.requestCount,
             retryCount: progress.retryCount,
             uniqueActorCount: progress.uniqueActorCount,
@@ -194,24 +209,32 @@ async function executeDiscoveryRun(runId: number): Promise<void> {
     }
   };
   try {
-    const traversal = await traverseStoreToStaging(runId, {
+    const convergence = await runDiscoveryConvergenceToStaging(runId, {
       fetchPage: fetchDiscoveryPage,
       pageSize: DISCOVERY_PAGE_SIZE,
       pacingMs: DISCOVERY_PACING_MS,
+      sleep: discoverySleep,
       requestTimeoutMs: discoveryRequestTimeoutMs,
       maxRetries: discoveryMaxRetries,
       signal: controller.signal,
       onProgress: (progress) => updateProgress(runId, progress),
     });
-    if (!traversal.ok) {
+    if (!convergence.ok) {
+      await db
+        .update(discoveryRunsTable)
+        .set({
+          pass1OnlyCount: convergence.pass1OnlyCount,
+          pass2OnlyCount: convergence.pass2OnlyCount,
+        })
+        .where(eq(discoveryRunsTable.id, runId));
       await markFailure(
-        new Error(traversal.error),
-        traversal.progress,
-        traversal.progress.pagesFetched > 0 ? "INCOMPLETE" : "FAILED",
+        new Error(convergence.error),
+        convergence.traversal.progress,
+        convergence.traversal.progress.pagesFetched > 0 ? "INCOMPLETE" : "FAILED",
       );
       return;
     }
-    await finalizeDiscovery(runId, traversal);
+    await finalizeDiscovery(runId, convergence.traversal);
   } catch (error) {
     logger.error({ err: error, runId }, "Discovery run failed");
     await markFailure(error);

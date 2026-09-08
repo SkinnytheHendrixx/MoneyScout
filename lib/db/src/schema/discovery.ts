@@ -29,6 +29,13 @@ export const discoveryCoverageStatusEnum = pgEnum("discovery_coverage_status", [
   "INCOMPLETE",
 ]);
 
+export const discoveryPassStatusEnum = pgEnum("discovery_pass_status", [
+  "RUNNING",
+  "COMPLETE",
+  "UNVERIFIED",
+  "FAILED",
+]);
+
 export const discoveryCandidateStatusEnum = pgEnum("discovery_candidate_status", [
   "NEW",
   "ACCEPTED",
@@ -69,10 +76,14 @@ export const discoveryRunsTable = pgTable(
     expectedPages: integer("expected_pages"),
     pagesFetched: integer("pages_fetched").notNull().default(0),
     currentOffset: integer("current_offset").notNull().default(0),
+    currentPass: integer("current_pass"),
+    maxObservedTotal: integer("max_observed_total"),
     requestCount: integer("request_count").notNull().default(0),
     retryCount: integer("retry_count").notNull().default(0),
     uniqueActorCount: integer("unique_actor_count").notNull().default(0),
     duplicateActorCount: integer("duplicate_actor_count").notNull().default(0),
+    pass1OnlyCount: integer("pass1_only_count").notNull().default(0),
+    pass2OnlyCount: integer("pass2_only_count").notNull().default(0),
     clusterCount: integer("cluster_count").notNull().default(0),
     candidateCount: integer("candidate_count").notNull().default(0),
     error: text("error"),
@@ -83,6 +94,57 @@ export const discoveryRunsTable = pgTable(
     uniqueIndex("discovery_runs_one_running_unique")
       .on(table.status)
       .where(sql`${table.status} = 'RUNNING'`),
+  ],
+);
+
+export const discoveryRunPassesTable = pgTable(
+  "discovery_run_passes",
+  {
+    id: serial("id").primaryKey(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => discoveryRunsTable.id, { onDelete: "cascade" }),
+    passNumber: integer("pass_number").notNull(),
+    status: discoveryPassStatusEnum("status").notNull().default("RUNNING"),
+    initialTotal: integer("initial_total"),
+    effectivePageSize: integer("effective_page_size"),
+    initialPageCount: integer("initial_page_count"),
+    maxObservedTotal: integer("max_observed_total"),
+    firstObservedTotal: integer("first_observed_total"),
+    lastObservedTotal: integer("last_observed_total"),
+    pagesFetched: integer("pages_fetched").notNull().default(0),
+    requestCount: integer("request_count").notNull().default(0),
+    retryCount: integer("retry_count").notNull().default(0),
+    uniqueActorCount: integer("unique_actor_count").notNull().default(0),
+    duplicateActorCount: integer("duplicate_actor_count").notNull().default(0),
+    pass1OnlyCount: integer("pass1_only_count"),
+    pass2OnlyCount: integer("pass2_only_count"),
+    failureTelemetry: jsonb("failure_telemetry").$type<Record<string, unknown> | null>(),
+    error: text("error"),
+  },
+  (table) => [
+    uniqueIndex("discovery_run_passes_run_number_unique").on(table.runId, table.passNumber),
+    index("discovery_run_passes_run_idx").on(table.runId),
+  ],
+);
+
+export const discoveryRunPassMembershipsTable = pgTable(
+  "discovery_run_pass_memberships",
+  {
+    id: serial("id").primaryKey(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => discoveryRunsTable.id, { onDelete: "cascade" }),
+    passNumber: integer("pass_number").notNull(),
+    actorKey: text("actor_key").notNull(),
+  },
+  (table) => [
+    uniqueIndex("discovery_run_pass_memberships_unique").on(
+      table.runId,
+      table.passNumber,
+      table.actorKey,
+    ),
+    index("discovery_run_pass_memberships_run_pass_idx").on(table.runId, table.passNumber),
   ],
 );
 

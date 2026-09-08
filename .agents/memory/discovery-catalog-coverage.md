@@ -14,3 +14,9 @@ For large catalogs, stage compact normalized Actor observations per run and fina
 **Why:** Complete-coverage proof requires seeing every page, but holding the raw catalog until the end creates avoidable memory pressure and makes failed runs harder to isolate.
 
 **How to apply:** Persist one normalized page at a time, clear staging on any incomplete/failed traversal, and score only the finalized staged set.
+
+When a pass reaches its initially advertised last page, make exactly one bounded out-of-range probe: an empty response is acceptable only outside the initial range with an unchanged total; returned growth must fit within that one extra page or the pass is unverified.
+
+**Why:** A live catalog can grow immediately after the initial last page, so stopping exactly at the first advertised boundary cannot distinguish stable coverage from newly exposed records.
+
+**How to apply:** Keep the probe inside the pass hard bound, treat shrinkage and short required pages as failures, and never turn the probe into an unbounded convergence loop.

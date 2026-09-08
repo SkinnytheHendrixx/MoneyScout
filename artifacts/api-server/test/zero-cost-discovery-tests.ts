@@ -55,9 +55,83 @@ await run("complete traversal uses exact offsets and validates coverage", async 
     },
   });
   assert.equal(result.ok, true);
-  assert.deepEqual(offsets, [0, 1_000, 2_000]);
+  assert.deepEqual(offsets, [0, 1_000, 2_000, 3_000]);
   assert.equal(result.progress.uniqueActorCount, 2_001);
   assert.equal(result.progress.duplicateActorCount, 0);
+});
+
+await run("bounded total growth permits one extra page and records convergence telemetry", async () => {
+  const offsets: number[] = [];
+  const items = Array.from({ length: 7 }, (_, index) => actorFixture(index));
+  const result = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => {
+      offsets.push(offset);
+      const total = offset === 0 ? 5 : 7;
+      return { total, offset, limit, items: items.slice(offset, offset + limit) };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(offsets, [0, 2, 4, 6]);
+  assert.equal(result.progress.initialTotal, 5);
+  assert.equal(result.progress.maxObservedTotal, 7);
+  assert.equal(result.progress.initialPageCount, 3);
+});
+
+await run("growth beyond one extra page is hard bounded with exact failure telemetry", async () => {
+  const result = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: offset === 0 ? 1 : 5,
+      offset,
+      limit,
+      items: offset === 0 ? [actorFixture(1)] : [actorFixture(2), actorFixture(3)],
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failureTelemetry?.invariant, "growth_exceeds_one_extra_page");
+  assert.equal(result.failureTelemetry?.requestedOffset, 2);
+  assert.equal(result.failureTelemetry?.returnedTotal, 5);
+  assert.equal(result.failureTelemetry?.expectedTotal, 5);
+});
+
+await run("shrinkage and mutable duplicate windows cannot verify a pass", async () => {
+  const shrank = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: offset === 0 ? 3 : 2,
+      offset,
+      limit,
+      items: offset === 0 ? [actorFixture(1), actorFixture(2)] : [actorFixture(3)],
+    }),
+  });
+  assert.equal(shrank.ok, false);
+  assert.equal(shrank.failureTelemetry?.invariant, "total_shrank");
+
+  const duplicateWindow = await traverseStore({
+    pageSize: 2,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: 4,
+      offset,
+      limit,
+      items: offset === 0
+        ? [actorFixture(1), actorFixture(2)]
+        : offset === 2
+          ? [actorFixture(2), actorFixture(3)]
+          : [],
+    }),
+  });
+  assert.equal(duplicateWindow.ok, false);
+  assert.equal(duplicateWindow.progress.duplicateActorCount, 1);
+  assert.equal(duplicateWindow.failureTelemetry?.invariant, "unique_count_mismatch");
 });
 
 await run("incomplete and failed traversals produce no scored actors", async () => {
@@ -100,12 +174,12 @@ await run("traversal caps page size and validates the first page length", async 
         total: 1,
         offset,
         limit,
-        items: [actorFixture(1)],
+        items: offset === 0 ? [actorFixture(1)] : [],
       };
     },
   });
   assert.equal(capped.ok, true);
-  assert.deepEqual(requestedLimits, [DISCOVERY_PAGE_SIZE]);
+  assert.deepEqual(requestedLimits, [DISCOVERY_PAGE_SIZE, DISCOVERY_PAGE_SIZE]);
 
   const malformedFirstPage = await traverseStore({
     pageSize: 1_000,
@@ -180,7 +254,9 @@ await run("duplicates are detected without creating duplicate actors", async () 
       items:
         offset === 0
           ? [actorFixture(1), actorFixture(2)]
-          : [actorFixture(2)],
+          : offset === 2
+            ? [actorFixture(2)]
+            : [],
     }),
   });
   assert.equal(result.ok, false);

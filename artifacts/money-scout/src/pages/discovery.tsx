@@ -361,6 +361,12 @@ export default function Discovery() {
   })
   const activeRun = statusQuery.data ?? selectedRunFromList
 
+  useEffect(() => {
+    if (statusQuery.data && statusQuery.data.status !== "RUNNING") {
+      void queryClient.invalidateQueries({ queryKey: getListDiscoveryRunsQueryKey() })
+    }
+  }, [queryClient, statusQuery.data?.status])
+
   const candidateParams = useMemo(
     () => (queueFilter === "ALL" ? undefined : { status: queueFilter as typeof DiscoveryCandidateStatus[keyof typeof DiscoveryCandidateStatus] }),
     [queueFilter],
@@ -398,7 +404,7 @@ export default function Discovery() {
       onSuccess: (run) => {
         setSelectedRunId(run.id)
         void invalidateDiscovery()
-        toast({ title: "Discovery run started", description: "Catalog pages are being sampled with bounded pacing." })
+        toast({ title: "Discovery scan started", description: "The catalog is being scanned twice for exact membership convergence." })
       },
       onError: () => toast({ title: "Could not start discovery", description: "The run did not start. Check the API server and retry.", variant: "destructive" }),
     })
@@ -481,8 +487,8 @@ export default function Discovery() {
         </header>
 
         <section className="mb-7 grid grid-cols-2 gap-4 rounded-[1.2rem] border border-[#d7d5ca] bg-[#fbfaf5] p-4 shadow-[0_12px_35px_rgba(40,54,40,0.035)] sm:grid-cols-4 sm:p-5">
-          <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Coverage" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? titleCase(activeRun.coverage_status) : "Awaiting run"} />
-          <Metric icon={<Fingerprint className="h-3.5 w-3.5 text-[#5f796b]" />} label="Actors observed" value={activeRun ? activeRun.unique_actor_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.duplicate_actor_count} duplicate records` : "No sample yet"} />
+          <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Verification" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? `${titleCase(activeRun.coverage_status)} · pass ${activeRun.current_pass ?? "—"} / 2` : "Awaiting scan"} />
+          <Metric icon={<Fingerprint className="h-3.5 w-3.5 text-[#5f796b]" />} label="Canonical actors" value={activeRun ? activeRun.unique_actor_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.duplicate_actor_count} duplicate records` : "No scan yet"} />
           <Metric icon={<Layers3 className="h-3.5 w-3.5 text-[#8c671e]" />} label="Clusters" value={activeRun ? activeRun.cluster_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.candidate_count} candidate leads` : "No sample yet"} />
           <Metric icon={<Target className="h-3.5 w-3.5 text-[#a5542f]" />} label="Queue" value={candidatesQuery.isLoading ? "…" : candidates.length.toLocaleString()} note={queueFilter === "NEW" ? "Needs review" : titleCase(queueFilter)} />
         </section>
@@ -494,7 +500,7 @@ export default function Discovery() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#a5542f]">Run ledger</div>
-                    <h2 className="mt-1 text-lg font-bold tracking-[-0.035em] text-[#183532]">Sampling history</h2>
+                    <h2 className="mt-1 text-lg font-bold tracking-[-0.035em] text-[#183532]">Catalog scan history</h2>
                   </div>
                   <RefreshCw className={`h-4 w-4 text-[#a8a79d] ${runsQuery.isFetching ? "animate-spin" : ""}`} />
                 </div>
@@ -513,7 +519,7 @@ export default function Discovery() {
                   </div>
                 ) : sortedRuns.length === 0 ? (
                   <div className="p-5 text-sm leading-relaxed text-[#77766e]">
-                    No discovery runs yet. Start a bounded catalog sample to create the first review queue.
+                    No discovery runs yet. Start a bounded catalog scan to create the first review queue.
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -552,7 +558,7 @@ export default function Discovery() {
                   </div>
                   <div>
                     <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.13em] text-[#aab9a9]">
-                      <span>Page coverage</span>
+                      <span>Pass verification</span>
                       <span className="font-mono text-[#f1d4a7]">{coveragePercent}%</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[#365750]">
@@ -561,8 +567,12 @@ export default function Discovery() {
                   </div>
                   <div className="grid grid-cols-2 gap-y-4 border-t border-[#365750] pt-4">
                     <div>
-                      <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pages</div>
+                      <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pass pages</div>
                       <div className="mt-1 font-mono text-sm font-bold">{activeRun.pages_fetched} / {activeRun.expected_pages ?? "—"}</div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pass</div>
+                      <div className="mt-1 font-mono text-sm font-bold">{activeRun.current_pass ?? "—"} / 2</div>
                     </div>
                     <div>
                       <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Requests</div>
@@ -586,6 +596,11 @@ export default function Discovery() {
                   {activeRun.error && (
                     <div className="rounded-lg border border-[#86534b] bg-[#4a302e] p-3 text-xs leading-relaxed text-[#f0c7bf]">
                       {activeRun.error}
+                    </div>
+                  )}
+                  {(activeRun.pass1_only_count > 0 || activeRun.pass2_only_count > 0) && (
+                    <div className="rounded-lg border border-[#86534b] bg-[#4a302e] p-3 text-xs leading-relaxed text-[#f0c7bf]">
+                      Membership changed between passes: {activeRun.pass1_only_count} removed, {activeRun.pass2_only_count} added. No scored results were published.
                     </div>
                   )}
                 </CardContent>
