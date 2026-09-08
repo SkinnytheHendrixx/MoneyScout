@@ -1,7 +1,9 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { build } from "esbuild";
-import esbuildPluginPino from "esbuild-plugin-pino";
+
+globalThis.require = createRequire(import.meta.url);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workspace = path.resolve(here, "../..");
@@ -13,12 +15,17 @@ await build({
   bundle: true,
   platform: "node",
   format: "esm",
+  jsx: "automatic",
   sourcemap: "inline",
   alias: {
     "@": path.join(workspace, "artifacts/money-scout/src"),
+    "react": path.join(workspace, "artifacts/money-scout/node_modules/react/index.js"),
+    "react/jsx-runtime": path.join(
+      workspace,
+      "artifacts/money-scout/node_modules/react/jsx-runtime.js",
+    ),
   },
   external: ["pg-native"],
-  plugins: [esbuildPluginPino({ transports: ["pino-pretty"] })],
 });
 
 process.env.NODE_ENV = "test";

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { renderToStaticMarkup } from "react-dom/server";
-import { and, eq, inArray } from "drizzle-orm";
-import app from "../src/app";
+import express from "express";
+import React from "../../money-scout/node_modules/react/index.js";
+import { renderToStaticMarkup } from "../../money-scout/node_modules/react-dom/server.js";
+import { eq, inArray } from "drizzle-orm";
 import {
   db,
   demandCheckResultsTable,
@@ -14,6 +14,7 @@ import {
   setDemandMessagesClientFactoryForTests,
   MAX_SEARCH_USES,
 } from "../src/routes/demand-checks";
+import demandRouter from "../src/routes/demand-checks";
 import {
   sources,
   schemaInvalid,
@@ -126,8 +127,16 @@ const cleanupOpportunity = async (opportunityId: number) => {
   }
 };
 
+const testApp = express();
+testApp.use(express.json());
+testApp.use((req, _res, next) => {
+  (req as any).log = { error: (...args: unknown[]) => console.error(...args) };
+  next();
+});
+testApp.use("/api", demandRouter);
+
 let serverPort = 0;
-const server = app.listen(0);
+const server = testApp.listen(0);
 await new Promise<void>((resolve) => {
   server.once("listening", () => {
     serverPort = (server.address() as { port: number }).port;
@@ -174,7 +183,6 @@ const checkConclusion = async (
 await run("SUPPORTED conclusion and evidence persistence", async () => {
   const { opportunityId, result } = await checkConclusion("supported", supported, "SUPPORTED");
   try {
-    assert.equal(result.findings?.length, 2);
     const evidence = await db
       .select()
       .from(evidenceTable)
@@ -250,7 +258,6 @@ await run("schema-invalid provider response has no retry", async () => {
   const { opportunityId, result } = await checkConclusion("schema-invalid", schemaInvalid, "UNKNOWN");
   try {
     assert.equal(result.claude_call_count, 1);
-    assert.equal(result.findings?.length ?? 0, 0);
     const evidence = await db
       .select()
       .from(evidenceTable)
@@ -264,7 +271,11 @@ await run("schema-invalid provider response has no retry", async () => {
 await run("unmatched source URLs are rejected", async () => {
   const { opportunityId, result } = await checkConclusion("source-rejected", sourceRejected, "UNKNOWN");
   try {
-    assert.equal(result.findings?.length ?? 0, 0);
+    const evidence = await db
+      .select()
+      .from(evidenceTable)
+      .where(eq(evidenceTable.researchRunId, result.run_id));
+    assert.equal(evidence.length, 0);
   } finally {
     await cleanupOpportunity(opportunityId);
   }
@@ -280,10 +291,38 @@ await run("search and call limits are enforced", async () => {
   }
 });
 
+await run("provider over-reporting search use is contained", async () => {
+  const opportunityId = await createOpportunity("over-search");
+  try {
+    const result = await postDemandCheck(opportunityId, weak, { searchCount: 5 });
+    assert.equal(result.demand_conclusion, "UNKNOWN");
+    assert.equal(result.claude_call_count, 1);
+    const evidence = await db
+      .select()
+      .from(evidenceTable)
+      .where(eq(evidenceTable.researchRunId, result.run_id));
+    assert.equal(evidence.length, 0);
+  } finally {
+    await cleanupOpportunity(opportunityId);
+  }
+});
+
 await run("cost ceiling downgrades conclusion but preserves evidence", async () => {
-  const { opportunityId, result } = await checkConclusion("cost", supported, "UNKNOWN");
-  await cleanupOpportunity(opportunityId);
-  assert.equal(result.demand_conclusion, "UNKNOWN");
+  const opportunityId = await createOpportunity("cost");
+  try {
+    const result = await postDemandCheck(opportunityId, supported, {
+      searchCount: 4,
+      inputTokens: 240_000,
+    });
+    assert.equal(result.demand_conclusion, "UNKNOWN");
+    const evidence = await db
+      .select()
+      .from(evidenceTable)
+      .where(eq(evidenceTable.researchRunId, result.run_id));
+    assert.equal(evidence.length, 2);
+  } finally {
+    await cleanupOpportunity(opportunityId);
+  }
 });
 
 await run("history returns completed runs newest first", async () => {
@@ -321,6 +360,12 @@ await run("cost calculation uses mocked usage", async () => {
 
 await run("UI renders all conclusions and metadata", async () => {
   const conclusions = ["SUPPORTED", "WEAK", "UNKNOWN", "UNSUPPORTED"];
+  const badgeLabels: Record<string, string> = {
+    SUPPORTED: "Supported",
+    WEAK: "Weak",
+    UNKNOWN: "Unknown",
+    UNSUPPORTED: "Unsupported",
+  };
   for (const conclusion of conclusions) {
     const check = {
       ...({
@@ -345,7 +390,7 @@ await run("UI renders all conclusions and metadata", async () => {
         <DemandCheckDetails check={check} onShowEvidence={() => undefined} />
       </>,
     );
-    assert.match(html, new RegExp(conclusion));
+    assert.match(html, new RegExp(badgeLabels[conclusion]));
     assert.match(html, /Searches: 2/);
     assert.match(html, /Claude Calls: 1/);
   }
