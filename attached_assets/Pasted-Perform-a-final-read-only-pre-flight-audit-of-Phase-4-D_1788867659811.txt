@@ -1,0 +1,69 @@
+Perform a final read-only pre-flight audit of Phase 4 Discovery Scout before the first live Apify catalog run.
+
+Do not change code.
+Do not run Discovery.
+Do not make any external request.
+
+Audit the actual implementation, not the task description.
+
+Confirm each of these from code/schema/tests:
+
+Live Discovery uses only unauthenticated GET https://api.apify.com/v2/store.
+No Claude, Anthropic, Firecrawl, paid search, Apify Actor execution, datasets, or paid integrations can be invoked by the Discovery path.
+A manual run returns 202 promptly and executes asynchronously.
+Only one Discovery run can be active.
+Page size is capped at 1,000 and requests are conservatively paced.
+Every page must report a stable advertised total.
+Exact offsets, effective page size, expected page lengths, repeated pages, malformed pagination, duplicate Actor identities, retry exhaustion, and final unique coverage are validated.
+Any inconsistency produces INCOMPLETE or FAILED, never COMPLETE.
+No candidate can be created from an incomplete, failed, or interrupted run.
+Compact staging is used page-by-page rather than retaining the entire raw catalog in memory.
+Staging is cleaned up safely after finalization/failure.
+Actor identity prefers Apify Actor ID with fallback only when needed.
+Missing categories/platforms remain UNKNOWN.
+Ambiguous platform matches remain UNKNOWN.
+Missing numeric values stay UNKNOWN/null and are never silently interpreted as zero.
+Discovery scoring is max-not-sum.
+Qualification threshold is exactly 60.
+Candidate cap is exactly 10.
+Thin supply, concentrated, fragmented, emerging, and material-change gates match the approved corrective plan.
+Discovery priority does not populate Opportunity Score.
+Accepted opportunities start with overall_score = 0, verdict = NEW, policy_status = UNKNOWN.
+Acceptance creates FACT evidence with the required caveat that Apify usage/marketplace structure is not revenue, validated demand, or opportunity quality.
+Acceptance is idempotent.
+Stable discovery-key deduplication is enforced.
+Unlinked compact Actor observations retain only the latest 3 COMPLETE runs.
+Explicitly linked candidate/opportunity/audit observations survive retention cleanup.
+Cluster snapshots and candidate history remain long-term.
+Full pricing/raw payloads are not retained by default.
+Existing Phase 1–3 behavior remains intact.
+
+Then identify any remaining issue that could cause:
+
+monetary cost,
+excessive database growth,
+excessive memory use,
+excessive network traffic,
+false COMPLETE status,
+false candidate creation,
+duplicate opportunities,
+or misleading demand/revenue interpretation.
+
+Give each remaining issue a severity:
+
+BLOCKER
+HIGH
+MEDIUM
+LOW
+
+End with exactly one recommendation:
+
+SAFE FOR FIRST LIVE DISCOVERY RUN
+
+or
+
+DO NOT RUN YET
+
+and explain why.
+
+Read-only audit only. Do not implement fixes or start any run.
