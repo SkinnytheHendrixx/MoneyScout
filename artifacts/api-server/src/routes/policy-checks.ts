@@ -440,7 +440,6 @@ Every finding must use the exact URL of a cited web-search result. Do not use th
               type: "web_search_20250305",
               name: "web_search",
               max_uses: 1,
-              allowed_callers: ["direct"],
               allowed_domains: [officialDomain],
             },
           ],
