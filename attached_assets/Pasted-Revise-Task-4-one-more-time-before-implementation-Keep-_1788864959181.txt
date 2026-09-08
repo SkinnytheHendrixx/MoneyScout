@@ -1,0 +1,63 @@
+Revise Task #4 one more time before implementation. Keep the complete-catalog design, but address three issues.
+
+1. Fix anomaly-score double counting
+
+The current score awards both supply scarcity (35) and concentration (25). These are correlated and can reward the same one-provider structure twice.
+
+Do not simply give high HHI more points.
+
+Instead, design candidate ranking around explicit anomaly types, for example:
+
+HIGH_USAGE_THIN_SUPPLY
+HIGH_USAGE_CONCENTRATED
+HIGH_USAGE_FRAGMENTED
+EMERGING_CLUSTER
+MATERIAL_SNAPSHOT_CHANGE
+
+A candidate may have multiple observations, but one structural condition should not receive duplicated score credit.
+
+Keep a 0–100 priority score if useful for sorting, but make it a ranking heuristic within or across anomaly types, not a pseudo-estimate of opportunity quality.
+
+Explain the exact formula and prove with examples that a one-Actor cluster does not receive two large independent boosts merely because actor count is one and HHI is also one.
+
+2. Make snapshot storage frugal
+
+Do not store a complete duplicate raw Actor JSON payload for ~56,000 Actors on every run.
+
+Revise the schema around something like:
+
+one durable canonical Actor record containing relatively stable/latest metadata
+compact per-run Actor observations containing only fields needed for snapshot comparison
+compact cluster-level snapshot metrics retained long-term
+raw payload retained only where necessary for audit/debugging, or only when an Actor changes/new Actor appears
+
+Propose a retention policy. Money Scout only needs enough detailed Actor history to compare recent COMPLETE snapshots; aggregate cluster/candidate history can remain long-term.
+
+Estimate roughly how many database rows and how much stored data one complete run would create under the revised design.
+
+3. Make the long-running traversal robust
+
+A complete run may take ~30 seconds or longer.
+
+Do not require one frontend HTTP request to remain open for the entire traversal.
+
+Prefer:
+
+POST Run Discovery creates a RUNNING run and returns its run ID promptly
+server performs the traversal
+UI polls a status/progress endpoint
+completed/incomplete/failed status is persisted
+
+Explain how this works safely in the existing Replit runtime and what happens if the server restarts during a run. Do not introduce paid infrastructure.
+
+Preserve:
+
+complete-catalog coverage requirement
+no candidates from incomplete snapshots
+stable discovery keys
+manual acceptance
+zero paid external calls
+fixture-only testing
+usage ≠ revenue/demand
+
+Do not implement anything. Return the revised full Task #4 plan.
