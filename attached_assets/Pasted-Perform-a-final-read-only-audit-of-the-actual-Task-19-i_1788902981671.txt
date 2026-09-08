@@ -1,0 +1,59 @@
+Perform a final read-only audit of the actual Task #19 implementation before the second live Discovery run.
+
+Do not change code.
+Do not run Discovery.
+Do not make any external request.
+
+Audit the implementation, schema, and zero-cost tests and confirm:
+
+Discovery now performs at most two bounded catalog passes.
+Each pass starts at offset 0 and cannot exceed its explicit page/request bound.
+The one-extra-page probe cannot create an unbounded crawl.
+Pass membership is stored compactly and compared with database-side set operations, not two large in-memory Actor arrays.
+Pass 1 and Pass 2 canonical Actor sets must be exactly equal before scoring.
+Matching provider totals with different Actor membership cannot pass.
+Different provider totals with identical verified membership are handled according to the approved convergence rule.
+Provider total is diagnostic/termination input only, not a substitute for set equality.
+Pass 2 telemetry alone becomes the scored snapshot after verification.
+No snapshot, candidate, or score can be published from an unverified pass or failed convergence.
+Duplicate Actor identities within either pass invalidate verification.
+Growth/shrinkage and short/empty-page behavior matches the approved bounded rules.
+Exact failed-page telemetry is persisted without raw page payloads.
+Convergence failure persists Pass-1-only and Pass-2-only counts.
+Request timeout, cancellation, failure, and finalization paths still release the active-run guard.
+Staging cleanup remains correct after incomplete/failed convergence.
+Multi-batch finalization and rollback atomicity still work after the Task #19 refactor.
+Candidate cap remains 10 and qualification threshold remains 60.
+Discovery priority still does not populate Opportunity Score.
+Auth/authorization still protects Discovery.
+Run ledger now refreshes terminal status and no longer leaves stale RUNNING.
+No Task #19 change regressed Phase 1–3 behavior.
+
+Then identify any remaining issue that could cause:
+
+false VERIFIED/COMPLETE status
+false candidate creation
+duplicate candidates/opportunities
+unbounded network requests
+excessive memory/database growth
+stale UI state
+or misleading usage/demand interpretation
+
+Give each issue a severity:
+
+BLOCKER
+HIGH
+MEDIUM
+LOW
+
+End with exactly one recommendation:
+
+SAFE FOR SECOND LIVE DISCOVERY RUN
+
+or
+
+DO NOT RUN YET
+
+Explain why.
+
+Read-only audit only. No fixes, no live requests, no Discovery run.
