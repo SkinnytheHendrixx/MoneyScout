@@ -3,7 +3,9 @@ import { Router, type IRouter } from "express";
 import {
   db,
   discoveryCandidatesTable,
+  discoveryObservationLinksTable,
   discoveryRunsTable,
+  evidenceTable,
   opportunitiesTable,
 } from "@workspace/db";
 import {
@@ -27,14 +29,17 @@ import {
 } from "@workspace/api-zod";
 import {
   DISCOVERY_FORMULA_VERSION,
+  DISCOVERY_NORMALIZATION_VERSION,
   DISCOVERY_PAGE_SIZE,
+  DISCOVERY_PLATFORM_ALIAS_VERSION,
   DISCOVERY_PACING_MS,
+  clearDiscoveryStaging,
   discoveryQueryDefinition,
+  finalizeStagedDiscoveryResult,
   fetchApifyStorePage,
   getActiveDiscoveryRun,
-  persistDiscoveryResult,
   reconcileStaleDiscoveryRuns,
-  traverseStore,
+  traverseStoreToStaging,
   type TraversalProgress,
 } from "../lib/discovery";
 import { logger } from "../lib/logger";
@@ -100,7 +105,8 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
     .update(discoveryRunsTable)
     .set({
       advertisedTotal: progress.total,
-      expectedPages: Math.ceil(progress.total / DISCOVERY_PAGE_SIZE),
+      expectedPages: Math.ceil(progress.total / progress.effectivePageSize),
+      effectivePageSize: progress.effectivePageSize,
       pagesFetched: progress.pagesFetched,
       currentOffset: progress.offset,
       requestCount: progress.requestCount,
@@ -114,7 +120,7 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
 
 async function executeDiscoveryRun(runId: number): Promise<void> {
   try {
-    const traversal = await traverseStore({
+    const traversal = await traverseStoreToStaging(runId, {
       fetchPage: fetchDiscoveryPage,
       pageSize: DISCOVERY_PAGE_SIZE,
       pacingMs: DISCOVERY_PACING_MS,
@@ -124,7 +130,7 @@ async function executeDiscoveryRun(runId: number): Promise<void> {
       await db
         .update(discoveryRunsTable)
         .set({
-          status: traversal.pages.length > 0 ? "INCOMPLETE" : "FAILED",
+          status: traversal.progress.pagesFetched > 0 ? "INCOMPLETE" : "FAILED",
           coverageStatus: "INCOMPLETE",
           finishedAt: new Date(),
           lastHeartbeatAt: new Date(),
@@ -139,9 +145,10 @@ async function executeDiscoveryRun(runId: number): Promise<void> {
         .where(eq(discoveryRunsTable.id, runId));
       return;
     }
-    await persistDiscoveryResult(runId, traversal);
+    await finalizeStagedDiscoveryResult(runId, traversal);
   } catch (error) {
     logger.error({ err: error, runId }, "Discovery run failed");
+    await clearDiscoveryStaging(runId);
     await db
       .update(discoveryRunsTable)
       .set({
@@ -187,6 +194,8 @@ router.post("/discovery/runs", async (_req, res): Promise<void> => {
         pageSize: DISCOVERY_PAGE_SIZE,
         pacingMs: DISCOVERY_PACING_MS,
         formulaVersion: DISCOVERY_FORMULA_VERSION,
+      normalizationVersion: DISCOVERY_NORMALIZATION_VERSION,
+      platformAliasVersion: DISCOVERY_PLATFORM_ALIAS_VERSION,
       })
       .returning();
   } catch (error) {
@@ -282,7 +291,7 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
         firstSeen: today,
         lastResearched: today,
         status: "Active",
-        overallScore: candidate.latestPriorityScore ?? 0,
+        overallScore: 0,
         policyStatus: "UNKNOWN",
         verdict: "NEW",
         killReason: null,
@@ -298,6 +307,40 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
         .from(opportunitiesTable)
         .where(eq(opportunitiesTable.discoveryKey, candidate.discoveryKey)))[0];
     if (!opportunity) return { kind: "conflict" as const };
+    const observedDate = new Date().toISOString().slice(0, 10);
+    const structure = (candidate.structureObservations ?? {}) as Record<string, unknown>;
+    const aggregateUsers30Days =
+      typeof structure.aggregateTotalUsers30Days === "number"
+        ? `${structure.aggregateTotalUsers30Days} reported 30-day users`
+        : "30-day user telemetry unavailable";
+    const observationSummary = `${structure.actorCount ?? "unknown"} Actors, ${structure.activeActorCount ?? "unknown"} active; ${aggregateUsers30Days}`;
+    const existingFact = await tx
+      .select({ id: evidenceTable.id })
+      .from(evidenceTable)
+      .where(
+        and(
+          eq(evidenceTable.opportunityId, opportunity.id),
+          eq(evidenceTable.evaluationDimension, "discovery_scout"),
+          eq(evidenceTable.classification, "FACT"),
+        ),
+      )
+      .limit(1);
+    if (existingFact.length === 0) {
+      await tx.insert(evidenceTable).values({
+        claim: `Apify Store usage telemetry reported a ${candidate.primaryAnomalyType.replaceAll("_", " ").toLowerCase()} pattern for the ${candidate.category} cluster (${observationSummary}). This is observational telemetry, not revenue or validated buyer demand.`,
+        sourceUrl: `https://apify.com/store?category=${encodeURIComponent(candidate.category)}`,
+        sourceTitle: "Apify Store Discovery Scout",
+        observedDate,
+        classification: "FACT",
+        opportunityId: opportunity.id,
+        evaluationDimension: "discovery_scout",
+        researchRunId: null,
+      });
+    }
+    await tx
+      .update(discoveryObservationLinksTable)
+      .set({ opportunityId: opportunity.id })
+      .where(eq(discoveryObservationLinksTable.candidateId, candidate.id));
     const [updatedCandidate] = await tx
       .update(discoveryCandidatesTable)
       .set({

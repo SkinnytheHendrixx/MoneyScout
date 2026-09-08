@@ -62,6 +62,8 @@ export const discoveryRunsTable = pgTable(
     effectivePageSize: integer("effective_page_size"),
     pacingMs: integer("pacing_ms").notNull(),
     formulaVersion: text("formula_version").notNull(),
+    normalizationVersion: text("normalization_version").notNull().default("normalization-v0.2"),
+    platformAliasVersion: text("platform_alias_version").notNull().default("platform-aliases-v1"),
     advertisedTotal: integer("advertised_total"),
     observedTotal: integer("observed_total"),
     expectedPages: integer("expected_pages"),
@@ -81,6 +83,48 @@ export const discoveryRunsTable = pgTable(
     uniqueIndex("discovery_runs_one_running_unique")
       .on(table.status)
       .where(sql`${table.status} = 'RUNNING'`),
+  ],
+);
+
+export const discoveryStagingActorsTable = pgTable(
+  "discovery_staging_actors",
+  {
+    id: serial("id").primaryKey(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => discoveryRunsTable.id, { onDelete: "cascade" }),
+    actorKey: text("actor_key").notNull(),
+    actorId: text("actor_id"),
+    username: text("username").notNull(),
+    name: text("name").notNull(),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    description: text("description").notNull().default(""),
+    categories: text("categories").array().notNull().default([]),
+    platformMatches: text("platform_matches").array().notNull().default([]),
+    categoryKeys: text("category_keys").array().notNull().default([]),
+    totalUsers: integer("total_users"),
+    totalUsers7Days: integer("total_users_7_days"),
+    totalUsers30Days: integer("total_users_30_days"),
+    totalUsers90Days: integer("total_users_90_days"),
+    totalRuns: integer("total_runs"),
+    totalBuilds: integer("total_builds"),
+    lastRunStartedAt: timestamp("last_run_started_at", { withTimezone: true }),
+    actorReviewCount: integer("actor_review_count"),
+    actorReviewRating: numeric("actor_review_rating", { precision: 8, scale: 4, mode: "number" }),
+    bookmarkCount: integer("bookmark_count"),
+    pricingModel: text("pricing_model"),
+    minimalMaxTotalChargeUsd: numeric("minimal_max_total_charge_usd", {
+      precision: 12,
+      scale: 6,
+      mode: "number",
+    }),
+    metadataHash: text("metadata_hash").notNull(),
+    selectedRaw: jsonb("selected_raw").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    uniqueIndex("discovery_staging_actors_run_key_unique").on(table.runId, table.actorKey),
+    index("discovery_staging_actors_run_idx").on(table.runId, table.id),
   ],
 );
 
@@ -164,9 +208,27 @@ export const discoveryClusterSnapshotsTable = pgTable(
     category: text("category").notNull(),
     actorCount: integer("actor_count").notNull(),
     activeActorCount: integer("active_actor_count").notNull(),
-    aggregateTotalUsers30Days: integer("aggregate_total_users_30_days").notNull().default(0),
-    aggregateTotalUsers7Days: integer("aggregate_total_users_7_days").notNull().default(0),
-    aggregateTotalUsers90Days: integer("aggregate_total_users_90_days").notNull().default(0),
+    aggregateTotalUsers30Days: integer("aggregate_total_users_30_days"),
+    aggregateTotalUsers7Days: integer("aggregate_total_users_7_days"),
+    aggregateTotalUsers90Days: integer("aggregate_total_users_90_days"),
+    usageKnownActorCount: integer("usage_known_actor_count").notNull().default(0),
+    newActorCount: integer("new_actor_count").notNull().default(0),
+    newActorPercentile: numeric("new_actor_percentile", { precision: 8, scale: 6, mode: "number" }),
+    snapshotNewnessPercentile: numeric("snapshot_newness_percentile", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    materialActorChangeScore: numeric("material_actor_change_score", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
+    materialUsageChangeScore: numeric("material_usage_change_score", {
+      precision: 8,
+      scale: 6,
+      mode: "number",
+    }),
     usagePercentile: numeric("usage_percentile", { precision: 8, scale: 6, mode: "number" }),
     thinSupplyPercentile: numeric("thin_supply_percentile", { precision: 8, scale: 6, mode: "number" }),
     hhi: numeric("hhi", { precision: 8, scale: 6, mode: "number" }),
@@ -219,5 +281,35 @@ export const discoveryCandidatesTable = pgTable(
     uniqueIndex("discovery_candidates_key_unique").on(table.discoveryKey),
     index("discovery_candidates_status_idx").on(table.status),
     index("discovery_candidates_cluster_idx").on(table.clusterKey),
+  ],
+);
+
+export const discoveryObservationLinksTable = pgTable(
+  "discovery_observation_links",
+  {
+    id: serial("id").primaryKey(),
+    observationId: integer("observation_id")
+      .notNull()
+      .references(() => discoveryActorObservationsTable.id, { onDelete: "cascade" }),
+    candidateId: integer("candidate_id").references(
+      () => discoveryCandidatesTable.id,
+      { onDelete: "cascade" },
+    ),
+    opportunityId: integer("opportunity_id").references(
+      () => opportunitiesTable.id,
+      { onDelete: "cascade" },
+    ),
+    auditRecordId: text("audit_record_id"),
+  },
+  (table) => [
+    uniqueIndex("discovery_observation_links_unique").on(
+      table.observationId,
+      table.candidateId,
+      table.opportunityId,
+      table.auditRecordId,
+    ),
+    index("discovery_observation_links_observation_idx").on(table.observationId),
+    index("discovery_observation_links_candidate_idx").on(table.candidateId),
+    index("discovery_observation_links_opportunity_idx").on(table.opportunityId),
   ],
 );

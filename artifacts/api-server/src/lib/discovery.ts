@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, notInArray, or, sql } from "drizzle-orm";
 import {
   db,
   discoveryActorObservationsTable,
   discoveryActorsTable,
   discoveryCandidatesTable,
   discoveryClusterSnapshotsTable,
+  discoveryObservationLinksTable,
   discoveryRunsTable,
+  discoveryStagingActorsTable,
 } from "@workspace/db";
 import { logger } from "./logger";
 
@@ -20,9 +22,13 @@ export type DiscoveryAnomalyType =
 export const DISCOVERY_PAGE_SIZE = 1_000;
 export const DISCOVERY_PACING_MS = 500;
 export const DISCOVERY_MAX_RETRIES = 3;
-export const DISCOVERY_FORMULA_VERSION = "discovery-v0.1";
+export const DISCOVERY_FORMULA_VERSION = "discovery-v0.2";
+export const DISCOVERY_NORMALIZATION_VERSION = "normalization-v0.2";
+export const DISCOVERY_PLATFORM_ALIAS_VERSION = "platform-aliases-v1";
 export const DISCOVERY_HEARTBEAT_STALE_MS = 2 * 60 * 1_000;
-export const DISCOVERY_DETAILED_RUN_RETENTION = 30;
+export const DISCOVERY_DETAILED_RUN_RETENTION = 3;
+export const DISCOVERY_QUALIFICATION_THRESHOLD = 60;
+export const DISCOVERY_CANDIDATE_CAP = 10;
 export const DISCOVERY_STORE_URL = "https://api.apify.com/v2/store";
 
 type JsonObject = Record<string, unknown>;
@@ -39,12 +45,12 @@ export interface NormalizedActor {
   platformMatches: string[];
   sourcePlatform: string;
   categoryKeys: string[];
-  totalUsers: number;
-  totalUsers7Days: number;
-  totalUsers30Days: number;
-  totalUsers90Days: number;
-  totalRuns: number;
-  totalBuilds: number;
+  totalUsers: number | null;
+  totalUsers7Days: number | null;
+  totalUsers30Days: number | null;
+  totalUsers90Days: number | null;
+  totalRuns: number | null;
+  totalBuilds: number | null;
   lastRunStartedAt: Date | null;
   actorReviewCount: number | null;
   actorReviewRating: number | null;
@@ -65,6 +71,7 @@ export interface StorePage {
 export interface TraversalProgress {
   offset: number;
   total: number;
+  effectivePageSize: number;
   pagesFetched: number;
   requestCount: number;
   retryCount: number;
@@ -97,6 +104,8 @@ export interface TraversalOptions {
   pageSize?: number;
   maxRetries?: number;
   onProgress?: (progress: TraversalProgress) => Promise<void>;
+  onActors?: (actors: NormalizedActor[]) => Promise<void>;
+  collectActors?: boolean;
 }
 
 const sleep = (milliseconds: number) =>
@@ -105,7 +114,7 @@ const sleep = (milliseconds: number) =>
 const textValue = (value: unknown, fallback = "") =>
   typeof value === "string" ? value.trim() : fallback;
 
-const numberValue = (value: unknown, fallback = 0) => {
+const numberValue = (value: unknown, fallback: number | null = null) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && Number.isFinite(Number(value))) return Number(value);
   return fallback;
@@ -137,6 +146,50 @@ const normalizeList = (value: unknown) =>
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest("hex");
 
+const canonicalizeCategory = (value: unknown) => {
+  if (typeof value !== "string" || !value.trim()) return "UNKNOWN";
+  const canonical = value
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return canonical || "UNKNOWN";
+};
+
+const PLATFORM_ALIASES = [
+  { canonical: "AMAZON", terms: ["amazon"], specificity: 100 },
+  { canonical: "FACEBOOK", terms: ["facebook", "fb.com"], specificity: 90 },
+  { canonical: "GITHUB", terms: ["github", "github.com"], specificity: 90 },
+  { canonical: "GOOGLE", terms: ["google", "google.com"], specificity: 100 },
+  { canonical: "INSTAGRAM", terms: ["instagram", "instagram.com"], specificity: 90 },
+  { canonical: "LINKEDIN", terms: ["linkedin", "linkedin.com"], specificity: 90 },
+  { canonical: "REDDIT", terms: ["reddit", "reddit.com"], specificity: 90 },
+  { canonical: "SHOPIFY", terms: ["shopify", "shopify.com"], specificity: 90 },
+  { canonical: "TIKTOK", terms: ["tiktok", "tiktok.com"], specificity: 90 },
+  { canonical: "TWITTER", terms: ["twitter", "twitter.com", "x.com"], specificity: 90 },
+  { canonical: "WALMART", terms: ["walmart", "walmart.com"], specificity: 90 },
+  { canonical: "YOUTUBE", terms: ["youtube", "youtube.com"], specificity: 90 },
+] as const;
+
+const escapedTerm = (term: string) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+function matchPlatforms(values: unknown[]) {
+  const text = values
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  const matches = PLATFORM_ALIASES
+    .filter((alias) =>
+      alias.terms.some((term) =>
+        new RegExp(`(^|[^a-z0-9])${escapedTerm(term)}([^a-z0-9]|$)`, "i").test(text),
+      ),
+    )
+    .sort((left, right) => right.specificity - left.specificity || left.canonical.localeCompare(right.canonical));
+  const canonicalMatches = [...new Set(matches.map((match) => match.canonical))];
+  return canonicalMatches.length === 1 ? canonicalMatches : ["UNKNOWN"];
+}
+
 const parseDate = (value: unknown) => {
   if (typeof value !== "string" && !(value instanceof Date)) return null;
   const parsed = new Date(value);
@@ -152,27 +205,38 @@ export function normalizeActor(raw: unknown): NormalizedActor | null {
 
   const normalizedUsername = (username || name).toLowerCase().replace(/\s+/g, "-");
   const title = textValue(firstDefined(actor.title, actor.name), normalizedUsername);
-  const categories = normalizeList(firstDefined(actor.categories, actor.category));
-  const platformMatches = normalizeList(
-    firstDefined(actor.platforms, actor.platform, getPath(actor, [["stats", "platforms"]])),
-  );
-  const sourcePlatform = platformMatches[0] ?? "apify";
-  const categoryKeys = categories.length > 0 ? categories : ["uncategorized"];
+  const rawCategories = firstDefined(actor.categories, actor.category);
+  const categories = (Array.isArray(rawCategories) ? rawCategories : [rawCategories])
+    .map(canonicalizeCategory)
+    .filter((value, index, values) => value !== "UNKNOWN" || index === values.indexOf(value));
   const actorId = textValue(firstDefined(actor.id, actor.actorId), "") || null;
   const url =
     textValue(firstDefined(actor.url, actor.storeUrl), "") ||
     `https://apify.com/${normalizedUsername}`;
   const description = textValue(firstDefined(actor.description, actor.readme), "");
   const stats = (actor.stats as JsonObject | undefined) ?? {};
+  const platformMatches = matchPlatforms([
+    firstDefined(actor.platforms, actor.platform, getPath(actor, [["stats", "platforms"]])),
+    actor.title,
+    actor.name,
+    actor.username,
+    actor.description,
+    actor.readme,
+    actor.url,
+    actor.storeUrl,
+  ]);
+  const normalizedPlatforms = platformMatches.length > 0 ? platformMatches : ["UNKNOWN"];
+  const sourcePlatform = normalizedPlatforms[0];
+  const categoryKeys = categories.length > 0 ? categories : ["UNKNOWN"];
   const users = numberValue(firstDefined(stats.totalUsers, actor.totalUsers));
   const users7Days = numberValue(
     firstDefined(stats.totalUsers7Days, stats.totalUsersLast7Days, actor.totalUsers7Days),
   );
   const users30Days = numberValue(
-    firstDefined(stats.totalUsers30Days, stats.totalUsersLast30Days, actor.totalUsers30Days, users),
+    firstDefined(stats.totalUsers30Days, stats.totalUsersLast30Days, actor.totalUsers30Days),
   );
   const users90Days = numberValue(
-    firstDefined(stats.totalUsers90Days, stats.totalUsersLast90Days, actor.totalUsers90Days, users30Days),
+    firstDefined(stats.totalUsers90Days, stats.totalUsersLast90Days, actor.totalUsers90Days),
   );
   const selectedRaw: JsonObject = {
     id: actorId,
@@ -182,7 +246,7 @@ export function normalizeActor(raw: unknown): NormalizedActor | null {
     url,
     description,
     categories,
-    platformMatches,
+    platformMatches: normalizedPlatforms,
     stats: {
       totalUsers: users,
       totalUsers7Days: users7Days,
@@ -195,18 +259,26 @@ export function normalizeActor(raw: unknown): NormalizedActor | null {
       actorReviewRating: firstDefined(stats.actorReviewRating, actor.actorReviewRating) ?? null,
       bookmarkCount: firstDefined(stats.bookmarkCount, actor.bookmarkCount) ?? null,
     },
-    pricing: firstDefined(actor.currentPricingInfo, actor.pricing, null),
+    pricingModel: textValue(firstDefined(
+      (firstDefined(actor.currentPricingInfo, actor.pricing) as JsonObject | undefined)?.pricingModel,
+      (firstDefined(actor.currentPricingInfo, actor.pricing) as JsonObject | undefined)?.model,
+      actor.pricingModel,
+    ), "") || null,
+    minimalMaxTotalChargeUsd: numberValue(firstDefined(
+      (firstDefined(actor.currentPricingInfo, actor.pricing) as JsonObject | undefined)?.minimalMaxTotalChargeUsd,
+      (firstDefined(actor.currentPricingInfo, actor.pricing) as JsonObject | undefined)?.maxTotalChargeUsd,
+    )),
   };
   const pricing = firstDefined(actor.currentPricingInfo, actor.pricing) as JsonObject | undefined;
   const pricingModel =
     textValue(firstDefined(pricing?.pricingModel, pricing?.model, actor.pricingModel), "") || null;
   const minimalMaxTotalChargeUsd = pricing
-    ? numberValue(firstDefined(pricing.minimalMaxTotalChargeUsd, pricing.maxTotalChargeUsd), 0) || null
+    ? numberValue(firstDefined(pricing.minimalMaxTotalChargeUsd, pricing.maxTotalChargeUsd))
     : null;
   const metadataHash = sha256(JSON.stringify(selectedRaw));
 
   return {
-    actorKey: `apify:${normalizedUsername}`,
+    actorKey: actorId ? `apify:id:${actorId}` : `apify:username:${normalizedUsername}`,
     actorId,
     username: normalizedUsername,
     name: name || normalizedUsername,
@@ -214,7 +286,7 @@ export function normalizeActor(raw: unknown): NormalizedActor | null {
     url,
     description,
     categories,
-    platformMatches,
+    platformMatches: normalizedPlatforms,
     sourcePlatform,
     categoryKeys,
     totalUsers: users,
@@ -243,12 +315,30 @@ export function normalizeActor(raw: unknown): NormalizedActor | null {
 export function parseStorePage(raw: unknown, requestedOffset: number, requestedLimit: number): StorePage {
   const root = (raw && typeof raw === "object" ? raw : {}) as JsonObject;
   const data = (root.data && typeof root.data === "object" ? root.data : root) as JsonObject;
-  const items = Array.isArray(data.items) ? data.items : [];
+  if (!Array.isArray(data.items)) {
+    throw new Error("Apify Store response omitted an items array");
+  }
+  const total = numberValue(data.total);
+  const offset = numberValue(data.offset);
+  const limit = numberValue(data.limit);
+  if (
+    total === null ||
+    offset === null ||
+    limit === null ||
+    !Number.isInteger(total) ||
+    !Number.isInteger(offset) ||
+    !Number.isInteger(limit) ||
+    total < 0 ||
+    offset < 0 ||
+    limit <= 0
+  ) {
+    throw new Error("Apify Store response contained malformed pagination metadata");
+  }
   return {
-    total: numberValue(data.total, 0),
-    offset: numberValue(data.offset, requestedOffset),
-    limit: numberValue(data.limit, requestedLimit),
-    items,
+    total,
+    offset,
+    limit,
+    items: data.items,
   };
 }
 
@@ -285,6 +375,7 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
   const progress: TraversalProgress = {
     offset: 0,
     total: 0,
+    effectivePageSize: pageSize,
     pagesFetched: 0,
     requestCount: 0,
     retryCount: 0,
@@ -304,32 +395,42 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
     );
     progress.requestCount += 1;
     progress.retryCount += first.retryCount;
-    if (first.page.offset !== 0 || first.page.limit !== pageSize || first.page.total < 0) {
+    if (
+      first.page.offset !== 0 ||
+      first.page.limit <= 0 ||
+      first.page.limit > pageSize ||
+      first.page.total < 0
+    ) {
       throw new Error("Apify Store returned an invalid first page");
     }
     progress.total = first.page.total;
-    pages.push(first.page);
+    progress.effectivePageSize = first.page.limit;
+    if (options.collectActors !== false) pages.push(first.page);
     progress.pagesFetched = 1;
+    const pageSignatures = new Set([sha256(JSON.stringify(first.page.items))]);
     const firstActors = first.page.items.map(normalizeActor).filter((actor): actor is NormalizedActor => Boolean(actor));
+    const firstUniqueActors: NormalizedActor[] = [];
     for (const actor of firstActors) {
       if (seenKeys.has(actor.actorKey)) progress.duplicateActorCount += 1;
       else {
         seenKeys.add(actor.actorKey);
-        actors.push(actor);
+        firstUniqueActors.push(actor);
       }
     }
+    await options.onActors?.(firstUniqueActors);
+    if (options.collectActors !== false) actors.push(...firstUniqueActors);
     progress.uniqueActorCount = actors.length;
     await options.onProgress?.({ ...progress });
 
     const expectedOffsets = [];
-    for (let offset = pageSize; offset < progress.total; offset += pageSize) {
+    for (let offset = progress.effectivePageSize; offset < progress.total; offset += progress.effectivePageSize) {
       expectedOffsets.push(offset);
     }
     for (const offset of expectedOffsets) {
       const next = await fetchWithRetry(
         options.fetchPage,
         offset,
-        pageSize,
+        progress.effectivePageSize,
         maxRetries,
         sleepFn,
         pacingMs,
@@ -337,26 +438,35 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
       );
       progress.requestCount += 1;
       progress.retryCount += next.retryCount;
-      const expectedLength = Math.min(pageSize, progress.total - offset);
+      const expectedLength = Math.min(progress.effectivePageSize, progress.total - offset);
       if (
         next.page.offset !== offset ||
-        next.page.limit !== pageSize ||
+        next.page.limit !== progress.effectivePageSize ||
+        next.page.total !== progress.total ||
         next.page.items.length !== expectedLength
       ) {
         throw new Error(`Apify Store coverage gap at offset ${offset}`);
       }
-      pages.push(next.page);
+      const signature = sha256(JSON.stringify(next.page.items));
+      if (pageSignatures.has(signature)) {
+        throw new Error(`Apify Store returned a repeated page at offset ${offset}`);
+      }
+      pageSignatures.add(signature);
+      if (options.collectActors !== false) pages.push(next.page);
       progress.pagesFetched += 1;
       progress.offset = offset;
+      const pageActors: NormalizedActor[] = [];
       for (const actor of next.page.items
         .map(normalizeActor)
         .filter((candidate): candidate is NormalizedActor => Boolean(candidate))) {
         if (seenKeys.has(actor.actorKey)) progress.duplicateActorCount += 1;
         else {
           seenKeys.add(actor.actorKey);
-          actors.push(actor);
+          pageActors.push(actor);
         }
       }
+      await options.onActors?.(pageActors);
+      if (options.collectActors !== false) actors.push(...pageActors);
       progress.uniqueActorCount = actors.length;
       await options.onProgress?.({ ...progress });
     }
@@ -375,23 +485,86 @@ export async function traverseStore(options: TraversalOptions): Promise<Traversa
   }
 }
 
+function stagedActorValues(runId: number, actor: NormalizedActor) {
+  return {
+    runId,
+    actorKey: actor.actorKey,
+    actorId: actor.actorId,
+    username: actor.username,
+    name: actor.name,
+    title: actor.title,
+    url: actor.url,
+    description: actor.description,
+    categories: actor.categories,
+    platformMatches: actor.platformMatches,
+    categoryKeys: actor.categoryKeys,
+    totalUsers: actor.totalUsers,
+    totalUsers7Days: actor.totalUsers7Days,
+    totalUsers30Days: actor.totalUsers30Days,
+    totalUsers90Days: actor.totalUsers90Days,
+    totalRuns: actor.totalRuns,
+    totalBuilds: actor.totalBuilds,
+    lastRunStartedAt: actor.lastRunStartedAt,
+    actorReviewCount: actor.actorReviewCount,
+    actorReviewRating: actor.actorReviewRating,
+    bookmarkCount: actor.bookmarkCount,
+    pricingModel: actor.pricingModel,
+    minimalMaxTotalChargeUsd: actor.minimalMaxTotalChargeUsd,
+    metadataHash: actor.metadataHash,
+    selectedRaw: actor.selectedRaw,
+  };
+}
+
+export async function clearDiscoveryStaging(runId: number) {
+  await db.delete(discoveryStagingActorsTable).where(eq(discoveryStagingActorsTable.runId, runId));
+}
+
+export async function traverseStoreToStaging(
+  runId: number,
+  options: Omit<TraversalOptions, "onActors" | "collectActors">,
+) {
+  await clearDiscoveryStaging(runId);
+  const result = await traverseStore({
+    ...options,
+    collectActors: false,
+    onActors: async (actors) => {
+      if (actors.length === 0) return;
+      await db
+        .insert(discoveryStagingActorsTable)
+        .values(actors.map((actor) => stagedActorValues(runId, actor)))
+        .onConflictDoNothing({
+          target: [discoveryStagingActorsTable.runId, discoveryStagingActorsTable.actorKey],
+        });
+    },
+  });
+  if (!result.ok) await clearDiscoveryStaging(runId);
+  return result;
+}
+
 export interface ClusterSnapshotInput {
   clusterKey: string;
   sourcePlatform: string;
   category: string;
   actorCount: number;
   activeActorCount: number;
-  aggregateTotalUsers30Days: number;
-  aggregateTotalUsers7Days: number;
-  aggregateTotalUsers90Days: number;
-  usagePercentile: number;
-  thinSupplyPercentile: number;
-  hhi: number;
-  concentrationPercentile: number;
-  fragmentationPercentile: number;
+  providerCount: number;
+  usageKnownActorCount: number;
+  aggregateTotalUsers30Days: number | null;
+  aggregateTotalUsers7Days: number | null;
+  aggregateTotalUsers90Days: number | null;
+  usagePercentile: number | null;
+  thinSupplyPercentile: number | null;
+  hhi: number | null;
+  concentrationPercentile: number | null;
+  fragmentationPercentile: number | null;
   persistence: boolean;
   emergence: boolean;
-  recentUsageMix: number;
+  recentUsageMix: number | null;
+  newActorCount: number;
+  newActorPercentile: number | null;
+  snapshotNewnessPercentile: number | null;
+  materialActorChangeScore: number | null;
+  materialUsageChangeScore: number | null;
   pricingModelCounts: Record<string, number>;
 }
 
@@ -402,7 +575,8 @@ export interface ScoredCluster extends ClusterSnapshotInput {
   scoreBreakdown: Record<string, number>;
 }
 
-const percentile = (values: number[], value: number) => {
+const percentile = (values: number[], value: number | null) => {
+  if (value === null) return null;
   if (values.length <= 1) return 1;
   const lower = values.filter((candidate) => candidate <= value).length - 1;
   return Math.max(0, Math.min(1, lower / (values.length - 1)));
@@ -410,52 +584,98 @@ const percentile = (values: number[], value: number) => {
 
 export function aggregateClusters(
   actors: NormalizedActor[],
-  previous: Array<Pick<ClusterSnapshotInput, "clusterKey" | "aggregateTotalUsers30Days" | "actorCount">> = [],
+  previous: Array<
+    Pick<
+      ClusterSnapshotInput,
+      "clusterKey" | "aggregateTotalUsers30Days" | "aggregateTotalUsers7Days" | "actorCount"
+    >
+  > = [],
 ): ClusterSnapshotInput[] {
   const grouped = new Map<string, NormalizedActor[]>();
   for (const actor of actors) {
-    for (const category of actor.categoryKeys) {
-      const clusterKey = `${actor.sourcePlatform}:${category}`;
-      const group = grouped.get(clusterKey) ?? [];
-      group.push(actor);
-      grouped.set(clusterKey, group);
+    for (const platform of actor.platformMatches.length > 0 ? actor.platformMatches : ["UNKNOWN"]) {
+      for (const category of actor.categoryKeys) {
+        const clusterKey = `${platform}:${category}`;
+        const group = grouped.get(clusterKey) ?? [];
+        group.push(actor);
+        grouped.set(clusterKey, group);
+      }
     }
   }
-  const usageValues = [...grouped.values()].map((group) =>
-    group.reduce((total, actor) => total + actor.totalUsers30Days, 0),
-  );
+  const aggregateKnownUsage = (group: NormalizedActor[]) => {
+    const known = group.filter((actor) => actor.totalUsers30Days !== null);
+    return {
+      knownCount: known.length,
+      total: known.length > 0 ? known.reduce((total, actor) => total + (actor.totalUsers30Days ?? 0), 0) : null,
+    };
+  };
+  const usageValues = [...grouped.values()]
+    .map((group) => aggregateKnownUsage(group))
+    .filter((usage) => usage.knownCount === 0 ? false : true)
+    .map((usage) => usage.total)
+    .filter((value): value is number => value !== null);
   const supplyValues = [...grouped.values()].map((group) => 1 / Math.max(1, group.length));
-  const snapshots: ClusterSnapshotInput[] = [];
+  const baseSnapshots: Array<ClusterSnapshotInput & { previous?: (typeof previous)[number] }> = [];
   for (const [clusterKey, group] of grouped) {
-    const [sourcePlatform, category] = clusterKey.split(":");
-    const aggregateTotalUsers30Days = group.reduce((total, actor) => total + actor.totalUsers30Days, 0);
-    const aggregateTotalUsers7Days = group.reduce((total, actor) => total + actor.totalUsers7Days, 0);
-    const aggregateTotalUsers90Days = group.reduce((total, actor) => total + actor.totalUsers90Days, 0);
-    const shares = group.map((actor) =>
-      aggregateTotalUsers30Days > 0 ? actor.totalUsers30Days / aggregateTotalUsers30Days : 0,
-    );
-    const hhi = shares.reduce((total, share) => total + share * share, 0);
+    const separator = clusterKey.indexOf(":");
+    const sourcePlatform = clusterKey.slice(0, separator);
+    const category = clusterKey.slice(separator + 1);
+    const usage = aggregateKnownUsage(group);
+    const knownUsers = group.filter((actor) => actor.totalUsers30Days !== null);
+    const aggregateTotalUsers30Days = usage.total;
+    const aggregateTotalUsers7Days = group.every((actor) => actor.totalUsers7Days !== null)
+      ? group.reduce((total, actor) => total + (actor.totalUsers7Days ?? 0), 0)
+      : null;
+    const aggregateTotalUsers90Days = group.every((actor) => actor.totalUsers90Days !== null)
+      ? group.reduce((total, actor) => total + (actor.totalUsers90Days ?? 0), 0)
+      : null;
+    const canComputeConcentration = usage.knownCount === group.length && aggregateTotalUsers30Days !== null;
+    const shares = canComputeConcentration && aggregateTotalUsers30Days > 0
+      ? knownUsers.map((actor) => (actor.totalUsers30Days ?? 0) / aggregateTotalUsers30Days)
+      : [];
+    const hhi = canComputeConcentration
+      ? shares.reduce((total, share) => total + share * share, 0)
+      : null;
     const prior = previous.find((snapshot) => snapshot.clusterKey === clusterKey);
-    snapshots.push({
+    const priorUsage = prior?.aggregateTotalUsers30Days ?? null;
+    const materialActorChangeScore =
+      prior ? Math.min(1, Math.abs(group.length - prior.actorCount) / Math.max(1, prior.actorCount)) : null;
+    const materialUsageChangeScore =
+      prior && aggregateTotalUsers30Days !== null && priorUsage !== null
+        ? Math.min(1, Math.abs(aggregateTotalUsers30Days - priorUsage) / Math.max(1, priorUsage))
+        : null;
+    baseSnapshots.push({
       clusterKey,
       sourcePlatform,
       category,
       actorCount: group.length,
-      activeActorCount: group.filter((actor) => actor.totalUsers30Days > 0).length,
+      activeActorCount: knownUsers.filter((actor) => (actor.totalUsers30Days ?? 0) > 0).length,
+      providerCount: group.length,
+      usageKnownActorCount: usage.knownCount,
       aggregateTotalUsers30Days,
       aggregateTotalUsers7Days,
       aggregateTotalUsers90Days,
-      usagePercentile: percentile(usageValues, aggregateTotalUsers30Days),
+      usagePercentile: percentile(
+        usageValues,
+        usage.knownCount === group.length ? aggregateTotalUsers30Days : null,
+      ),
       thinSupplyPercentile: percentile(supplyValues, 1 / Math.max(1, group.length)),
       hhi,
       concentrationPercentile: hhi,
-      fragmentationPercentile: Math.max(0, 1 - hhi),
+      fragmentationPercentile: hhi === null ? null : Math.max(0, 1 - hhi),
       persistence: Boolean(prior),
-      emergence: !prior && aggregateTotalUsers30Days > 0,
+      emergence: !prior && aggregateTotalUsers30Days !== null && aggregateTotalUsers30Days > 0,
       recentUsageMix:
+        aggregateTotalUsers30Days !== null &&
+        aggregateTotalUsers7Days !== null &&
         aggregateTotalUsers30Days > 0
           ? Math.min(1, aggregateTotalUsers7Days / aggregateTotalUsers30Days)
-          : 0,
+          : null,
+      newActorCount: prior ? Math.max(0, group.length - prior.actorCount) : group.length,
+      newActorPercentile: null,
+      snapshotNewnessPercentile: prior ? 0 : 1,
+      materialActorChangeScore,
+      materialUsageChangeScore,
       pricingModelCounts: group.reduce<Record<string, number>>((counts, actor) => {
         const key = actor.pricingModel ?? "unknown";
         counts[key] = (counts[key] ?? 0) + 1;
@@ -463,43 +683,77 @@ export function aggregateClusters(
       }, {}),
     });
   }
-  return snapshots;
+  const newActorValues = baseSnapshots.map((snapshot) => snapshot.newActorCount);
+  return baseSnapshots.map((snapshot) => ({
+    ...snapshot,
+    newActorPercentile: percentile(newActorValues, snapshot.newActorCount),
+  }));
 }
 
 export function scoreClusters(
   snapshots: ClusterSnapshotInput[],
-  previous: Array<Pick<ClusterSnapshotInput, "clusterKey" | "aggregateTotalUsers30Days" | "actorCount">> = [],
+  _previous: Array<
+    Pick<
+      ClusterSnapshotInput,
+      "clusterKey" | "aggregateTotalUsers30Days" | "aggregateTotalUsers7Days" | "actorCount"
+    >
+  > = [],
 ): ScoredCluster[] {
+  // Each anomaly is scored independently from deterministic components in [0, 1].
+  // A candidate receives only the maximum eligible type score, never a correlated sum.
   return snapshots.map((snapshot) => {
-    const prior = previous.find((candidate) => candidate.clusterKey === snapshot.clusterKey);
-    const materialChange =
-      Boolean(prior) &&
-      (Math.abs(snapshot.aggregateTotalUsers30Days - (prior?.aggregateTotalUsers30Days ?? 0)) /
-        Math.max(1, prior?.aggregateTotalUsers30Days ?? 0) >=
-        0.25 ||
-        Math.abs(snapshot.actorCount - (prior?.actorCount ?? 0)) >= 2);
     const thinEligible =
-      snapshot.actorCount <= 3 && snapshot.usagePercentile >= 0.75 && snapshot.thinSupplyPercentile >= 0.75;
+      snapshot.activeActorCount <= 2 &&
+      snapshot.activeActorCount > 0 &&
+      snapshot.usageKnownActorCount === snapshot.actorCount &&
+      snapshot.usagePercentile !== null &&
+      snapshot.usagePercentile >= 0.75 &&
+      snapshot.thinSupplyPercentile !== null &&
+      snapshot.thinSupplyPercentile >= 0.75;
     const concentrationEligible =
-      snapshot.actorCount >= 2 &&
-      !thinEligible &&
+      snapshot.activeActorCount >= 3 &&
+      snapshot.usageKnownActorCount === snapshot.actorCount &&
+      snapshot.usagePercentile !== null &&
       snapshot.usagePercentile >= 0.8 &&
+      snapshot.concentrationPercentile !== null &&
       snapshot.concentrationPercentile >= 0.65;
     const fragmentationEligible =
-      snapshot.actorCount >= 5 &&
+      snapshot.activeActorCount >= 3 &&
+      snapshot.providerCount >= 3 &&
+      snapshot.usageKnownActorCount === snapshot.actorCount &&
+      snapshot.usagePercentile !== null &&
       snapshot.usagePercentile >= 0.8 &&
+      snapshot.fragmentationPercentile !== null &&
       snapshot.fragmentationPercentile >= 0.65;
-    const emergingEligible = snapshot.emergence && snapshot.recentUsageMix >= 0.25;
+    const emergingEligible =
+      snapshot.emergence &&
+      snapshot.newActorPercentile !== null &&
+      snapshot.newActorPercentile >= 0.6 &&
+      snapshot.snapshotNewnessPercentile !== null &&
+      snapshot.snapshotNewnessPercentile >= 0.6 &&
+      snapshot.recentUsageMix !== null &&
+      snapshot.recentUsageMix >= 0.25;
+    const materialEligible =
+      snapshot.materialActorChangeScore !== null &&
+      snapshot.materialUsageChangeScore !== null &&
+      snapshot.materialActorChangeScore >= 0.25 &&
+      snapshot.materialUsageChangeScore >= 0.25;
     const scores = {
-      HIGH_USAGE_THIN_SUPPLY: thinEligible ? 60 + snapshot.usagePercentile * 20 : 0,
+      HIGH_USAGE_THIN_SUPPLY: thinEligible
+        ? 50 * (snapshot.usagePercentile ?? 0) + 50 * (snapshot.thinSupplyPercentile ?? 0)
+        : 0,
       HIGH_USAGE_CONCENTRATED: concentrationEligible
-        ? 55 + snapshot.usagePercentile * 15 + snapshot.concentrationPercentile * 10
+        ? 50 * (snapshot.usagePercentile ?? 0) + 50 * (snapshot.concentrationPercentile ?? 0)
         : 0,
       HIGH_USAGE_FRAGMENTED: fragmentationEligible
-        ? 45 + snapshot.usagePercentile * 15 + snapshot.fragmentationPercentile * 10
+        ? 50 * (snapshot.usagePercentile ?? 0) + 50 * (snapshot.fragmentationPercentile ?? 0)
         : 0,
-      EMERGING_CLUSTER: emergingEligible ? 40 + snapshot.recentUsageMix * 20 : 0,
-      MATERIAL_SNAPSHOT_CHANGE: materialChange ? 35 : 0,
+      EMERGING_CLUSTER: emergingEligible
+        ? 50 * (snapshot.newActorPercentile ?? 0) + 50 * (snapshot.snapshotNewnessPercentile ?? 0)
+        : 0,
+      MATERIAL_SNAPSHOT_CHANGE: materialEligible
+        ? 50 * (snapshot.materialActorChangeScore ?? 0) + 50 * (snapshot.materialUsageChangeScore ?? 0)
+        : 0,
     } satisfies Record<DiscoveryAnomalyType, number>;
     const eligible = (Object.entries(scores) as Array<[DiscoveryAnomalyType, number]>)
       .filter(([, score]) => score > 0)
@@ -648,6 +902,7 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
     const previousForScoring = previousSnapshots.map((snapshot) => ({
       clusterKey: snapshot.clusterKey,
       aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+      aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
       actorCount: snapshot.actorCount,
     }));
     const scored = scoreClusters(aggregateClusters(traversal.actors, previousForScoring), previousForScoring);
@@ -664,9 +919,15 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
                 category: snapshot.category,
                 actorCount: snapshot.actorCount,
                 activeActorCount: snapshot.activeActorCount,
+                usageKnownActorCount: snapshot.usageKnownActorCount,
                 aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
                 aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
                 aggregateTotalUsers90Days: snapshot.aggregateTotalUsers90Days,
+                newActorCount: snapshot.newActorCount,
+                newActorPercentile: snapshot.newActorPercentile,
+                snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
+                materialActorChangeScore: snapshot.materialActorChangeScore,
+                materialUsageChangeScore: snapshot.materialUsageChangeScore,
                 usagePercentile: snapshot.usagePercentile,
                 thinSupplyPercentile: snapshot.thinSupplyPercentile,
                 hhi: snapshot.hhi,
@@ -681,7 +942,15 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
             )
             .returning();
     const snapshotIdByKey = new Map(savedSnapshots.map((snapshot) => [snapshot.clusterKey, snapshot.id]));
-    for (const snapshot of scored.filter((candidate) => candidate.priorityScore > 0)) {
+    const qualified = scored
+      .filter((candidate) => candidate.priorityScore >= DISCOVERY_QUALIFICATION_THRESHOLD)
+      .sort((left, right) =>
+        right.priorityScore - left.priorityScore ||
+        left.clusterKey.localeCompare(right.clusterKey) ||
+        left.primaryAnomalyType.localeCompare(right.primaryAnomalyType),
+      )
+      .slice(0, DISCOVERY_CANDIDATE_CAP);
+    for (const snapshot of qualified) {
       const discoveryKey = buildDiscoveryKey(snapshot.clusterKey, snapshot.primaryAnomalyType);
       const snapshotId = snapshotIdByKey.get(snapshot.clusterKey);
       const sourceSnapshotIds = snapshotId ? [snapshotId] : [];
@@ -702,10 +971,18 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
           structureObservations: {
             actorCount: snapshot.actorCount,
             activeActorCount: snapshot.activeActorCount,
+            usageKnownActorCount: snapshot.usageKnownActorCount,
+            aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+            aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
             hhi: snapshot.hhi,
             persistence: snapshot.persistence,
             emergence: snapshot.emergence,
             recentUsageMix: snapshot.recentUsageMix,
+            newActorCount: snapshot.newActorCount,
+            newActorPercentile: snapshot.newActorPercentile,
+            snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
+            materialActorChangeScore: snapshot.materialActorChangeScore,
+            materialUsageChangeScore: snapshot.materialUsageChangeScore,
             usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
           },
           sourceSnapshotIds,
@@ -721,15 +998,73 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
             structureObservations: {
               actorCount: snapshot.actorCount,
               activeActorCount: snapshot.activeActorCount,
+              usageKnownActorCount: snapshot.usageKnownActorCount,
+              aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
+              aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
               hhi: snapshot.hhi,
               persistence: snapshot.persistence,
               emergence: snapshot.emergence,
               recentUsageMix: snapshot.recentUsageMix,
+              newActorCount: snapshot.newActorCount,
+              newActorPercentile: snapshot.newActorPercentile,
+              snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
+              materialActorChangeScore: snapshot.materialActorChangeScore,
+              materialUsageChangeScore: snapshot.materialUsageChangeScore,
               usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
             },
             sourceSnapshotIds,
           },
         });
+    }
+    if (qualified.length > 0) {
+      const persistedCandidates = await tx
+        .select({
+          id: discoveryCandidatesTable.id,
+          discoveryKey: discoveryCandidatesTable.discoveryKey,
+        })
+        .from(discoveryCandidatesTable)
+        .where(
+          inArray(
+            discoveryCandidatesTable.discoveryKey,
+            qualified.map((snapshot) => buildDiscoveryKey(snapshot.clusterKey, snapshot.primaryAnomalyType)),
+          ),
+        );
+      const currentObservations = await tx
+        .select({
+          id: discoveryActorObservationsTable.id,
+          categoryKeys: discoveryActorObservationsTable.categoryKeys,
+          platformKeys: discoveryActorObservationsTable.platformKeys,
+        })
+        .from(discoveryActorObservationsTable)
+        .where(eq(discoveryActorObservationsTable.runId, runId));
+      const observationLinks = [];
+      for (const candidate of persistedCandidates) {
+        const snapshot = qualified.find(
+          (candidateSnapshot) =>
+            buildDiscoveryKey(candidateSnapshot.clusterKey, candidateSnapshot.primaryAnomalyType) ===
+            candidate.discoveryKey,
+        );
+        if (!snapshot) continue;
+        for (const observation of currentObservations) {
+          if (
+            observation.categoryKeys.includes(snapshot.category) &&
+            observation.platformKeys.includes(snapshot.sourcePlatform)
+          ) {
+            observationLinks.push({
+              observationId: observation.id,
+              candidateId: candidate.id,
+              opportunityId: null,
+              auditRecordId: null,
+            });
+          }
+        }
+      }
+      if (observationLinks.length > 0) {
+        await tx
+          .insert(discoveryObservationLinksTable)
+          .values(observationLinks)
+          .onConflictDoNothing();
+      }
     }
     await tx
       .update(discoveryRunsTable)
@@ -739,8 +1074,9 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
         finishedAt: new Date(),
         lastHeartbeatAt: new Date(),
         advertisedTotal: traversal.total,
-        observedTotal: traversal.actors.length,
-        expectedPages: Math.ceil(traversal.total / DISCOVERY_PAGE_SIZE),
+        observedTotal: traversal.progress.uniqueActorCount,
+        effectivePageSize: traversal.progress.effectivePageSize,
+        expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
         pagesFetched: traversal.progress.pagesFetched,
         currentOffset: traversal.progress.offset,
         requestCount: traversal.progress.requestCount,
@@ -748,7 +1084,7 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
         uniqueActorCount: traversal.progress.uniqueActorCount,
         duplicateActorCount: traversal.progress.duplicateActorCount,
         clusterCount: scored.length,
-        candidateCount: scored.filter((candidate) => candidate.priorityScore > 0).length,
+        candidateCount: qualified.length,
         error: null,
       })
       .where(eq(discoveryRunsTable.id, runId));
@@ -759,17 +1095,84 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
       .where(eq(discoveryRunsTable.status, "COMPLETE"))
       .orderBy(desc(discoveryRunsTable.startedAt))
       .limit(DISCOVERY_DETAILED_RUN_RETENTION);
+    const protectedObservations = await tx
+      .select({ observationId: discoveryObservationLinksTable.observationId })
+      .from(discoveryObservationLinksTable)
+      .where(
+        or(
+          isNotNull(discoveryObservationLinksTable.candidateId),
+          isNotNull(discoveryObservationLinksTable.opportunityId),
+          isNotNull(discoveryObservationLinksTable.auditRecordId),
+        ),
+      );
+    const retentionPredicates = [];
     if (detailedRunsToKeep.length > 0) {
-      await tx
-        .delete(discoveryActorObservationsTable)
-        .where(
-          notInArray(
-            discoveryActorObservationsTable.runId,
-            detailedRunsToKeep.map((run) => run.id),
-          ),
-        );
+      retentionPredicates.push(
+        notInArray(
+          discoveryActorObservationsTable.runId,
+          detailedRunsToKeep.map((run) => run.id),
+        ),
+      );
+    }
+    if (protectedObservations.length > 0) {
+      retentionPredicates.push(
+        notInArray(
+          discoveryActorObservationsTable.id,
+          protectedObservations.map((row) => row.observationId),
+        ),
+      );
+    }
+    if (retentionPredicates.length > 0) {
+      await tx.delete(discoveryActorObservationsTable).where(and(...retentionPredicates));
     }
   });
+}
+
+function stagedRowToActor(row: typeof discoveryStagingActorsTable.$inferSelect): NormalizedActor {
+  return {
+    actorKey: row.actorKey,
+    actorId: row.actorId,
+    username: row.username,
+    name: row.name,
+    title: row.title,
+    url: row.url,
+    description: row.description,
+    categories: row.categories,
+    platformMatches: row.platformMatches,
+    sourcePlatform: row.platformMatches[0] ?? "UNKNOWN",
+    categoryKeys: row.categoryKeys,
+    totalUsers: row.totalUsers,
+    totalUsers7Days: row.totalUsers7Days,
+    totalUsers30Days: row.totalUsers30Days,
+    totalUsers90Days: row.totalUsers90Days,
+    totalRuns: row.totalRuns,
+    totalBuilds: row.totalBuilds,
+    lastRunStartedAt: row.lastRunStartedAt,
+    actorReviewCount: row.actorReviewCount,
+    actorReviewRating: row.actorReviewRating,
+    bookmarkCount: row.bookmarkCount,
+    pricingModel: row.pricingModel,
+    minimalMaxTotalChargeUsd: row.minimalMaxTotalChargeUsd,
+    metadataHash: row.metadataHash,
+    selectedRaw: row.selectedRaw ?? {},
+  };
+}
+
+export async function finalizeStagedDiscoveryResult(
+  runId: number,
+  traversal: Extract<TraversalResult, { ok: true }>,
+) {
+  const stagedRows = await db
+    .select()
+    .from(discoveryStagingActorsTable)
+    .where(eq(discoveryStagingActorsTable.runId, runId))
+    .orderBy(discoveryStagingActorsTable.id);
+  await persistDiscoveryResult(runId, {
+    ...traversal,
+    actors: stagedRows.map(stagedRowToActor),
+    pages: [],
+  });
+  await clearDiscoveryStaging(runId);
 }
 
 function sqlExcluded(column: string) {
