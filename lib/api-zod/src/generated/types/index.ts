@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './aIIntegrationUnavailable';
+export * from './aIIntegrationUnavailableError';
 export * from './demandCheckResult';
 export * from './demandCheckResultAccessVsConsumption';
 export * from './demandCheckResultRecurringUsageSignal';

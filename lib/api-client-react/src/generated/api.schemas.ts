@@ -217,3 +217,15 @@ export interface DemandCheckResult {
   finished_at: string | null;
 }
 
+export type AIIntegrationUnavailableError = typeof AIIntegrationUnavailableError[keyof typeof AIIntegrationUnavailableError];
+
+
+export const AIIntegrationUnavailableError = {
+  AI_INTEGRATION_UNAVAILABLE: 'AI_INTEGRATION_UNAVAILABLE',
+} as const;
+
+export interface AIIntegrationUnavailable {
+  error: AIIntegrationUnavailableError;
+  message: string;
+}
+

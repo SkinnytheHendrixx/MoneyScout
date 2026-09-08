@@ -28,6 +28,9 @@ import {
 import {
   DemandCheckDetails,
   DemandCheckRunSummary,
+  getDemandCheckErrorToast,
+  invalidateDemandCheckQueries,
+  isDemandCheckIntegrationUnavailable,
 } from "../../money-scout/src/components/demand-checks";
 import { filterEvidenceByDimension } from "../../money-scout/src/pages/opportunity-detail";
 import { getDemandBadge } from "../../money-scout/src/components/badges";
@@ -75,6 +78,12 @@ const fakeClient = (
     assert.equal(params.tools[0].max_uses, MAX_SEARCH_USES);
     assert.equal(params.output_config.format.type, "json_schema");
     return makeMessage(fixture, searchCount, inputTokens);
+  },
+});
+
+const unavailableClient = (error: unknown) => ({
+  parse: async () => {
+    throw error;
   },
 });
 
@@ -307,6 +316,36 @@ await run("provider over-reporting search use is contained", async () => {
   }
 });
 
+await run("unavailable AI integration returns 503 without fake history", async () => {
+  const opportunityId = await createOpportunity("integration-unavailable");
+  try {
+    setDemandMessagesClientFactoryForTests(() =>
+      unavailableClient({
+        status: 401,
+        message: "401 ApiKeyNotApproved",
+        error: { type: "oauth.v2.ApiKeyNotApproved" },
+      }),
+    );
+    const response = await originalFetch(
+      `http://127.0.0.1:${serverPort}/api/opportunities/${opportunityId}/demand-checks`,
+      { method: "POST" },
+    );
+    assert.equal(response.status, 503);
+    assert.deepEqual(await response.json(), {
+      error: "AI_INTEGRATION_UNAVAILABLE",
+      message: "The AI research integration is unavailable. No Demand Check was saved.",
+    });
+
+    const historyResponse = await originalFetch(
+      `http://127.0.0.1:${serverPort}/api/opportunities/${opportunityId}/demand-checks`,
+    );
+    assert.equal(historyResponse.status, 200);
+    assert.deepEqual(await historyResponse.json(), []);
+  } finally {
+    await cleanupOpportunity(opportunityId);
+  }
+});
+
 await run("cost ceiling downgrades conclusion but preserves evidence", async () => {
   const opportunityId = await createOpportunity("cost");
   try {
@@ -403,6 +442,39 @@ await run("UI renders all conclusions and metadata", async () => {
   );
   assert.deepEqual(filtered?.map((item) => item.id), [2]);
   assert.match(renderToStaticMarkup(getDemandBadge("UNKNOWN")), /Unknown/);
+});
+
+await run("UI distinguishes unavailable integration from successful completion", async () => {
+  const error = {
+    status: 503,
+    data: {
+      error: "AI_INTEGRATION_UNAVAILABLE",
+      message: "The AI research integration is unavailable. No Demand Check was saved.",
+    },
+  };
+  assert.equal(isDemandCheckIntegrationUnavailable(error), true);
+  assert.deepEqual(getDemandCheckErrorToast(error), {
+    title: "Demand check unavailable",
+    description: "The AI research integration is unavailable. No Demand Check was saved.",
+  });
+  assert.deepEqual(getDemandCheckErrorToast({ status: 409 }), {
+    title: "Demand check failed",
+    description: "A check is already in progress.",
+  });
+
+  const invalidations: unknown[][] = [];
+  invalidateDemandCheckQueries(
+    {
+      invalidateQueries: ({ queryKey }) => {
+        invalidations.push([...queryKey]);
+      },
+    },
+    42,
+  );
+  assert.deepEqual(invalidations, [
+    ["/api/opportunities/42/demand-checks"],
+    ["/api/opportunities/42/evidence"],
+  ]);
 });
 
 setDemandMessagesClientFactoryForTests(null);

@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AIIntegrationUnavailable,
   DemandCheckResult,
   Evidence,
   EvidenceInput,
@@ -835,7 +836,7 @@ export const runDemandCheck = async (opportunityId: number, options?: Parameters
 
 
 
-export const getRunDemandCheckMutationOptions = <TError = ErrorType<void>,
+export const getRunDemandCheckMutationOptions = <TError = ErrorType<void | AIIntegrationUnavailable>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext> => {
 
@@ -864,9 +865,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type RunDemandCheckMutationResult = NonNullable<Awaited<ReturnType<typeof runDemandCheck>>>
 
-    export type RunDemandCheckMutationError = ErrorType<void>
+    export type RunDemandCheckMutationError = ErrorType<void | AIIntegrationUnavailable>
 
-    export const useRunDemandCheck = <TError = ErrorType<void>,
+    export const useRunDemandCheck = <TError = ErrorType<void | AIIntegrationUnavailable>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof runDemandCheck>>,

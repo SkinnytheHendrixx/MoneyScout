@@ -188,6 +188,12 @@ paths:
           description: Opportunity not found
         "409":
           description: Demand Check already running
+        "503":
+          description: AI research integration unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AIIntegrationUnavailable"
   /evidence/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -410,3 +416,11 @@ components:
         ai_output_tokens: { type: integer }
         started_at: { type: string, format: date-time }
         finished_at: { type: [string, "null"], format: date-time }
+    AIIntegrationUnavailable:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          enum: [AI_INTEGRATION_UNAVAILABLE]
+        message: { type: string }

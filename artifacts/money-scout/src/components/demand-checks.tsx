@@ -15,6 +15,54 @@ import { useToast } from "@/components/ui/use-toast"
 import { Badge } from "@/components/ui/badge"
 import type { DemandCheckResult } from "@workspace/api-client-react"
 
+type DemandCheckMutationError = {
+  status?: number
+  response?: { status?: number }
+  data?: { error?: string; message?: string }
+  message?: string
+}
+
+export const isDemandCheckIntegrationUnavailable = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") return false
+  const candidate = error as DemandCheckMutationError
+  return (
+    candidate.data?.error === "AI_INTEGRATION_UNAVAILABLE" ||
+    candidate.message?.includes("AI_INTEGRATION_UNAVAILABLE") === true
+  )
+}
+
+export const getDemandCheckErrorToast = (error: unknown) => {
+  const candidate = error as DemandCheckMutationError | null
+  if (isDemandCheckIntegrationUnavailable(error)) {
+    return {
+      title: "Demand check unavailable",
+      description: candidate?.data?.message ??
+        "The AI research integration is unavailable. No Demand Check was saved.",
+    }
+  }
+
+  const isConflict =
+    candidate?.status === 409 ||
+    candidate?.response?.status === 409 ||
+    String(error).includes("409")
+  return {
+    title: "Demand check failed",
+    description: isConflict
+      ? "A check is already in progress."
+      : "An error occurred while running the demand check.",
+  }
+}
+
+export const invalidateDemandCheckQueries = (
+  queryClient: {
+    invalidateQueries: (filters: { queryKey: readonly unknown[] }) => unknown
+  },
+  opportunityId: number,
+) => {
+  queryClient.invalidateQueries({ queryKey: getListDemandChecksQueryKey(opportunityId) })
+  queryClient.invalidateQueries({ queryKey: getListEvidenceQueryKey(opportunityId) })
+}
+
 export function DemandChecks({
   opportunityId,
   onShowEvidence,
@@ -29,15 +77,14 @@ export function DemandChecks({
   const runMutation = useRunDemandCheck({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListDemandChecksQueryKey(opportunityId) })
-        queryClient.invalidateQueries({ queryKey: getListEvidenceQueryKey(opportunityId) })
+        invalidateDemandCheckQueries(queryClient, opportunityId)
         toast({ title: "Demand check completed" })
       },
       onError: (error: any) => {
-        const isConflict = error?.status === 409 || error?.response?.status === 409 || String(error).includes("409")
+        const errorToast = getDemandCheckErrorToast(error)
         toast({ 
-          title: "Demand check failed", 
-          description: isConflict ? "A check is already in progress." : "An error occurred while running the demand check.",
+          title: errorToast.title,
+          description: errorToast.description,
           variant: "destructive" 
         })
       }

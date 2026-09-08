@@ -25,6 +25,9 @@ const PROJECTED_MAX_INPUT_TOKENS = 190_000;
 const INPUT_COST_PER_TOKEN = 0.000002;
 const OUTPUT_COST_PER_TOKEN = 0.00001;
 const SEARCH_COST_PER_USE = 0.01;
+export const AI_INTEGRATION_UNAVAILABLE = "AI_INTEGRATION_UNAVAILABLE";
+const AI_INTEGRATION_UNAVAILABLE_MESSAGE =
+  "The AI research integration is unavailable. No Demand Check was saved.";
 
 const DIMENSIONS = new Set([
   "external_demand",
@@ -161,6 +164,50 @@ type DemandMessagesClient = {
 };
 
 let demandMessagesClientFactory: (() => DemandMessagesClient) | null = null;
+
+class AiIntegrationUnavailableError extends Error {
+  readonly code = AI_INTEGRATION_UNAVAILABLE;
+}
+
+const errorDetails = (error: unknown): { status: number | undefined; text: string } => {
+  if (typeof error === "string") return { status: undefined, text: error };
+  if (!error || typeof error !== "object") return { status: undefined, text: String(error) };
+
+  const details = error as Record<string, unknown>;
+  const nested = details.error;
+  const nestedDetails =
+    nested && typeof nested === "object" ? (nested as Record<string, unknown>) : undefined;
+  const text = [
+    details.name,
+    details.message,
+    details.code,
+    details.type,
+    nested,
+    nestedDetails?.name,
+    nestedDetails?.message,
+    nestedDetails?.code,
+    nestedDetails?.type,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+
+  return {
+    status: typeof details.status === "number" ? details.status : undefined,
+    text,
+  };
+};
+
+const isAiIntegrationUnavailableError = (error: unknown): boolean => {
+  if (error instanceof AiIntegrationUnavailableError) return true;
+  const { status, text } = errorDetails(error);
+  if (status === 401 && /ApiKeyNotApproved|oauth\.v2\.ApiKeyNotApproved/i.test(text)) {
+    return true;
+  }
+  return (
+    /\bAI_INTEGRATION_UNAVAILABLE\b/i.test(text) ||
+    /(?:anthropic|replit).*integration.*(?:unavailable|not configured|not available)/i.test(text)
+  );
+};
 
 export const setDemandMessagesClientFactoryForTests = (
   factory: (() => DemandMessagesClient) | null,
@@ -474,7 +521,7 @@ router.post("/opportunities/:opportunityId/demand-checks", async (req, res): Pro
       const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
       const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
       if (!apiKey || !baseURL) {
-        throw new Error("Replit Anthropic integration is not configured");
+        throw new AiIntegrationUnavailableError("Replit Anthropic integration is not configured");
       }
       messagesClient = new Anthropic({ apiKey, baseURL }).messages as DemandMessagesClient;
     }
@@ -537,6 +584,14 @@ Return the required structured output. SUPPORTED requires a named buyer, concret
     }
   } catch (error) {
     req.log.error({ err: error, opportunityId, runId: run.id }, "Demand Check failed");
+    if (isAiIntegrationUnavailableError(error)) {
+      await db.delete(researchRunsTable).where(eq(researchRunsTable.id, run.id));
+      res.status(503).json({
+        error: AI_INTEGRATION_UNAVAILABLE,
+        message: AI_INTEGRATION_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
     analysis = unknownAnalysis(
       estimatedCost >= MAX_EXTERNAL_COST_USD
         ? "Research stopped at the $0.50 estimated external-service ceiling."
