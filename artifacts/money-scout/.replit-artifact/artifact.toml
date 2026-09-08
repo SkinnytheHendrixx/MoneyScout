@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Money Scout"
+description = "A private internal TypeScript full-stack application for evidence-driven opportunity tracking, with persistent PostgreSQL storage, manual CRUD workflows, sortable opportunity review, and linked evidence management."
+version = "1.0.0"
+id = "artifacts/money-scout"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18193
+
+[services.development]
+run = "pnpm --filter @workspace/money-scout run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/money-scout", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/money-scout/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18193"
+BASE_PATH = "/"
