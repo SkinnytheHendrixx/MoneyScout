@@ -586,10 +586,22 @@ ${retrievalInstructions}`,
       ],
     });
 
-    const responseText = message.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("");
+    const contentBlockTypes = message.content.map((block) => block.type);
+    const webSearchToolResultBlocks = message.content.filter(
+      (block) => block.type === "web_search_tool_result",
+    );
+    const webSearchResultItems = webSearchToolResultBlocks.flatMap((block) =>
+      Array.isArray(block.content)
+        ? block.content
+            .filter((item) => item.type === "web_search_result")
+            .map((item) => ({ url: item.url, title: item.title }))
+        : [],
+    );
+    const finalTextBlocks = message.content.filter((block) => block.type === "text");
+    const textBlockCitationCounts = finalTextBlocks.map(
+      (block) => block.citations?.length ?? 0,
+    );
+    const responseText = finalTextBlocks.map((block) => block.text).join("");
     if (!responseText) throw new Error("Claude returned no text");
     const citationDiagnostics: CitationDiagnostics = directEvidenceSufficient
       ? { sources: directSources(documents), total: 0, accepted: 0, rejected: [] }
@@ -662,6 +674,15 @@ ${retrievalInstructions}`,
           claudeFindingsBeforeFiltering: parsedAnalysis.findingsBeforeFiltering,
           findingsAfterFiltering,
           rejectedFindingDetails: parsedAnalysis.rejectedFindings,
+          anthropicStopReason: message.stop_reason,
+          webSearchRequests: message.usage.server_tool_use?.web_search_requests,
+          anthropicContentBlockCount: message.content.length,
+          anthropicContentBlockTypes: contentBlockTypes,
+          webSearchToolResultBlockCount: webSearchToolResultBlocks.length,
+          webSearchResultItemCount: webSearchResultItems.length,
+          webSearchResultItems,
+          finalTextBlockCount: finalTextBlocks.length,
+          textBlockCitationCounts,
         })
         .returning();
       return check;

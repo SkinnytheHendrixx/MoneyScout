@@ -144,4 +144,28 @@ export const policyChecksTable = pgTable("policy_checks", {
     .$type<Array<{ source_url: string | null; reason: string }>>()
     .notNull()
     .default([]),
+  anthropicStopReason: text("anthropic_stop_reason"),
+  webSearchRequests: integer("web_search_requests"),
+  anthropicContentBlockCount: integer("anthropic_content_block_count")
+    .notNull()
+    .default(0),
+  anthropicContentBlockTypes: jsonb("anthropic_content_block_types")
+    .$type<string[]>()
+    .notNull()
+    .default([]),
+  webSearchToolResultBlockCount: integer("web_search_tool_result_block_count")
+    .notNull()
+    .default(0),
+  webSearchResultItemCount: integer("web_search_result_item_count")
+    .notNull()
+    .default(0),
+  webSearchResultItems: jsonb("web_search_result_items")
+    .$type<Array<{ url: string; title: string }>>()
+    .notNull()
+    .default([]),
+  finalTextBlockCount: integer("final_text_block_count").notNull().default(0),
+  textBlockCitationCounts: jsonb("text_block_citation_counts")
+    .$type<number[]>()
+    .notNull()
+    .default([]),
 });
