@@ -1,0 +1,50 @@
+Revise Task #29 into an architecture decision task titled:
+
+Determine a viable Apify acquisition strategy despite broken deep Store pagination
+
+Do not implement anything.
+Do not run Discovery.
+Do not make external requests.
+
+Incorporate this newly established external evidence:
+
+Apify’s current /v2/store documentation advertises limit/offset pagination with page size up to 1000 and does not document a 15,000-offset ceiling.
+A public Apify GitHub issue opened May 28, 2026 reproduces /v2/store returning pagination metadata/counts that imply records exist while items[] is shorter or empty, with the deficit increasing at larger offsets. The reported likely cause is post-window filtering without page refill.
+Money Scout Run #296 independently received total=70117, offset=15000, limit=1000, but items.length=0.
+
+Therefore, do not plan to solve this by:
+
+relaxing item_count_mismatch;
+treating the empty page as end-of-catalog;
+retrying the same deep offset indefinitely;
+or claiming full-catalog coverage from the existing unpartitioned /v2/store crawl.
+
+Instead, inspect the currently supported Store filters and the existing Discovery scoring requirements and evaluate these strategies:
+
+Deterministic partitioned acquisition
+Determine whether documented fields such as pricingModel, category, allowsAgenticUsers, or another supported dimension can partition the Store into bounded slices that each remain below the broken deep-offset window.
+A partition scheme may only be called exhaustive if the API semantics actually guarantee every Store Actor belongs to at least one covered partition.
+Overlap is acceptable if canonical Actor IDs are deduplicated.
+Do not assume category membership is exhaustive or a boolean/filter is exhaustive unless supported by evidence.
+Verified partial acquisition
+If exhaustive partitioning cannot be proven, determine whether Money Scout should intentionally scan a bounded reachable slice instead.
+Identify exactly which anomaly types remain legitimate on a partial slice.
+Any metric requiring complete supply counts, concentration, or “thin supply” must be disabled or explicitly marked unavailable when coverage is partial.
+Alternative public membership source
+Check whether the existing project/local documentation indicates a public sitemap, catalog index, or other zero-cost source that can provide canonical Actor membership without deep Store offsets.
+Do not add individual Actor/API crawling in this plan.
+
+For each strategy report:
+
+whether coverage can actually be proven;
+what Discovery signals remain valid;
+request complexity;
+memory/database implications;
+failure modes;
+and whether it preserves our zero-cost operating model.
+
+Recommend one v0 acquisition strategy for Money Scout.
+
+The existing two-pass convergence, duplicate detection, transactional safeguards, and fail-closed behavior should remain unless the recommended architecture makes a specific component unnecessary.
+
+Return the revised Task #29 plan only. No implementation and no live requests.
