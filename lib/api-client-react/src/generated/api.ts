@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  DemandCheckResult,
   Evidence,
   EvidenceInput,
   EvidenceUpdate,
@@ -738,6 +739,142 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getRunPolicyCheckMutationOptions(options));
+    }
+
+export const getListDemandChecksUrl = (opportunityId: number,) => {
+
+
+
+
+  return `/api/opportunities/${opportunityId}/demand-checks`
+}
+
+export const listDemandChecks = async (opportunityId: number, options?: Parameters<typeof customFetch>[1]): Promise<DemandCheckResult[]> => {
+
+  return customFetch<DemandCheckResult[]>(getListDemandChecksUrl(opportunityId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDemandChecksQueryKey = (opportunityId: number,) => {
+    return [
+    `/api/opportunities/${opportunityId}/demand-checks`
+    ] as const;
+    }
+
+
+export const getListDemandChecksQueryOptions = <TData = Awaited<ReturnType<typeof listDemandChecks>>, TError = ErrorType<unknown>>(opportunityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDemandChecks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDemandChecksQueryKey(opportunityId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDemandChecks>>> = ({ signal }) => listDemandChecks(opportunityId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: opportunityId !== null && opportunityId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDemandChecks>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDemandChecksQueryResult = NonNullable<Awaited<ReturnType<typeof listDemandChecks>>>
+export type ListDemandChecksQueryError = ErrorType<unknown>
+
+
+
+export function useListDemandChecks<TData = Awaited<ReturnType<typeof listDemandChecks>>, TError = ErrorType<unknown>>(
+ opportunityId: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDemandChecks>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDemandChecksQueryOptions(opportunityId,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRunDemandCheckUrl = (opportunityId: number,) => {
+
+
+
+
+  return `/api/opportunities/${opportunityId}/demand-checks`
+}
+
+export const runDemandCheck = async (opportunityId: number, options?: Parameters<typeof customFetch>[1]): Promise<DemandCheckResult> => {
+
+  return customFetch<DemandCheckResult>(getRunDemandCheckUrl(opportunityId),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRunDemandCheckMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext> => {
+
+const mutationKey = ['runDemandCheck'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runDemandCheck>>, {opportunityId: number}> = (props) => {
+          const {opportunityId} = props ?? {};
+
+          return  runDemandCheck(opportunityId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunDemandCheckMutationResult = NonNullable<Awaited<ReturnType<typeof runDemandCheck>>>
+
+    export type RunDemandCheckMutationError = ErrorType<void>
+
+    export const useRunDemandCheck = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runDemandCheck>>, TError,{opportunityId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof runDemandCheck>>,
+        TError,
+        {opportunityId: number},
+        TContext
+      > => {
+      return useMutation(getRunDemandCheckMutationOptions(options));
     }
 
 export const getGetEvidenceUrl = (id: number,) => {

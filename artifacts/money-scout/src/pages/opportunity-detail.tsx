@@ -22,6 +22,8 @@ import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { EvidenceDialog } from "@/components/evidence-dialog"
+import { DemandChecks } from "@/components/demand-checks"
+import { Select } from "@/components/ui/select"
 
 export default function OpportunityDetail() {
   const params = useParams()
@@ -36,6 +38,7 @@ export default function OpportunityDetail() {
 
   const [evidenceToEdit, setEvidenceToEdit] = useState<number | null>(null)
   const [evidenceDialogOpen, setEvidenceDialogOpen] = useState(false)
+  const [evidenceFilter, setEvidenceFilter] = useState<string>("all")
 
   const deleteOppMutation = useDeleteOpportunity({
     mutation: {
@@ -112,6 +115,24 @@ export default function OpportunityDetail() {
     setEvidenceDialogOpen(true)
   }
 
+  const showEvidence = (evId: number) => {
+    setEvidenceFilter("all")
+    window.setTimeout(() => {
+      const element = document.getElementById(`evidence-${evId}`)
+      if (!element) return
+      element.scrollIntoView({ behavior: "smooth", block: "center" })
+      element.classList.add("ring-2", "ring-indigo-500", "ring-offset-2")
+      window.setTimeout(
+        () => element.classList.remove("ring-2", "ring-indigo-500", "ring-offset-2"),
+        2_000,
+      )
+    }, 0)
+  }
+
+  const filteredEvidence = evidenceList?.filter(ev => 
+    evidenceFilter === "all" ? true : ev.evaluation_dimension === evidenceFilter
+  )
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -160,6 +181,8 @@ export default function OpportunityDetail() {
             </CardContent>
           </Card>
 
+          <DemandChecks opportunityId={id} onShowEvidence={showEvidence} />
+
           {opportunity.verdict === 'KILL' && opportunity.kill_reason && (
             <Card className="border-destructive/50 bg-destructive/5">
               <CardHeader className="pb-3 border-b border-destructive/20">
@@ -175,20 +198,30 @@ export default function OpportunityDetail() {
           )}
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <h3 className="text-lg font-semibold tracking-tight">Evidence</h3>
-              <Button size="sm" onClick={openNewEvidence}>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Evidence
-              </Button>
+              <div className="flex items-center gap-3">
+                <Select value={evidenceFilter} onChange={(e) => setEvidenceFilter(e.target.value)} className="w-[180px] h-9 text-xs">
+                  <option value="all">All Dimensions</option>
+                  <option value="external_demand">External Demand</option>
+                  <option value="commercial_value">Commercial Value</option>
+                  <option value="repeat_usage">Repeat Usage</option>
+                  <option value="agent_api_usefulness">Agent/API Usefulness</option>
+                  <option value="incumbent_weakness">Incumbent Weakness</option>
+                </Select>
+                <Button size="sm" onClick={openNewEvidence} className="h-9">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Evidence
+                </Button>
+              </div>
             </div>
 
             {evLoading ? (
               <div className="text-center p-8 text-muted-foreground border rounded-md border-dashed">Loading evidence...</div>
-            ) : evidenceList && evidenceList.length > 0 ? (
+            ) : filteredEvidence && filteredEvidence.length > 0 ? (
               <div className="grid gap-3">
-                {evidenceList.map((ev) => (
-                  <Card key={ev.id} className="overflow-hidden">
+                {filteredEvidence.map((ev) => (
+                  <Card key={ev.id} id={`evidence-${ev.id}`} className="overflow-hidden scroll-mt-24">
                     <div className="p-4 flex flex-col sm:flex-row gap-4">
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 mb-1">

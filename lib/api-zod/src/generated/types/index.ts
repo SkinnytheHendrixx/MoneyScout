@@ -6,6 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './demandCheckResult';
+export * from './demandCheckResultAccessVsConsumption';
+export * from './demandCheckResultRecurringUsageSignal';
+export * from './demandConclusion';
+export * from './demandTriState';
 export * from './evidence';
 export * from './evidenceClassification';
 export * from './evidenceInput';

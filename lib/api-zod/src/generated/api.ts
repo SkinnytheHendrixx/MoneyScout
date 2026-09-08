@@ -244,6 +244,69 @@ export const RunPolicyCheckResponse = zod.object({
 })
 
 
+export const ListDemandChecksParams = zod.object({
+  "opportunityId": zod.coerce.number().int()
+})
+
+export const ListDemandChecksResponseItem = zod.object({
+  "id": zod.number().int(),
+  "opportunity_id": zod.number().int(),
+  "run_id": zod.number().int(),
+  "buyer_identified": zod.enum(['true', 'false', 'unknown']),
+  "buyer_description": zod.string().nullable(),
+  "workflow_identified": zod.enum(['true', 'false', 'unknown']),
+  "workflow_description": zod.string().nullable(),
+  "access_vs_consumption": zod.enum(['access_demand', 'consumption_only', 'unclear']),
+  "recurring_usage_signal": zod.enum(['yes', 'no', 'unknown']),
+  "recurring_usage_basis": zod.string().nullable(),
+  "existing_paid_analog_found": zod.boolean(),
+  "paid_analog_names": zod.array(zod.string()),
+  "demand_conclusion": zod.enum(['SUPPORTED', 'WEAK', 'UNSUPPORTED', 'UNKNOWN']),
+  "contradicting_evidence_ids": zod.array(zod.number().int()),
+  "confidence_basis": zod.string(),
+  "open_questions": zod.array(zod.string()),
+  "search_count": zod.number().int(),
+  "claude_call_count": zod.number().int(),
+  "external_cost_usd": zod.number(),
+  "ai_input_tokens": zod.number().int(),
+  "ai_output_tokens": zod.number().int(),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable()
+})
+export const ListDemandChecksResponse = zod.array(ListDemandChecksResponseItem)
+
+
+export const RunDemandCheckParams = zod.object({
+  "opportunityId": zod.coerce.number().int()
+})
+
+export const RunDemandCheckResponse = zod.object({
+  "id": zod.number().int(),
+  "opportunity_id": zod.number().int(),
+  "run_id": zod.number().int(),
+  "buyer_identified": zod.enum(['true', 'false', 'unknown']),
+  "buyer_description": zod.string().nullable(),
+  "workflow_identified": zod.enum(['true', 'false', 'unknown']),
+  "workflow_description": zod.string().nullable(),
+  "access_vs_consumption": zod.enum(['access_demand', 'consumption_only', 'unclear']),
+  "recurring_usage_signal": zod.enum(['yes', 'no', 'unknown']),
+  "recurring_usage_basis": zod.string().nullable(),
+  "existing_paid_analog_found": zod.boolean(),
+  "paid_analog_names": zod.array(zod.string()),
+  "demand_conclusion": zod.enum(['SUPPORTED', 'WEAK', 'UNSUPPORTED', 'UNKNOWN']),
+  "contradicting_evidence_ids": zod.array(zod.number().int()),
+  "confidence_basis": zod.string(),
+  "open_questions": zod.array(zod.string()),
+  "search_count": zod.number().int(),
+  "claude_call_count": zod.number().int(),
+  "external_cost_usd": zod.number(),
+  "ai_input_tokens": zod.number().int(),
+  "ai_output_tokens": zod.number().int(),
+  "started_at": zod.coerce.date(),
+  "finished_at": zod.coerce.date().nullable()
+})
+
+
 export const GetEvidenceParams = zod.object({
   "id": zod.coerce.number().int()
 })

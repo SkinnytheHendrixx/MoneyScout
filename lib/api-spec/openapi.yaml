@@ -155,6 +155,39 @@ paths:
           description: Opportunity not found
         "409":
           description: Policy check already running
+  /opportunities/{opportunityId}/demand-checks:
+    parameters:
+      - name: opportunityId
+        in: path
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: listDemandChecks
+      tags: [opportunities]
+      responses:
+        "200":
+          description: Demand Check history, newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DemandCheckResult"
+    post:
+      operationId: runDemandCheck
+      tags: [opportunities]
+      responses:
+        "201":
+          description: Completed Demand Check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemandCheckResult"
+        "404":
+          description: Opportunity not found
+        "409":
+          description: Demand Check already running
   /evidence/{id}:
     parameters:
       - $ref: "#/components/parameters/Id"
@@ -311,3 +344,69 @@ components:
         external_cost_usd: { type: [number, "null"] }
         ai_input_tokens: { type: [integer, "null"] }
         ai_output_tokens: { type: [integer, "null"] }
+    DemandConclusion:
+      type: string
+      enum: [SUPPORTED, WEAK, UNSUPPORTED, UNKNOWN]
+    DemandTriState:
+      type: string
+      enum: ["true", "false", unknown]
+    DemandCheckResult:
+      type: object
+      required:
+        - id
+        - opportunity_id
+        - run_id
+        - buyer_identified
+        - buyer_description
+        - workflow_identified
+        - workflow_description
+        - access_vs_consumption
+        - recurring_usage_signal
+        - recurring_usage_basis
+        - existing_paid_analog_found
+        - paid_analog_names
+        - demand_conclusion
+        - contradicting_evidence_ids
+        - confidence_basis
+        - open_questions
+        - search_count
+        - claude_call_count
+        - external_cost_usd
+        - ai_input_tokens
+        - ai_output_tokens
+        - started_at
+        - finished_at
+      properties:
+        id: { type: integer }
+        opportunity_id: { type: integer }
+        run_id: { type: integer }
+        buyer_identified: { $ref: "#/components/schemas/DemandTriState" }
+        buyer_description: { type: [string, "null"] }
+        workflow_identified: { $ref: "#/components/schemas/DemandTriState" }
+        workflow_description: { type: [string, "null"] }
+        access_vs_consumption:
+          type: string
+          enum: [access_demand, consumption_only, unclear]
+        recurring_usage_signal:
+          type: string
+          enum: [yes, no, unknown]
+        recurring_usage_basis: { type: [string, "null"] }
+        existing_paid_analog_found: { type: boolean }
+        paid_analog_names:
+          type: array
+          items: { type: string }
+        demand_conclusion: { $ref: "#/components/schemas/DemandConclusion" }
+        contradicting_evidence_ids:
+          type: array
+          items: { type: integer }
+        confidence_basis: { type: string }
+        open_questions:
+          type: array
+          items: { type: string }
+        search_count: { type: integer }
+        claude_call_count: { type: integer }
+        external_cost_usd: { type: number }
+        ai_input_tokens: { type: integer }
+        ai_output_tokens: { type: integer }
+        started_at: { type: string, format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }

@@ -150,3 +150,70 @@ export interface PolicyCheck {
   ai_output_tokens: number | null;
 }
 
+export type DemandConclusion = typeof DemandConclusion[keyof typeof DemandConclusion];
+
+
+export const DemandConclusion = {
+  SUPPORTED: 'SUPPORTED',
+  WEAK: 'WEAK',
+  UNSUPPORTED: 'UNSUPPORTED',
+  UNKNOWN: 'UNKNOWN',
+} as const;
+
+export type DemandTriState = typeof DemandTriState[keyof typeof DemandTriState];
+
+
+export const DemandTriState = {
+  true: 'true',
+  false: 'false',
+  unknown: 'unknown',
+} as const;
+
+export type DemandCheckResultAccessVsConsumption = typeof DemandCheckResultAccessVsConsumption[keyof typeof DemandCheckResultAccessVsConsumption];
+
+
+export const DemandCheckResultAccessVsConsumption = {
+  access_demand: 'access_demand',
+  consumption_only: 'consumption_only',
+  unclear: 'unclear',
+} as const;
+
+export type DemandCheckResultRecurringUsageSignal = typeof DemandCheckResultRecurringUsageSignal[keyof typeof DemandCheckResultRecurringUsageSignal];
+
+
+export const DemandCheckResultRecurringUsageSignal = {
+  yes: 'yes',
+  no: 'no',
+  unknown: 'unknown',
+} as const;
+
+export interface DemandCheckResult {
+  id: number;
+  opportunity_id: number;
+  run_id: number;
+  buyer_identified: DemandTriState;
+  /** @nullable */
+  buyer_description: string | null;
+  workflow_identified: DemandTriState;
+  /** @nullable */
+  workflow_description: string | null;
+  access_vs_consumption: DemandCheckResultAccessVsConsumption;
+  recurring_usage_signal: DemandCheckResultRecurringUsageSignal;
+  /** @nullable */
+  recurring_usage_basis: string | null;
+  existing_paid_analog_found: boolean;
+  paid_analog_names: string[];
+  demand_conclusion: DemandConclusion;
+  contradicting_evidence_ids: number[];
+  confidence_basis: string;
+  open_questions: string[];
+  search_count: number;
+  claude_call_count: number;
+  external_cost_usd: number;
+  ai_input_tokens: number;
+  ai_output_tokens: number;
+  started_at: string;
+  /** @nullable */
+  finished_at: string | null;
+}
+

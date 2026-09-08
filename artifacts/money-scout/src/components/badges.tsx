@@ -32,6 +32,20 @@ export function getVerdictBadge(verdict: string) {
   }
 }
 
+export function getDemandBadge(conclusion: string) {
+  switch (conclusion) {
+    case "SUPPORTED":
+      return <Badge variant="outline" className="border-emerald-500 text-emerald-700 bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-900/20">Supported</Badge>
+    case "WEAK":
+      return <Badge variant="outline" className="border-amber-500 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-900/20">Weak</Badge>
+    case "UNSUPPORTED":
+      return <Badge variant="outline" className="border-red-500 text-red-700 bg-red-50 dark:border-red-800 dark:text-red-400 dark:bg-red-900/20">Unsupported</Badge>
+    case "UNKNOWN":
+    default:
+      return <Badge variant="outline" className="text-muted-foreground border-border bg-muted/20">Unknown</Badge>
+  }
+}
+
 export function getClassificationBadge(classification: string) {
   switch (classification) {
     case "FACT":

@@ -1,4 +1,6 @@
 import {
+  boolean,
+  check,
   date,
   integer,
   jsonb,
@@ -9,6 +11,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const policyStatusEnum = pgEnum("policy_status", [
   "GREEN",
@@ -24,6 +27,31 @@ export const verdictEnum = pgEnum("verdict", [
   "TEST",
   "BUILD",
   "KILL",
+]);
+
+export const demandConclusionEnum = pgEnum("demand_conclusion", [
+  "SUPPORTED",
+  "WEAK",
+  "UNSUPPORTED",
+  "UNKNOWN",
+]);
+
+export const demandTriStateEnum = pgEnum("demand_tri_state", [
+  "true",
+  "false",
+  "unknown",
+]);
+
+export const demandAccessTypeEnum = pgEnum("demand_access_type", [
+  "access_demand",
+  "consumption_only",
+  "unclear",
+]);
+
+export const recurringUsageSignalEnum = pgEnum("recurring_usage_signal", [
+  "yes",
+  "no",
+  "unknown",
 ]);
 
 export const evidenceClassificationEnum = pgEnum("evidence_classification", [
@@ -67,6 +95,9 @@ export const evidenceTable = pgTable("evidence", {
     .notNull()
     .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
   evaluationDimension: text("evaluation_dimension").notNull(),
+  researchRunId: integer("research_run_id").references(() => researchRunsTable.id, {
+    onDelete: "set null",
+  }),
 });
 
 export const evaluationsTable = pgTable("evaluations", {
@@ -169,3 +200,49 @@ export const policyChecksTable = pgTable("policy_checks", {
     .notNull()
     .default([]),
 });
+
+export const demandCheckResultsTable = pgTable(
+  "demand_check_results",
+  {
+    id: serial("id").primaryKey(),
+    opportunityId: integer("opportunity_id")
+      .notNull()
+      .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
+    runId: integer("run_id")
+      .notNull()
+      .unique()
+      .references(() => researchRunsTable.id, { onDelete: "cascade" }),
+    buyerIdentified: demandTriStateEnum("buyer_identified").notNull(),
+    buyerDescription: text("buyer_description"),
+    workflowIdentified: demandTriStateEnum("workflow_identified").notNull(),
+    workflowDescription: text("workflow_description"),
+    accessVsConsumption: demandAccessTypeEnum("access_vs_consumption").notNull(),
+    recurringUsageSignal: recurringUsageSignalEnum("recurring_usage_signal").notNull(),
+    recurringUsageBasis: text("recurring_usage_basis"),
+    existingPaidAnalogFound: boolean("existing_paid_analog_found").notNull(),
+    paidAnalogNames: text("paid_analog_names").array().notNull().default([]),
+    demandConclusion: demandConclusionEnum("demand_conclusion").notNull(),
+    contradictingEvidenceIds: integer("contradicting_evidence_ids")
+      .array()
+      .notNull()
+      .default([]),
+    confidenceBasis: text("confidence_basis").notNull(),
+    openQuestions: text("open_questions").array().notNull().default([]),
+    searchCount: integer("search_count").notNull().default(0),
+    claudeCallCount: integer("claude_call_count").notNull().default(0),
+    externalCostUsd: numeric("external_cost_usd", {
+      precision: 8,
+      scale: 4,
+      mode: "number",
+    }).notNull(),
+    aiInputTokens: integer("ai_input_tokens").notNull().default(0),
+    aiOutputTokens: integer("ai_output_tokens").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "unsupported_requires_contradicting_evidence",
+      sql`${table.demandConclusion} <> 'UNSUPPORTED' OR cardinality(${table.contradictingEvidenceIds}) > 0`,
+    ),
+  ],
+);
