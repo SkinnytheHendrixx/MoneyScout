@@ -19,3 +19,4 @@
 
 export * from "./money-scout";
 export * from "./discovery";
+export * from "./auth";

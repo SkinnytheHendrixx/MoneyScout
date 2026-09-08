@@ -8,6 +8,10 @@
 
 export * from './aIIntegrationUnavailable';
 export * from './aIIntegrationUnavailableError';
+export * from './authorizationSessionHeaderParameter';
+export * from './authUser';
+export * from './authUserEnvelope';
+export * from './beginBrowserLoginParams';
 export * from './demandCheckResult';
 export * from './demandCheckResultAccessVsConsumption';
 export * from './demandCheckResultRecurringUsageSignal';
@@ -29,6 +33,7 @@ export * from './evidenceInput';
 export * from './evidenceUpdate';
 export * from './healthStatus';
 export * from './listDiscoveryCandidatesParams';
+export * from './logoutBrowserSessionParams';
 export * from './opportunity';
 export * from './opportunityDetail';
 export * from './opportunityInput';

@@ -2,8 +2,18 @@ import { ReactNode } from "react"
 import { Link, useLocation } from "wouter"
 import { ShieldCheck, Target, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
+import type { AuthUser } from "@workspace/replit-auth-web"
+import { Button } from "@/components/ui/button"
 
-export function Layout({ children }: { children: ReactNode }) {
+export function Layout({
+  children,
+  user,
+  onLogout,
+}: {
+  children: ReactNode
+  user: AuthUser
+  onLogout: () => void
+}) {
   const [location] = useLocation()
 
   const navItems = [
@@ -40,6 +50,14 @@ export function Layout({ children }: { children: ReactNode }) {
             )
           })}
         </nav>
+        <div className="mt-auto hidden border-t p-3 md:block">
+          <p className="truncate text-xs text-muted-foreground">
+            {user.email ?? user.firstName ?? "Signed in"}
+          </p>
+          <Button className="mt-2 w-full" variant="outline" size="sm" onClick={onLogout}>
+            Sign out
+          </Button>
+        </div>
       </aside>
 
       {/* Main Content */}

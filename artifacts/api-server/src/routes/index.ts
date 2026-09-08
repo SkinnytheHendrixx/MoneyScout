@@ -1,14 +1,18 @@
 import { Router, type IRouter } from "express";
+import authRouter from "./auth";
 import healthRouter from "./health";
 import opportunitiesRouter from "./opportunities";
 import evidenceRouter from "./evidence";
 import policyChecksRouter from "./policy-checks";
 import demandChecksRouter from "./demand-checks";
 import discoveryRouter from "./discovery";
+import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(authRouter);
+router.use(requireMoneyScoutAccess);
 router.use(opportunitiesRouter);
 router.use(evidenceRouter);
 router.use(policyChecksRouter);

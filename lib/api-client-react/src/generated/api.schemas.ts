@@ -5,6 +5,23 @@
  * Money Scout API
  * OpenAPI spec version: 0.1.0
  */
+export interface AuthUser {
+  id: string;
+  /** @nullable */
+  email: string | null;
+  /** @nullable */
+  firstName: string | null;
+  /** @nullable */
+  lastName: string | null;
+  /** @nullable */
+  profileImageUrl: string | null;
+}
+
+export interface AuthUserEnvelope {
+  user: AuthUser | null;
+  authorized: boolean;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -349,6 +366,22 @@ export interface DiscoveryCandidateAction {
 export interface DiscoveryCandidateDuplicateInput {
   opportunity_id: number;
 }
+
+/**
+ * Opaque session token in the form Bearer sid.
+ */
+export type AuthorizationSessionHeaderParameter = string;
+
+export type BeginBrowserLoginParams = {
+/**
+ * Relative path to redirect to after login.
+ */
+returnTo?: string;
+};
+
+export type LogoutBrowserSessionParams = {
+returnTo?: string;
+};
 
 export type ListDiscoveryCandidatesParams = {
 status?: DiscoveryCandidateStatus;
