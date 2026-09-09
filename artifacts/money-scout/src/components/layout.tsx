@@ -1,9 +1,12 @@
 import { ReactNode } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
-import { Activity, ShieldCheck, Target, Radar } from "lucide-react"
+import { Activity, BellRing, ShieldCheck, Target, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AuthUser } from "@workspace/replit-auth-web"
 import { Button } from "@/components/ui/button"
+
+type HumanActionsCountResponse = { actions?: Array<{ urgency?: string }> }
 
 export function Layout({
   children,
@@ -15,9 +18,21 @@ export function Layout({
   onLogout: () => void
 }) {
   const [location] = useLocation()
+  const needsYouQuery = useQuery<HumanActionsCountResponse>({
+    queryKey: ["human-actions", "active"],
+    queryFn: async () => {
+      const response = await fetch("/api/human-actions?status=ACTIVE", { credentials: "include" })
+      if (!response.ok) throw new Error(`Human actions returned ${response.status}`)
+      return response.json()
+    },
+    refetchInterval: 15_000,
+  })
+  const needsYouCount = needsYouQuery.data?.actions?.length ?? 0
+  const urgentCount = needsYouQuery.data?.actions?.filter((item) => item.urgency === "CRITICAL" || item.urgency === "HIGH").length ?? 0
 
   const navItems = [
     { href: "/", label: "Opportunities", icon: Target },
+    { href: "/needs-you", label: "Needs You", icon: BellRing, count: needsYouCount, urgentCount },
     { href: "/discovery", label: "Discovery Scout", icon: Radar },
     { href: "/readiness", label: "System Readiness", icon: Activity },
   ]
@@ -45,7 +60,22 @@ export function Layout({
                 )}
               >
                 <Icon className="h-4 w-4" />
-                {item.label}
+                <span>{item.label}</span>
+                {typeof item.count === "number" && item.count > 0 && (
+                  <span
+                    className={cn(
+                      "ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold",
+                      isActive
+                        ? "bg-primary-foreground text-primary"
+                        : item.urgentCount && item.urgentCount > 0
+                          ? "bg-red-600 text-white"
+                          : "bg-foreground text-background",
+                    )}
+                    title={item.urgentCount && item.urgentCount > 0 ? `${item.urgentCount} high-urgency actions` : `${item.count} open actions`}
+                  >
+                    {item.count}
+                  </span>
+                )}
               </Link>
             )
           })}
