@@ -22,6 +22,19 @@ export type StartupReadiness = {
   warnings: string[];
 };
 
+export const providerReadinessForSource = (
+  source: AnthropicProviderSource,
+): ProviderReadiness => {
+  if (source === "DIRECT") return "READY";
+  if (source === "REPLIT_MANAGED") return "UNVERIFIED";
+  return "UNAVAILABLE";
+};
+
+export const paidProviderPreflightAllows = (
+  source: AnthropicProviderSource,
+  allowUnverifiedProvider = false,
+): boolean => source === "DIRECT" || (source === "REPLIT_MANAGED" && allowUnverifiedProvider);
+
 export const determineStartupReadiness = (input: StartupReadinessInput): StartupReadiness => {
   const blockers: string[] = [];
   const warnings: string[] = [];
@@ -33,16 +46,13 @@ export const determineStartupReadiness = (input: StartupReadinessInput): Startup
   }
 
   const infrastructureSafe = input.databaseReachable && input.runtimeFreshness !== "STALE";
+  const providerReadiness = providerReadinessForSource(input.anthropicProvider);
 
-  let providerReadiness: ProviderReadiness;
-  if (input.anthropicProvider === "DIRECT") {
-    providerReadiness = "READY";
+  if (providerReadiness === "READY") {
     warnings.push("Direct Anthropic credentials are configured, but connectivity and account balance are not verified by this zero-cost check.");
-  } else if (input.anthropicProvider === "REPLIT_MANAGED") {
-    providerReadiness = "UNVERIFIED";
+  } else if (providerReadiness === "UNVERIFIED") {
     warnings.push("Replit-managed Anthropic credentials are present, but provider approval is not verified and cannot be assumed usable.");
   } else {
-    providerReadiness = "UNAVAILABLE";
     blockers.push("No Anthropic provider is configured.");
   }
 
