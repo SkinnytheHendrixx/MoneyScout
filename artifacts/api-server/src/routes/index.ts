@@ -18,6 +18,7 @@ import commercialBuildRouter from "./commercial-build";
 import monetizationPlanRouter from "./monetization-plan";
 import autonomousResolutionRouter from "./autonomous-resolution";
 import portfolioLifecycleRouter from "./portfolio-lifecycle";
+import humanActionsRouter from "./human-actions";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
 import { requireSafePaidResearchRuntime } from "../middlewares/paidResearchSafetyMiddleware";
@@ -48,6 +49,7 @@ router.use(commercialBuildRouter);
 router.use(monetizationPlanRouter);
 router.use(autonomousResolutionRouter);
 router.use(portfolioLifecycleRouter);
+router.use(humanActionsRouter);
 router.use(discoveryRouter);
 
 export default router;
