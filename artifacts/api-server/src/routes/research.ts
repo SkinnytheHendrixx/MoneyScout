@@ -115,6 +115,33 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
+function startAutonomousValidation(req: Request, opportunityId: number): void {
+  let origin: string;
+  try {
+    origin = forwardedOrigin(req);
+  } catch (error) {
+    req.log.error({ err: error, opportunityId }, "Unable to start autonomous validation because request origin is unavailable");
+    return;
+  }
+
+  void fetch(`${origin}/api/opportunities/${opportunityId}/validation/advance`, {
+    method: "POST",
+    headers: forwardedAuthHeaders(req),
+    signal: AbortSignal.timeout(180_000),
+  })
+    .then(async (response) => {
+      if (response.ok || response.status === 409) return;
+      const body = await response.text().catch(() => "");
+      req.log.error(
+        { opportunityId, status: response.status, body: body.slice(0, 500) },
+        "Autonomous validation kickoff returned a non-success response",
+      );
+    })
+    .catch((error) => {
+      req.log.error({ err: error, opportunityId }, "Autonomous validation kickoff failed");
+    });
+}
+
 async function runInternalStage(
   req: Request,
   opportunityId: number,
@@ -224,6 +251,10 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
       latest_kill_risk_outcome: finalState.latestKillRiskOutcome,
       ...finalState.plan,
     });
+
+    if (finalState.opportunityVerdict === "TEST" && finalState.plan.phase === "VALIDATION_READY") {
+      startAutonomousValidation(req, opportunityId);
+    }
   } catch (error) {
     if (error instanceof Error && error.message === "Opportunity not found") {
       res.status(404).json({ error: error.message });
