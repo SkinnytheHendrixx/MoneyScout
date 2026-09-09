@@ -65,6 +65,7 @@ const parsed = validateResolutionWorkerResult("ECONOMIC_INFERENCE", {
 });
 assert.equal(parsed.status, "RESOLVED");
 assert.equal(parsed.derivedBounds.length, 1);
+assert.equal(parsed.humanGateCandidate, null);
 
 assert.throws(() => validateResolutionWorkerResult("DIRECT_RESEARCH", {
   status: "ACTIVE_MONITORING",
@@ -96,6 +97,7 @@ const methodExecution = (
     watchTriggers: status === "ACTIVE_MONITORING" ? ["A concrete material delta occurs."] : [],
     experiment: null,
     unresolvedQuestions: [],
+    humanGateCandidate: null,
   },
   inputTokens: 100,
   outputTokens: 100,

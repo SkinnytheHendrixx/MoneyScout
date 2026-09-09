@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, opportunitiesTable } from "@workspace/db";
 import { selectAnthropicProvider } from "./anthropic-provider";
+import { reconcileExhaustedHumanActions } from "./human-action-reconciler";
 import { internalAutomationHeaders } from "./internal-automation-auth";
 import { logger } from "./logger";
 import {
@@ -105,6 +106,7 @@ export async function runPortfolioHeartbeatTick(port: number): Promise<void> {
   heartbeatRunning = true;
   try {
     const result = await runPortfolioReconciliation();
+    const humanActions = await reconcileExhaustedHumanActions();
     await dispatchQueuedResearch(port, result.queuedResearchOpportunityIds);
     logger.info(
       {
@@ -114,6 +116,10 @@ export async function runPortfolioHeartbeatTick(port: number): Promise<void> {
         watchesChecked: result.watchesCheckedCount,
         reactivated: result.reactivatedOpportunityCount,
         researchQueue: result.queuedResearchOpportunityIds.length,
+        humanActionScanned: humanActions.scanned,
+        humanActionsCreated: humanActions.created,
+        humanActionsReused: humanActions.reused,
+        humanGatesSuppressedForAvailableCapability: humanActions.suppressedBecauseCapabilityAvailable,
       },
       "Portfolio heartbeat complete",
     );

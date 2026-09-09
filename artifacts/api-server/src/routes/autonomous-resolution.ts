@@ -30,6 +30,11 @@ import {
   type ResolutionWorkerExecution,
 } from "../lib/autonomous-resolution-workers";
 import {
+  createOrReuseHumanAction,
+  resumeActionForResolutionProblem,
+  type HumanGateCandidate,
+} from "../lib/human-gates";
+import {
   activityEstimateForStage,
   getActiveEvaluationCycle,
   recordLifecycleEvent,
@@ -57,6 +62,41 @@ const PROBLEMS = new Set<ResolutionProblem>([
   "COMMERCIAL_DISTRIBUTION_UNRESOLVED",
 ]);
 
+const humanGateSchema = {
+  anyOf: [
+    { type: "null" },
+    {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "action_type",
+        "title",
+        "why_needed",
+        "instructions",
+        "blocked_stage",
+        "required_capability_key",
+        "provider",
+        "verification_mode",
+        "urgency",
+      ],
+      properties: {
+        action_type: { type: "string" },
+        title: { type: "string" },
+        why_needed: { type: "string" },
+        instructions: { type: "string" },
+        blocked_stage: { type: "string" },
+        required_capability_key: { type: ["string", "null"] },
+        provider: { type: ["string", "null"] },
+        verification_mode: {
+          type: "string",
+          enum: ["AUTOMATED_CHECK", "HUMAN_ATTESTATION", "EXTERNAL_CALLBACK"],
+        },
+        urgency: { type: "string", enum: ["CRITICAL", "HIGH", "NORMAL", "LOW"] },
+      },
+    },
+  ],
+} as const;
+
 const outputSchema = {
   type: "object",
   additionalProperties: false,
@@ -71,6 +111,7 @@ const outputSchema = {
     "watch_triggers",
     "experiment",
     "unresolved_questions",
+    "human_gate_candidate",
   ],
   properties: {
     status: { type: "string", enum: ["RESOLVED", "EXHAUSTED", "ACTIVE_MONITORING"] },
@@ -124,6 +165,7 @@ const outputSchema = {
       ],
     },
     unresolved_questions: { type: "array", maxItems: 12, items: { type: "string" } },
+    human_gate_candidate: humanGateSchema,
   },
 } as const;
 
@@ -155,6 +197,7 @@ type ResolutionRunNote = {
   watch_triggers?: string[];
   experiment?: unknown;
   unresolved_questions?: string[];
+  human_gate_candidate?: HumanGateCandidate | null;
   external_cost_usd?: number;
   input_tokens?: number;
   output_tokens?: number;
@@ -305,6 +348,7 @@ async function persistExecution(
         watch_triggers: execution.result.watchTriggers,
         experiment: execution.result.experiment,
         unresolved_questions: execution.result.unresolvedQuestions,
+        human_gate_candidate: execution.result.humanGateCandidate,
         external_cost_usd: execution.estimatedExternalCostUsd,
         input_tokens: execution.inputTokens,
         output_tokens: execution.outputTokens,
@@ -393,6 +437,23 @@ async function runWorker(method: ResolutionMethod, context: ResolutionWorkerCont
   return execution;
 }
 
+function genericHumanGateForExhaustion(
+  problem: ResolutionProblem,
+  unresolvedQuestion: string,
+): HumanGateCandidate {
+  return {
+    actionType: "REVIEW_EXHAUSTED_UNCERTAINTY",
+    title: `Decision required: ${problem.replaceAll("_", " ").toLowerCase()}`,
+    whyNeeded: `Every applicable internal resolution method was exhausted and the remaining question still matters: ${unresolvedQuestion}`,
+    instructions: "Review the concise evidence summary and provide only the missing judgment or authority. Money Scout should not ask you to repeat research it has already exhausted.",
+    blockedStage: `AUTONOMOUS_RESOLUTION:${problem}`,
+    requiredCapabilityKey: null,
+    provider: null,
+    verificationMode: "HUMAN_ATTESTATION",
+    urgency: "NORMAL",
+  };
+}
+
 async function applyResolutionLifecycleOutcome(
   opportunityId: number,
   result: ResolutionAdvanceResult,
@@ -426,17 +487,11 @@ async function applyResolutionLifecycleOutcome(
   }
 
   if (result.exhaustionCertificate.humanEscalationEligible) {
-    await setOpportunityActivity(opportunityId, {
-      activeEvaluationCycleId: cycle?.id ?? null,
-      currentActivityKey: "HUMAN_REVIEW_ELIGIBLE",
-      currentActivityLabel: "Internal resolution exhausted",
-      activityStatus: "BLOCKED",
-      activityStartedAt: new Date(),
-      expectedDurationSeconds: null,
-      nextAction: "Owner review is permitted because the Exhaustion Certificate is issued.",
-      etaBasis: "OWNER_DECISION",
-      lifecycleTransition: true,
-    });
+    const candidate = [...result.executions]
+      .reverse()
+      .map((execution) => execution.result.humanGateCandidate)
+      .find((value): value is HumanGateCandidate => value != null);
+
     await recordLifecycleEvent({
       opportunityId,
       evaluationCycleId: cycle?.id ?? null,
@@ -445,8 +500,63 @@ async function applyResolutionLifecycleOutcome(
       metadata: {
         problem: result.exhaustionCertificate.problem,
         exhausted_methods: result.exhaustionCertificate.exhaustedMethods,
+        human_gate_candidate: candidate,
       },
     });
+
+    if (!candidate && result.executions.length === 0) {
+      await setOpportunityActivity(opportunityId, {
+        activeEvaluationCycleId: cycle?.id ?? null,
+        currentActivityKey: "HUMAN_REVIEW_ELIGIBLE",
+        currentActivityLabel: "Internal resolution exhausted",
+        activityStatus: "BLOCKED",
+        activityStartedAt: new Date(),
+        expectedDurationSeconds: null,
+        nextAction: "Portfolio reconciliation will reconstruct the exhausted resolution history and create the smallest qualified Human Action.",
+        etaBasis: "HUMAN_ACTION_RECONCILIATION",
+        lifecycleTransition: true,
+      });
+      return;
+    }
+
+    const gate = candidate ?? genericHumanGateForExhaustion(
+      result.exhaustionCertificate.problem,
+      result.exhaustionCertificate.unresolvedQuestion,
+    );
+    const resumeAction = gate.requiredCapabilityKey
+      ? resumeActionForResolutionProblem(result.exhaustionCertificate.problem)
+      : "NO_AUTOMATIC_RESUME";
+    const humanAction = await createOrReuseHumanAction({
+      ...gate,
+      opportunityId,
+      resumeAction,
+      resumePayload: {
+        problem: result.exhaustionCertificate.problem,
+        unresolved_question: result.exhaustionCertificate.unresolvedQuestion,
+      },
+      exhaustionCertificate: result.exhaustionCertificate,
+    });
+
+    if (humanAction.capabilityAlreadyAvailable) {
+      await setOpportunityActivity(opportunityId, {
+        activeEvaluationCycleId: cycle?.id ?? null,
+        currentActivityKey: "AVAILABLE_CAPABILITY_NOT_CONSUMED",
+        currentActivityLabel: "Required access already exists; human escalation suppressed",
+        activityStatus: "BLOCKED",
+        activityStartedAt: new Date(),
+        expectedDurationSeconds: null,
+        nextAction: `Capability ${gate.requiredCapabilityKey} is already available. The autonomous execution layer must resume the blocked stage using it rather than asking the owner again.`,
+        etaBasis: "AUTONOMY_RECOVERY_REQUIRED",
+        lifecycleTransition: true,
+      });
+      await recordLifecycleEvent({
+        opportunityId,
+        evaluationCycleId: cycle?.id ?? null,
+        eventType: "HUMAN_GATE_SUPPRESSED_CAPABILITY_AVAILABLE",
+        summary: `Human escalation suppressed because ${gate.requiredCapabilityKey} is already available.`,
+        metadata: { required_capability_key: gate.requiredCapabilityKey },
+      });
+    }
     return;
   }
 
@@ -558,6 +668,19 @@ router.post("/opportunities/:opportunityId/resolution/advance", async (req, res)
       unresolvedQuestion,
       attempts: state.attempts,
     });
+    if (certificate.humanEscalationEligible) {
+      await setOpportunityActivity(opportunityId, {
+        activeEvaluationCycleId: state.cycle?.id ?? null,
+        currentActivityKey: "HUMAN_REVIEW_ELIGIBLE",
+        currentActivityLabel: "Internal resolution exhausted",
+        activityStatus: "BLOCKED",
+        activityStartedAt: new Date(),
+        expectedDurationSeconds: null,
+        nextAction: "Portfolio reconciliation will convert this issued Exhaustion Certificate into a structured Human Action.",
+        etaBasis: "HUMAN_ACTION_RECONCILIATION",
+        lifecycleTransition: true,
+      });
+    }
     res.status(200).json({
       opportunity_id: opportunityId,
       problem,
