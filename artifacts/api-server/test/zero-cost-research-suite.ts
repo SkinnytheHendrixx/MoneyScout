@@ -6,3 +6,4 @@ await import("./zero-cost-evidence-worker-tests");
 await import("./zero-cost-kill-risk-worker-tests");
 await import("./zero-cost-kill-risk-collector-tests");
 await import("./zero-cost-validation-evidence-collector-tests");
+await import("./zero-cost-factor-assessment-worker-tests");
