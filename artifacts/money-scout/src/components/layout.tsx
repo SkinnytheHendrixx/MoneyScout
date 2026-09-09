@@ -28,7 +28,9 @@ export function Layout({
     refetchInterval: 15_000,
   })
   const needsYouCount = needsYouQuery.data?.actions?.length ?? 0
-  const urgentCount = needsYouQuery.data?.actions?.filter((item) => item.urgency === "CRITICAL" || item.urgency === "HIGH").length ?? 0
+  const criticalCount = needsYouQuery.data?.actions?.filter((item) => item.urgency === "CRITICAL").length ?? 0
+  const highCount = needsYouQuery.data?.actions?.filter((item) => item.urgency === "HIGH").length ?? 0
+  const urgentCount = criticalCount + highCount
 
   const navItems = [
     { href: "/", label: "Opportunities", icon: Target },
@@ -91,6 +93,17 @@ export function Layout({
       </aside>
 
       <main className="flex-1 flex flex-col min-w-0">
+        {criticalCount > 0 ? (
+          <Link href="/needs-you" className="flex items-center justify-center gap-2 border-b border-red-300 bg-red-600 px-4 py-2 text-xs font-semibold text-white hover:bg-red-700">
+            <BellRing className="h-4 w-4" />
+            {criticalCount} critical human action{criticalCount === 1 ? "" : "s"} require immediate attention
+          </Link>
+        ) : highCount > 0 ? (
+          <Link href="/needs-you" className="flex items-center justify-center gap-2 border-b border-orange-300 bg-orange-50 px-4 py-2 text-xs font-semibold text-orange-950 hover:bg-orange-100">
+            <BellRing className="h-4 w-4" />
+            {highCount} high-priority human action{highCount === 1 ? "" : "s"} currently block workflow progress
+          </Link>
+        ) : null}
         <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
           {children}
         </div>
