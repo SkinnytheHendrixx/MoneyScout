@@ -152,6 +152,41 @@ function startAutonomousValidation(req: Request, opportunityId: number): void {
     });
 }
 
+function startAutonomousResolution(req: Request, opportunityId: number, plan: ResearchPlan): void {
+  if (plan.nextAction !== "RESOLVE_AUTONOMOUSLY" || !plan.resolutionProblem || !plan.stopReason) return;
+  let origin: string;
+  try {
+    origin = forwardedOrigin(req);
+  } catch (error) {
+    req.log.error({ err: error, opportunityId }, "Unable to start autonomous resolution because request origin is unavailable");
+    return;
+  }
+  const headers = {
+    ...forwardedAuthHeaders(req),
+    "content-type": "application/json",
+  };
+  void fetch(`${origin}/api/opportunities/${opportunityId}/resolution/advance`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      problem: plan.resolutionProblem,
+      unresolved_question: plan.stopReason,
+    }),
+    signal: AbortSignal.timeout(300_000),
+  })
+    .then(async (response) => {
+      if (response.ok || response.status === 409) return;
+      const body = await response.text().catch(() => "");
+      req.log.error(
+        { opportunityId, problem: plan.resolutionProblem, status: response.status, body: body.slice(0, 500) },
+        "Autonomous resolution kickoff returned a non-success response",
+      );
+    })
+    .catch((error) => {
+      req.log.error({ err: error, opportunityId, problem: plan.resolutionProblem }, "Autonomous resolution kickoff failed");
+    });
+}
+
 async function runInternalStage(
   req: Request,
   opportunityId: number,
@@ -267,6 +302,8 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
 
     if (finalState.opportunityVerdict === "TEST" && finalState.plan.phase === "VALIDATION_READY") {
       startAutonomousValidation(req, opportunityId);
+    } else if (finalState.plan.nextAction === "RESOLVE_AUTONOMOUSLY") {
+      startAutonomousResolution(req, opportunityId, finalState.plan);
     }
   } catch (error) {
     if (error instanceof Error && error.message === "Opportunity not found") {

@@ -80,6 +80,41 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   return headers;
 }
 
+function startAutonomousResolution(req: Request, opportunityId: number, plan: ValidationPlan): void {
+  if (plan.nextAction !== "RESOLVE_AUTONOMOUSLY" || !plan.resolutionProblem || !plan.stopReason) return;
+  let origin: string;
+  try {
+    origin = forwardedOrigin(req);
+  } catch (error) {
+    req.log.error({ err: error, opportunityId }, "Unable to start autonomous resolution because request origin is unavailable");
+    return;
+  }
+  const headers = {
+    ...forwardedAuthHeaders(req),
+    "content-type": "application/json",
+  };
+  void fetch(`${origin}/api/opportunities/${opportunityId}/resolution/advance`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      problem: plan.resolutionProblem,
+      unresolved_question: plan.stopReason,
+    }),
+    signal: AbortSignal.timeout(300_000),
+  })
+    .then(async (response) => {
+      if (response.ok || response.status === 409) return;
+      const body = await response.text().catch(() => "");
+      req.log.error(
+        { opportunityId, problem: plan.resolutionProblem, status: response.status, body: body.slice(0, 500) },
+        "Autonomous validation-resolution kickoff returned a non-success response",
+      );
+    })
+    .catch((error) => {
+      req.log.error({ err: error, opportunityId, problem: plan.resolutionProblem }, "Autonomous validation-resolution kickoff failed");
+    });
+}
+
 async function runValidationEvidenceStage(req: Request, opportunityId: number): Promise<void> {
   const response = await fetch(
     `${forwardedOrigin(req)}/api/opportunities/${opportunityId}/validation-evidence/collect`,
@@ -392,6 +427,10 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
           ? "NO_BLIND_AUTOMATIC_PAID_RETRY"
           : "NOT_APPLICABLE",
     });
+
+    if (execution.finalPlan.nextAction === "RESOLVE_AUTONOMOUSLY") {
+      startAutonomousResolution(req, opportunityId, execution.finalPlan);
+    }
   } catch (error) {
     if (error instanceof Error && error.message === "Opportunity not found") {
       res.status(404).json({ error: error.message });
