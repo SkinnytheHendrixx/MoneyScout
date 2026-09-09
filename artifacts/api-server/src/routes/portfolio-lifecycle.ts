@@ -15,7 +15,9 @@ import {
 
 const router: IRouter = Router();
 
-function activityProjection(runtime: NonNullable<Awaited<ReturnType<typeof opportunityLifecycleSnapshot>>>["runtime"]) {
+type OpportunityRuntimeState = typeof opportunityRuntimeStateTable.$inferSelect;
+
+function activityProjection(runtime: OpportunityRuntimeState | null) {
   if (!runtime) return null;
   const now = Date.now();
   const startedAt = runtime.activityStartedAt?.getTime() ?? null;
