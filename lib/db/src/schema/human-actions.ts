@@ -82,6 +82,7 @@ export const humanActionsTable = pgTable(
     instructions: text("instructions").notNull(),
     blockedStage: text("blocked_stage").notNull(),
     requiredCapabilityKey: text("required_capability_key"),
+    requiredCapabilityProvider: text("required_capability_provider"),
     verificationMode: humanActionVerificationModeEnum("verification_mode")
       .notNull()
       .default("HUMAN_ATTESTATION"),
