@@ -70,8 +70,9 @@ const failed = determineValidationPlan({
   evidenceRunStatus: "FAILED",
   assessments: [],
 });
-assert.equal(failed.phase, "NEEDS_MORE_VALIDATION");
-assert.equal(failed.nextAction, "HUMAN_REVIEW");
+assert.equal(failed.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+assert.equal(failed.nextAction, "RESOLVE_AUTONOMOUSLY");
+assert.equal(failed.resolutionProblem, "VALIDATION_EVIDENCE_FAILURE");
 assert.equal(failed.automaticExternalCallsEnabled, false);
 
 const buildReady = determineValidationPlan({
@@ -91,8 +92,9 @@ const watch = determineValidationPlan({
   evidenceRunStatus: "COMPLETED",
   assessments: weakAssessments,
 });
-assert.equal(watch.phase, "WATCH");
-assert.equal(watch.nextAction, "APPLY_WATCH");
+assert.equal(watch.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+assert.equal(watch.nextAction, "RESOLVE_AUTONOMOUSLY");
+assert.equal(watch.resolutionProblem, "VALIDATION_WATCH");
 
 const blockedAssessments = assessments();
 blockedAssessments[10] = { ...blockedAssessments[10], strength: "BLOCKING" };
@@ -101,8 +103,9 @@ const reject = determineValidationPlan({
   evidenceRunStatus: "COMPLETED",
   assessments: blockedAssessments,
 });
-assert.equal(reject.phase, "REJECTED");
-assert.equal(reject.nextAction, "APPLY_REJECT");
+assert.equal(reject.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+assert.equal(reject.nextAction, "RESOLVE_AUTONOMOUSLY");
+assert.equal(reject.resolutionProblem, "VALIDATION_REJECT_CHALLENGE");
 
 const lowConfidenceAssessments = assessments();
 lowConfidenceAssessments[7] = {
@@ -124,9 +127,19 @@ const fatalGate = determineValidationPlan({
   evidenceRunStatus: "NONE",
   assessments: [],
 });
-assert.equal(fatalGate.phase, "REJECTED");
-assert.equal(fatalGate.nextAction, "APPLY_REJECT");
+assert.equal(fatalGate.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+assert.equal(fatalGate.nextAction, "RESOLVE_AUTONOMOUSLY");
+assert.equal(fatalGate.resolutionProblem, "VALIDATION_REJECT_CHALLENGE");
 assert.equal(fatalGate.automaticExternalCallsEnabled, false);
+
+const watched = determineValidationPlan({
+  ...base,
+  opportunityVerdict: "WATCH",
+  evidenceRunStatus: "COMPLETED",
+  assessments: assessments(),
+});
+assert.equal(watched.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+assert.equal(watched.resolutionProblem, "VALIDATION_WATCH");
 
 let paidCalls = 0;
 let readCount = 0;
@@ -158,6 +171,6 @@ const failedExecution = await executeValidationWorkflow({
 });
 assert.equal(failedRetryCalls, 0);
 assert.equal(failedExecution.evidenceCollectionExecuted, false);
-assert.equal(failedExecution.finalPlan.phase, "NEEDS_MORE_VALIDATION");
+assert.equal(failedExecution.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
 
 console.log("PASS zero-cost validation orchestrator");
