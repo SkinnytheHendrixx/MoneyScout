@@ -13,6 +13,7 @@ import {
 import { executeResearchWorkflow } from "../lib/research-execution";
 
 const router: IRouter = Router();
+const activeResearchRuns = new Set<number>();
 
 async function readResearchPlan(opportunityId: number): Promise<{
   opportunityVerdict: string;
@@ -158,7 +159,12 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
     res.status(400).json({ error: "Invalid opportunity id" });
     return;
   }
+  if (activeResearchRuns.has(opportunityId)) {
+    res.status(409).json({ error: "Autonomous research is already running for this opportunity" });
+    return;
+  }
 
+  activeResearchRuns.add(opportunityId);
   try {
     await readResearchPlan(opportunityId);
     const execution = await executeResearchWorkflow({
@@ -188,6 +194,8 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
     res.status(502).json({
       error: "Autonomous research stopped after a stage failure. No automatic retry was attempted.",
     });
+  } finally {
+    activeResearchRuns.delete(opportunityId);
   }
 });
 
