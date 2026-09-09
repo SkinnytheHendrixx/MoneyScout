@@ -15,6 +15,9 @@ import researchRouter from "./research";
 import candidateResearchHandoffRouter from "./candidate-research-handoff";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
+import { registerApifyExperimentAdapters } from "../lib/apify-experiment-adapters";
+
+registerApifyExperimentAdapters();
 
 const router: IRouter = Router();
 

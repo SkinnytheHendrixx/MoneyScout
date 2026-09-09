@@ -10,3 +10,4 @@ await import("./zero-cost-factor-assessment-worker-tests");
 await import("./zero-cost-validation-orchestrator-tests");
 await import("./zero-cost-experiment-planner-tests");
 await import("./zero-cost-experiment-executor-tests");
+await import("./zero-cost-apify-experiment-adapter-tests");
