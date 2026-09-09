@@ -1,3 +1,4 @@
+import type { ResolutionProblem } from "./autonomous-resolution-engine";
 import type { BuildProductShape, CommercialBuildBrief } from "./commercial-build-brief";
 
 export type MonetizationTestType =
@@ -10,8 +11,14 @@ export type MonetizationTestType =
 
 export type MonetizationPlanStatus =
   | "BLOCKED"
-  | "NEEDS_COMMERCIAL_NORMALIZATION"
+  | "NEEDS_AUTONOMOUS_RESOLUTION"
   | "READY_FOR_INTERNAL_BUILD";
+
+export type PricingConfidenceState =
+  | "DIRECTLY_OBSERVED"
+  | "STRONGLY_INFERRED"
+  | "BOUNDED_HYPOTHESIS"
+  | "UNRESOLVED";
 
 export type CommercialSideEffect =
   | "EXTERNAL_PUBLICATION"
@@ -27,6 +34,7 @@ export type MonetizationExecutionPlan = {
   status: MonetizationPlanStatus;
   blockers: string[];
   commercialNormalizationNeeded: string[];
+  resolutionProblems: ResolutionProblem[];
   firstTransaction: {
     testType: MonetizationTestType;
     targetBuyerEvidence: string[];
@@ -37,6 +45,7 @@ export type MonetizationExecutionPlan = {
   pricing: {
     evidence: string[];
     testPriceUsd: number | null;
+    confidenceState: PricingConfidenceState;
     instruction: string;
   };
   distribution: {
@@ -61,7 +70,7 @@ export type MonetizationExecutionPlan = {
   autonomy: {
     allowedWithoutApproval: string[];
     approvalRequiredFor: CommercialSideEffect[];
-    nextGate: "BUILD_ORCHESTRATOR" | "COMMERCIAL_NORMALIZATION" | "STOP";
+    nextGate: "BUILD_ORCHESTRATOR" | "AUTONOMOUS_RESOLUTION" | "STOP";
   };
 };
 
@@ -145,24 +154,28 @@ export function createMonetizationExecutionPlan(
   }
 
   const normalization: string[] = [];
+  const resolutionProblems: ResolutionProblem[] = [];
   if (brief.unresolved.targetBuyerNeedsStructuredExtraction) {
-    normalization.push("Target buyer must be normalized from validated evidence before external launch.");
+    normalization.push("Target buyer needs autonomous evidence normalization or bounded inference before external launch.");
+    resolutionProblems.push("COMMERCIAL_BUYER_UNRESOLVED");
   }
   if (brief.unresolved.pricingNeedsStructuredExtraction) {
-    normalization.push("Pricing or paid-analog evidence must be normalized before any price is selected.");
+    normalization.push("Pricing needs autonomous direct/proxy research or a defensible bounded hypothesis before launch; an exact observed price is not required.");
+    resolutionProblems.push("COMMERCIAL_PRICING_UNRESOLVED");
   }
   if (brief.unresolved.distributionNeedsStructuredExtraction) {
-    normalization.push("Initial distribution channel must be normalized from validated evidence before launch.");
+    normalization.push("Initial distribution path needs autonomous evidence normalization or bounded inference before launch.");
+    resolutionProblems.push("COMMERCIAL_DISTRIBUTION_UNRESOLVED");
   }
 
   const shape = brief.buildContract.route.primaryShape;
   const targetBuyer = first(
     brief.commercialContract.targetBuyerEvidence,
-    "No normalized target-buyer evidence is available.",
+    "No normalized target-buyer evidence is available yet; autonomous resolution must infer or bound the first buyer before launch.",
   );
   const priceAnchor = first(
     brief.commercialContract.monetizationEvidence,
-    "No normalized paid-analog or pricing evidence is available.",
+    "No normalized paid-analog or pricing evidence is available yet; autonomous resolution must search substitutes and derive a bounded pricing hypothesis.",
   );
   const distributionAnchor = first(
     brief.commercialContract.distributionEvidence,
@@ -171,14 +184,14 @@ export function createMonetizationExecutionPlan(
 
   const status: MonetizationPlanStatus = blockers.length > 0
     ? "BLOCKED"
-    : normalization.length > 0
-      ? "NEEDS_COMMERCIAL_NORMALIZATION"
+    : resolutionProblems.length > 0
+      ? "NEEDS_AUTONOMOUS_RESOLUTION"
       : "READY_FOR_INTERNAL_BUILD";
 
   const nextGate = status === "BLOCKED"
     ? "STOP"
-    : status === "NEEDS_COMMERCIAL_NORMALIZATION"
-      ? "COMMERCIAL_NORMALIZATION"
+    : status === "NEEDS_AUTONOMOUS_RESOLUTION"
+      ? "AUTONOMOUS_RESOLUTION"
       : "BUILD_ORCHESTRATOR";
 
   return {
@@ -187,22 +200,24 @@ export function createMonetizationExecutionPlan(
     status,
     blockers: [...new Set(blockers)],
     commercialNormalizationNeeded: normalization,
+    resolutionProblems: [...new Set(resolutionProblems)],
     firstTransaction: {
       testType: testTypeFor(shape),
       targetBuyerEvidence: brief.commercialContract.targetBuyerEvidence,
       promisedOutcome: brief.commercialContract.minimumSellableOutcome,
-      commercialCommitment: `A real member of the evidenced buyer segment makes an observable paid commitment for the promised outcome. Buyer anchor: ${targetBuyer}`,
+      commercialCommitment: `A real member of the evidenced or defensibly inferred buyer segment makes an observable paid commitment for the promised outcome. Buyer anchor: ${targetBuyer}`,
       fulfillmentPath: fulfillmentPathFor(shape, brief.commercialContract.minimumSellableOutcome),
     },
     pricing: {
       evidence: brief.commercialContract.monetizationEvidence,
       testPriceUsd: null,
-      instruction: `Do not invent a price. Before launch, select the narrowest defensible test price from direct paid-competitor, paid-substitute, buyer-budget, or observed transaction evidence. Current evidence anchor: ${priceAnchor}`,
+      confidenceState: brief.commercialContract.monetizationEvidence.length > 0 ? "DIRECTLY_OBSERVED" : "UNRESOLVED",
+      instruction: `Do not require an exact competitor price to proceed. Prefer direct observed prices when available; otherwise derive a strongly inferred range or bounded test hypothesis from paid substitutes, buyer budgets, economic value, labor displacement, unit economics, and marketplace norms. Current evidence anchor: ${priceAnchor}`,
     },
     distribution: {
       evidence: brief.commercialContract.distributionEvidence,
       initialChannel: distributionAnchor,
-      testInstruction: "Use the strongest evidenced accessible channel first. Do not default to paid ads, broad outbound, or generic social posting when the evidence supports a narrower path.",
+      testInstruction: "Use the strongest evidenced or defensibly inferred accessible channel first. Do not default to paid ads, broad outbound, or generic social posting when a narrower path exists.",
     },
     ventureBudget: {
       currency: "USD",
@@ -231,6 +246,7 @@ export function createMonetizationExecutionPlan(
       prohibitedInference: [
         "Traffic, clicks, signups, usage, or compliments are not revenue proof by themselves.",
         "A working product is not evidence of willingness to pay.",
+        "Missing direct pricing evidence is not evidence that monetization is impossible.",
         "One buyer commitment does not by itself prove retention, scalable acquisition, or sustainable profitability.",
         "Do not widen scope merely because the first build is technically successful.",
       ],
