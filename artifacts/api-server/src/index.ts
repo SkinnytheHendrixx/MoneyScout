@@ -1,5 +1,6 @@
 import "./lib/anthropic-provider";
 import app from "./app";
+import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startExecutionKernel } from "./lib/execution-kernel";
 import { startExecutionReconciler } from "./lib/execution-reconciler";
 import { logger } from "./lib/logger";
@@ -29,6 +30,7 @@ void reconcileDiscoveryRunsOnStartup().then(() => app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   startExecutionReconciler(port);
   startExecutionKernel(port);
+  startBuildOrchestratorWorker();
   startPortfolioHeartbeat(port);
 })).catch((error) => {
   logger.error({ err: error }, "Failed to reconcile discovery runs on startup");
