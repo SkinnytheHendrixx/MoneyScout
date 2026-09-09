@@ -87,14 +87,15 @@ async function simulateResearch(fixture: {
   assert.equal(validation.nextAction, "APPLY_BUILD");
 }
 
-// Weak demand stops before kill-risk spend and moves to WATCH.
+// Weak demand stops further paid stages, but it routes to autonomous resolution rather than dead-end WATCH.
 {
   const research = await simulateResearch({ policy: "GREEN", demand: "WEAK" });
   assert.deepEqual(research.calls, ["POLICY_CHECK", "DEMAND_CHECK"]);
-  assert.equal(research.execution.finalPlan.phase, "WATCH");
+  assert.equal(research.execution.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(research.execution.finalPlan.resolutionProblem, "DEMAND_UNCERTAINTY");
 }
 
-// A fatal kill risk vetoes the opportunity before validation.
+// A reported fatal kill risk must be independently challenged before a terminal decision.
 {
   const research = await simulateResearch({
     policy: "GREEN",
@@ -102,7 +103,8 @@ async function simulateResearch(fixture: {
     killRisk: "BLOCKED",
   });
   assert.deepEqual(research.calls, ["POLICY_CHECK", "DEMAND_CHECK", "KILL_RISK_CHECK"]);
-  assert.equal(research.execution.finalPlan.phase, "REJECTED");
+  assert.equal(research.execution.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(research.execution.finalPlan.resolutionProblem, "KILL_RISK_INCOMPLETE");
 }
 
 // Cleared research plus one unresolved underwriting factor must request a falsifying experiment,
@@ -129,11 +131,12 @@ async function simulateResearch(fixture: {
   assert.equal(validation.automaticExternalCallsEnabled, false);
 }
 
-// Policy ambiguity spends once and stops for review, proving the fixture harness preserves no-retry behavior.
+// Policy ambiguity spends once and then routes to deeper autonomous resolution, preserving no-retry behavior without owner homework.
 {
   const research = await simulateResearch({ policy: "UNKNOWN" });
   assert.deepEqual(research.calls, ["POLICY_CHECK"]);
-  assert.equal(research.execution.finalPlan.phase, "HUMAN_REVIEW_REQUIRED");
+  assert.equal(research.execution.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(research.execution.finalPlan.resolutionProblem, "POLICY_AMBIGUITY");
   assert.equal(research.execution.finalPlan.automaticExternalCallsEnabled, false);
 }
 
