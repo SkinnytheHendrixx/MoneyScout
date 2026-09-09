@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   db,
   evaluationCyclesTable,
@@ -25,9 +25,14 @@ export async function getActiveEvaluationCycle(opportunityId: number) {
   const [cycle] = await db
     .select()
     .from(evaluationCyclesTable)
-    .where(eq(evaluationCyclesTable.opportunityId, opportunityId))
+    .where(
+      and(
+        eq(evaluationCyclesTable.opportunityId, opportunityId),
+        eq(evaluationCyclesTable.status, "ACTIVE"),
+      ),
+    )
     .orderBy(desc(evaluationCyclesTable.cycleNumber));
-  return cycle?.status === "ACTIVE" ? cycle : null;
+  return cycle ?? null;
 }
 
 export async function getEvaluationCycleStart(opportunityId: number): Promise<Date | null> {
