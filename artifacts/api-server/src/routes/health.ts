@@ -1,7 +1,9 @@
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
+import { pool } from "@workspace/db";
 import { selectAnthropicProvider } from "../lib/anthropic-provider";
 import { detectRuntimeCommit, runtimeFreshness } from "../lib/runtime-safety";
+import { determineStartupReadiness } from "../lib/startup-readiness";
 
 const router: IRouter = Router();
 const startedAt = new Date().toISOString();
@@ -33,6 +35,61 @@ router.get("/health/provider", (_req, res) => {
       expected_commit: process.env.MONEY_SCOUT_EXPECTED_COMMIT_SHA?.trim() || null,
       freshness,
       paid_research_blocked: freshness === "STALE",
+    },
+  });
+});
+
+router.get("/health/readiness", async (_req, res): Promise<void> => {
+  let databaseReachable = false;
+  let databaseLatencyMs: number | null = null;
+  let databaseError: string | null = null;
+  const databaseStartedAt = Date.now();
+  try {
+    await pool.query("select 1 as ready");
+    databaseReachable = true;
+    databaseLatencyMs = Date.now() - databaseStartedAt;
+  } catch (error) {
+    databaseError = error instanceof Error ? error.message.slice(0, 300) : "Database check failed";
+  }
+
+  const provider = selectAnthropicProvider();
+  const freshness = runtimeFreshness();
+  const readiness = determineStartupReadiness({
+    databaseReachable,
+    anthropicProvider: provider.source,
+    runtimeFreshness: freshness,
+  });
+
+  res.json({
+    state: readiness.state,
+    paid_research_safe: readiness.paidResearchSafe,
+    checked_at: new Date().toISOString(),
+    blockers: readiness.blockers,
+    warnings: readiness.warnings,
+    checks: {
+      api: {
+        status: "READY",
+        started_at: startedAt,
+      },
+      database: {
+        status: databaseReachable ? "READY" : "BLOCKED",
+        reachable: databaseReachable,
+        latency_ms: databaseLatencyMs,
+        error: databaseError,
+      },
+      anthropic: {
+        status: provider.source === "UNAVAILABLE" ? "BLOCKED" : provider.source === "REPLIT_MANAGED" ? "ATTENTION" : "READY",
+        source: provider.source,
+        configured: provider.apiKeyPresent,
+        connectivity_verified: false,
+        billable_call_performed: false,
+      },
+      runtime: {
+        status: freshness === "MATCH" ? "READY" : freshness === "STALE" ? "BLOCKED" : "ATTENTION",
+        freshness,
+        commit: detectRuntimeCommit(),
+        expected_commit: process.env.MONEY_SCOUT_EXPECTED_COMMIT_SHA?.trim() || null,
+      },
     },
   });
 });
