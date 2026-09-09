@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { jsonSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/json-schema";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import {
   db,
@@ -25,9 +25,16 @@ import {
   methodAllowsWebSearch,
   nextResolutionMethod,
   validateResolutionWorkerResult,
+  type ResolutionAdvanceResult,
   type ResolutionWorkerContext,
   type ResolutionWorkerExecution,
 } from "../lib/autonomous-resolution-workers";
+import {
+  activityEstimateForStage,
+  getActiveEvaluationCycle,
+  recordLifecycleEvent,
+  setOpportunityActivity,
+} from "../lib/lifecycle-state";
 
 const router: IRouter = Router();
 const activeResolutions = new Set<string>();
@@ -135,6 +142,7 @@ export const setResolutionMessagesClientFactoryForTests = (
 
 type ResolutionRunNote = {
   opportunity_id?: number;
+  evaluation_cycle_id?: number | null;
   problem?: ResolutionProblem;
   unresolved_question?: string;
   method?: ResolutionMethod;
@@ -193,6 +201,7 @@ const returnedSearchSources = (message: Anthropic.Message): Map<string, { url: s
 async function loadState(opportunityId: number, problem: ResolutionProblem) {
   const [opportunity] = await db.select().from(opportunitiesTable).where(eq(opportunitiesTable.id, opportunityId));
   if (!opportunity) return null;
+  const cycle = await getActiveEvaluationCycle(opportunityId);
 
   const evidence = await db
     .select()
@@ -202,7 +211,14 @@ async function loadState(opportunityId: number, problem: ResolutionProblem) {
   const runs = await db
     .select()
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.triggerType, "AUTONOMOUS_RESOLUTION"))
+    .where(
+      cycle
+        ? and(
+            eq(researchRunsTable.triggerType, "AUTONOMOUS_RESOLUTION"),
+            gte(researchRunsTable.startedAt, cycle.startedAt),
+          )
+        : eq(researchRunsTable.triggerType, "AUTONOMOUS_RESOLUTION"),
+    )
     .orderBy(desc(researchRunsTable.id));
 
   const notes = runs
@@ -250,7 +266,7 @@ async function loadState(opportunityId: number, problem: ResolutionProblem) {
     })),
   };
 
-  return { context, attempts, externalCostUsd, notes };
+  return { context, attempts, externalCostUsd, notes, cycle };
 }
 
 function getMessagesClient(): MessagesClient {
@@ -267,6 +283,7 @@ async function persistExecution(
   rawSources: Map<string, { url: string; title: string }>,
 ): Promise<void> {
   const finishedAt = new Date();
+  const cycle = await getActiveEvaluationCycle(context.opportunity.id);
   const [run] = await db
     .insert(researchRunsTable)
     .values({
@@ -275,6 +292,7 @@ async function persistExecution(
       triggerType: "AUTONOMOUS_RESOLUTION",
       notes: JSON.stringify({
         opportunity_id: context.opportunity.id,
+        evaluation_cycle_id: cycle?.id ?? null,
         problem: context.problem,
         unresolved_question: context.unresolvedQuestion,
         method: execution.result.method,
@@ -327,6 +345,20 @@ async function persistExecution(
 }
 
 async function runWorker(method: ResolutionMethod, context: ResolutionWorkerContext): Promise<ResolutionWorkerExecution> {
+  const estimate = activityEstimateForStage(method);
+  const cycle = await getActiveEvaluationCycle(context.opportunity.id);
+  await setOpportunityActivity(context.opportunity.id, {
+    activeEvaluationCycleId: cycle?.id ?? null,
+    currentActivityKey: `RESOLUTION_${method}`,
+    currentActivityLabel: estimate.label,
+    activityStatus: "RUNNING",
+    activityStartedAt: new Date(),
+    expectedDurationSeconds: estimate.expectedDurationSeconds,
+    stageIndex: estimate.stageIndex,
+    stageCount: estimate.stageCount,
+    nextAction: "Continue autonomous resolution until the issue is resolved, experimentally testable, temporal, or truly exhausted.",
+    etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+  });
   const client = getMessagesClient();
   const params: Anthropic.MessageCreateParamsNonStreaming = {
     model: "claude-sonnet-4-5",
@@ -361,6 +393,104 @@ async function runWorker(method: ResolutionMethod, context: ResolutionWorkerCont
   return execution;
 }
 
+async function applyResolutionLifecycleOutcome(
+  opportunityId: number,
+  result: ResolutionAdvanceResult,
+): Promise<void> {
+  const cycle = await getActiveEvaluationCycle(opportunityId);
+  const latest = result.executions.at(-1)?.result ?? null;
+  if (result.activeMonitoring) {
+    await db
+      .update(opportunitiesTable)
+      .set({ verdict: "WATCH", killReason: null })
+      .where(eq(opportunitiesTable.id, opportunityId));
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "WATCH_PENDING_REGISTRATION",
+      currentActivityLabel: "Resolution completed; preparing WATCH monitoring",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Portfolio Reconciler will register these concrete triggers and monitor for material change.",
+      etaBasis: "EVENT_DRIVEN_NO_FIXED_ETA",
+      lifecycleTransition: true,
+    });
+    await recordLifecycleEvent({
+      opportunityId,
+      evaluationCycleId: cycle?.id ?? null,
+      eventType: "AUTONOMOUS_RESOLUTION_ENTERED_WATCH",
+      summary: latest?.conclusion ?? "Resolution determined that only future material change can resolve the remaining uncertainty.",
+      metadata: { watch_triggers: latest?.watchTriggers ?? [] },
+    });
+    return;
+  }
+
+  if (result.exhaustionCertificate.humanEscalationEligible) {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "HUMAN_REVIEW_ELIGIBLE",
+      currentActivityLabel: "Internal resolution exhausted",
+      activityStatus: "BLOCKED",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Owner review is permitted because the Exhaustion Certificate is issued.",
+      etaBasis: "OWNER_DECISION",
+      lifecycleTransition: true,
+    });
+    await recordLifecycleEvent({
+      opportunityId,
+      evaluationCycleId: cycle?.id ?? null,
+      eventType: "EXHAUSTION_CERTIFICATE_ISSUED",
+      summary: result.exhaustionCertificate.unresolvedQuestion,
+      metadata: {
+        problem: result.exhaustionCertificate.problem,
+        exhausted_methods: result.exhaustionCertificate.exhaustedMethods,
+      },
+    });
+    return;
+  }
+
+  if (result.resolvedInternally && latest) {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESOLUTION_COMPLETE",
+      currentActivityLabel: "Internal uncertainty resolved",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: latest.recommendation.replaceAll("_", " "),
+      etaBasis: "NEXT_LIFECYCLE_ACTION",
+      lifecycleTransition: true,
+    });
+    await recordLifecycleEvent({
+      opportunityId,
+      evaluationCycleId: cycle?.id ?? null,
+      eventType: "AUTONOMOUS_RESOLUTION_RESOLVED",
+      summary: latest.conclusion,
+      metadata: {
+        method: latest.method,
+        recommendation: latest.recommendation,
+        confidence: latest.confidence,
+        derived_bounds: latest.derivedBounds,
+      },
+    });
+    return;
+  }
+
+  if (result.stoppedForBudget) {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESOLUTION_BUDGET_STOPPED",
+      currentActivityLabel: "Resolution paused at budget guard",
+      activityStatus: "BLOCKED",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Budget exhaustion does not qualify this knowledge gap for owner escalation without an Exhaustion Certificate.",
+      etaBasis: "BUDGET_POLICY_DEPENDENT",
+    });
+  }
+}
+
 const parseProblem = (value: unknown): ResolutionProblem | null =>
   typeof value === "string" && PROBLEMS.has(value as ResolutionProblem)
     ? value as ResolutionProblem
@@ -385,6 +515,8 @@ router.get("/opportunities/:opportunityId/resolution", async (req, res): Promise
   const attempts = state.attempts;
   res.status(200).json({
     opportunity_id: opportunityId,
+    evaluation_cycle_id: state.cycle?.id ?? null,
+    evaluation_cycle_started_at: state.cycle?.startedAt.toISOString() ?? null,
     problem,
     unresolved_question: unresolvedQuestion,
     resolution_plan: createAutonomousResolutionPlan(problem),
@@ -421,17 +553,19 @@ router.post("/opportunities/:opportunityId/resolution/advance", async (req, res)
     return;
   }
   if (state.externalCostUsd >= RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD) {
+    const certificate = createExhaustionCertificate({
+      problem,
+      unresolvedQuestion,
+      attempts: state.attempts,
+    });
     res.status(200).json({
       opportunity_id: opportunityId,
       problem,
       stopped_for_budget: true,
       external_cost_usd: state.externalCostUsd,
       external_cost_ceiling_usd: RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD,
-      exhaustion_certificate: createExhaustionCertificate({
-        problem,
-        unresolvedQuestion,
-        attempts: state.attempts,
-      }),
+      exhaustion_certificate: certificate,
+      owner_escalation_allowed: certificate.humanEscalationEligible,
       note: "The resolution budget is exhausted. Budget exhaustion alone does not make the knowledge gap eligible for human escalation unless the Exhaustion Certificate is issued.",
     });
     return;
@@ -449,8 +583,10 @@ router.post("/opportunities/:opportunityId/resolution/advance", async (req, res)
       priorExternalCostUsd: state.externalCostUsd,
       runWorker,
     });
+    await applyResolutionLifecycleOutcome(opportunityId, result);
     res.status(200).json({
       opportunity_id: opportunityId,
+      evaluation_cycle_id: state.cycle?.id ?? null,
       problem,
       unresolved_question: unresolvedQuestion,
       ...result,

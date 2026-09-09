@@ -11,6 +11,10 @@ import {
   AcceptDiscoveryCandidateParams,
   AcceptDiscoveryCandidateResponse,
 } from "@workspace/api-zod";
+import {
+  ensureActiveEvaluationCycle,
+  setOpportunityActivity,
+} from "../lib/lifecycle-state";
 
 const router: IRouter = Router();
 
@@ -206,6 +210,30 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
     res.status(409).json({ error: "Candidate cannot be accepted" });
     return;
   }
+
+  const cycle = await ensureActiveEvaluationCycle({
+    opportunityId: result.opportunityId,
+    triggerType: "DISCOVERY_ACCEPTED",
+    triggerReason: "Discovery candidate accepted into autonomous Research.",
+    triggerMetadata: {
+      candidate_id: result.candidate.id,
+      discovery_key: result.candidate.discoveryKey,
+      anomaly_type: result.candidate.primaryAnomalyType,
+    },
+  });
+  await setOpportunityActivity(result.opportunityId, {
+    activeEvaluationCycleId: cycle.id,
+    currentActivityKey: "RESEARCH_QUEUED",
+    currentActivityLabel: "Research queued",
+    activityStatus: "WAITING",
+    activityStartedAt: new Date(),
+    expectedDurationSeconds: 480,
+    stageIndex: 0,
+    stageCount: 3,
+    nextAction: "Start the first bounded Research cycle.",
+    etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+    lifecycleTransition: true,
+  });
 
   res.json(
     AcceptDiscoveryCandidateResponse.parse({

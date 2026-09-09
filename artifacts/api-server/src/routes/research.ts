@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
   db,
@@ -8,6 +8,12 @@ import {
   researchRunsTable,
 } from "@workspace/db";
 import { createAutonomousResolutionPlan } from "../lib/autonomous-resolution-engine";
+import {
+  activityEstimateForStage,
+  getActiveEvaluationCycle,
+  getEvaluationCycleStart,
+  setOpportunityActivity,
+} from "../lib/lifecycle-state";
 import {
   determineResearchPlan,
   type ResearchKillRiskOutcome,
@@ -40,6 +46,7 @@ const resolutionPlanFor = (plan: ResearchPlan) =>
 
 async function readResearchPlan(opportunityId: number): Promise<{
   opportunityVerdict: string;
+  evaluationCycleStartedAt: Date | null;
   latestPolicyStatus: "GREEN" | "YELLOW" | "RED" | "UNKNOWN" | null;
   latestDemandConclusion: "SUPPORTED" | "WEAK" | "UNSUPPORTED" | "UNKNOWN" | null;
   latestKillRiskOutcome: ResearchKillRiskOutcome;
@@ -51,20 +58,42 @@ async function readResearchPlan(opportunityId: number): Promise<{
     .where(eq(opportunitiesTable.id, opportunityId));
   if (!opportunity) throw new Error("Opportunity not found");
 
+  const cycleStart = await getEvaluationCycleStart(opportunityId);
   const policyRows = await db
     .select()
     .from(policyChecksTable)
-    .where(eq(policyChecksTable.opportunityId, opportunityId))
+    .where(
+      cycleStart
+        ? and(
+            eq(policyChecksTable.opportunityId, opportunityId),
+            gte(policyChecksTable.checkedAt, cycleStart),
+          )
+        : eq(policyChecksTable.opportunityId, opportunityId),
+    )
     .orderBy(desc(policyChecksTable.checkedAt));
   const demandRows = await db
     .select()
     .from(demandCheckResultsTable)
-    .where(eq(demandCheckResultsTable.opportunityId, opportunityId))
+    .where(
+      cycleStart
+        ? and(
+            eq(demandCheckResultsTable.opportunityId, opportunityId),
+            gte(demandCheckResultsTable.createdAt, cycleStart),
+          )
+        : eq(demandCheckResultsTable.opportunityId, opportunityId),
+    )
     .orderBy(desc(demandCheckResultsTable.createdAt));
   const killRiskRuns = await db
     .select()
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"))
+    .where(
+      cycleStart
+        ? and(
+            eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"),
+            gte(researchRunsTable.startedAt, cycleStart),
+          )
+        : eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"),
+    )
     .orderBy(desc(researchRunsTable.startedAt));
   const matchingKillRiskNotes = killRiskRuns
     .map((run) => parseKillRiskRunNote(run.notes))
@@ -95,6 +124,7 @@ async function readResearchPlan(opportunityId: number): Promise<{
 
   return {
     opportunityVerdict: opportunity.verdict,
+    evaluationCycleStartedAt: cycleStart,
     latestPolicyStatus,
     latestDemandConclusion,
     latestKillRiskOutcome,
@@ -116,12 +146,14 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   const authorization = req.get("authorization");
   const pilotSpendApproval = req.get("x-money-scout-allow-pilot-spend");
   const unverifiedProviderApproval = req.get("x-money-scout-allow-unverified-provider");
+  const internalAutomation = req.get("x-money-scout-internal-automation");
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
   if (pilotSpendApproval) headers["x-money-scout-allow-pilot-spend"] = pilotSpendApproval;
   if (unverifiedProviderApproval) {
     headers["x-money-scout-allow-unverified-provider"] = unverifiedProviderApproval;
   }
+  if (internalAutomation) headers["x-money-scout-internal-automation"] = internalAutomation;
   return headers;
 }
 
@@ -192,6 +224,20 @@ async function runInternalStage(
   opportunityId: number,
   stage: "policy-checks" | "demand-checks" | "kill-screen/collect",
 ): Promise<void> {
+  const estimate = activityEstimateForStage(stage);
+  const cycle = await getActiveEvaluationCycle(opportunityId);
+  await setOpportunityActivity(opportunityId, {
+    activeEvaluationCycleId: cycle?.id ?? null,
+    currentActivityKey: stage.toUpperCase().replaceAll("/", "_").replaceAll("-", "_"),
+    currentActivityLabel: estimate.label,
+    activityStatus: "RUNNING",
+    activityStartedAt: new Date(),
+    expectedDurationSeconds: estimate.expectedDurationSeconds,
+    stageIndex: estimate.stageIndex,
+    stageCount: estimate.stageCount,
+    nextAction: stage === "kill-screen/collect" ? "Advance to Validation if fatal risks clear." : "Continue the Research cycle.",
+    etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+  });
   const response = await fetch(
     `${forwardedOrigin(req)}/api/opportunities/${opportunityId}/${stage}`,
     {
@@ -236,6 +282,51 @@ async function applyResearchOutcome(
   }
 }
 
+async function setPostResearchActivity(opportunityId: number, plan: ResearchPlan): Promise<void> {
+  const cycle = await getActiveEvaluationCycle(opportunityId);
+  if (plan.phase === "VALIDATION_READY") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "VALIDATION_QUEUED",
+      currentActivityLabel: "Research cleared; validation queued",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 240,
+      stageIndex: 0,
+      stageCount: 1,
+      nextAction: "Run canonical underwriting.",
+      etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+      lifecycleTransition: true,
+    });
+  } else if (plan.nextAction === "RESOLVE_AUTONOMOUSLY") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESOLUTION_QUEUED",
+      currentActivityLabel: "Autonomous resolution queued",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 600,
+      stageIndex: 0,
+      stageCount: 7,
+      nextAction: "Exhaust internal resolution methods before any owner escalation.",
+      etaBasis: "MULTI_WORKER_ESTIMATE_UNTIL_REAL_HISTORY",
+      lifecycleTransition: true,
+    });
+  } else if (plan.phase === "WATCH") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "WATCH_PENDING_REGISTRATION",
+      currentActivityLabel: "Preparing material-change monitoring",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Portfolio Reconciler will register explicit WATCH triggers.",
+      etaBasis: "EVENT_DRIVEN_NO_FIXED_ETA",
+      lifecycleTransition: true,
+    });
+  }
+}
+
 router.get("/opportunities/:opportunityId/research-plan", async (req, res): Promise<void> => {
   const opportunityId = Number(req.params.opportunityId);
   if (!Number.isInteger(opportunityId) || opportunityId <= 0) {
@@ -247,6 +338,7 @@ router.get("/opportunities/:opportunityId/research-plan", async (req, res): Prom
     const state = await readResearchPlan(opportunityId);
     res.json({
       opportunity_id: opportunityId,
+      evaluation_cycle_started_at: state.evaluationCycleStartedAt?.toISOString() ?? null,
       current_verdict: state.opportunityVerdict,
       latest_policy_status: state.latestPolicyStatus,
       latest_demand_conclusion: state.latestDemandConclusion,
@@ -276,6 +368,19 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
 
   activeResearchRuns.add(opportunityId);
   try {
+    const cycle = await getActiveEvaluationCycle(opportunityId);
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESEARCH_STARTING",
+      currentActivityLabel: "Starting Research cycle",
+      activityStatus: "RUNNING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 480,
+      stageIndex: 0,
+      stageCount: 3,
+      nextAction: "Determine the next unresolved Research stage.",
+      etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+    });
     await readResearchPlan(opportunityId);
     const execution = await executeResearchWorkflow({
       readPlan: async () => (await readResearchPlan(opportunityId)).plan,
@@ -286,10 +391,12 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
     });
 
     await applyResearchOutcome(opportunityId, execution.finalPlan);
+    await setPostResearchActivity(opportunityId, execution.finalPlan);
     const finalState = await readResearchPlan(opportunityId);
 
     res.status(200).json({
       opportunity_id: opportunityId,
+      evaluation_cycle_started_at: finalState.evaluationCycleStartedAt?.toISOString() ?? null,
       steps_executed: execution.stepsExecuted,
       current_verdict: finalState.opportunityVerdict,
       latest_policy_status: finalState.latestPolicyStatus,
@@ -311,6 +418,17 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
       return;
     }
     req.log.error({ err: error, opportunityId }, "Autonomous research advance failed");
+    const cycle = await getActiveEvaluationCycle(opportunityId).catch(() => null);
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESEARCH_INTERRUPTED",
+      currentActivityLabel: "Research interrupted",
+      activityStatus: "BLOCKED",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Portfolio Reconciler will preserve the state; no blind paid retry is allowed.",
+      etaBasis: "BLOCKED_PENDING_RECONCILIATION",
+    }).catch(() => undefined);
     res.status(502).json({
       error: "Autonomous research stopped after a stage failure. No automatic retry was attempted.",
     });

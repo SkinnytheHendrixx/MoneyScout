@@ -19,3 +19,4 @@ await import("./zero-cost-commercial-build-brief-tests");
 await import("./zero-cost-monetization-execution-plan-tests");
 await import("./zero-cost-autonomous-resolution-engine-tests");
 await import("./zero-cost-autonomous-resolution-worker-tests");
+await import("./zero-cost-portfolio-reconciler-tests");

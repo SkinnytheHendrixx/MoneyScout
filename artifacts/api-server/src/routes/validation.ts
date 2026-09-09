@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte } from "drizzle-orm";
 import { Router, type IRouter, type Request } from "express";
 import {
   db,
@@ -9,6 +9,12 @@ import {
   researchRunsTable,
 } from "@workspace/db";
 import { createAutonomousResolutionPlan } from "../lib/autonomous-resolution-engine";
+import {
+  activityEstimateForStage,
+  getActiveEvaluationCycle,
+  getEvaluationCycleStart,
+  setOpportunityActivity,
+} from "../lib/lifecycle-state";
 import {
   assessAllUnderwritingFactors,
   parsePersistedUnderwritingDimension,
@@ -73,10 +79,12 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   const authorization = req.get("authorization");
   const pilotSpendApproval = req.get("x-money-scout-allow-pilot-spend");
   const unverifiedProviderApproval = req.get("x-money-scout-allow-unverified-provider");
+  const internalAutomation = req.get("x-money-scout-internal-automation");
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
   if (pilotSpendApproval) headers["x-money-scout-allow-pilot-spend"] = pilotSpendApproval;
   if (unverifiedProviderApproval) headers["x-money-scout-allow-unverified-provider"] = unverifiedProviderApproval;
+  if (internalAutomation) headers["x-money-scout-internal-automation"] = internalAutomation;
   return headers;
 }
 
@@ -116,6 +124,20 @@ function startAutonomousResolution(req: Request, opportunityId: number, plan: Va
 }
 
 async function runValidationEvidenceStage(req: Request, opportunityId: number): Promise<void> {
+  const estimate = activityEstimateForStage("validation-evidence");
+  const cycle = await getActiveEvaluationCycle(opportunityId);
+  await setOpportunityActivity(opportunityId, {
+    activeEvaluationCycleId: cycle?.id ?? null,
+    currentActivityKey: "VALIDATION_EVIDENCE",
+    currentActivityLabel: estimate.label,
+    activityStatus: "RUNNING",
+    activityStartedAt: new Date(),
+    expectedDurationSeconds: estimate.expectedDurationSeconds,
+    stageIndex: estimate.stageIndex,
+    stageCount: estimate.stageCount,
+    nextAction: "Produce the canonical underwriting decision or identify the cheapest unresolved test.",
+    etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+  });
   const response = await fetch(
     `${forwardedOrigin(req)}/api/opportunities/${opportunityId}/validation-evidence/collect`,
     {
@@ -155,14 +177,28 @@ async function runExperimentPlanningStage(req: Request, opportunityId: number): 
   }
 }
 
-async function latestValidationRun(opportunityId: number): Promise<{
+async function latestValidationRun(
+  opportunityId: number,
+  cycleStart: Date | null,
+): Promise<{
   id: number;
   notes: Partial<ValidationRunNote>;
 } | null> {
   const runs = await db
-    .select({ id: researchRunsTable.id, notes: researchRunsTable.notes })
+    .select({
+      id: researchRunsTable.id,
+      notes: researchRunsTable.notes,
+      startedAt: researchRunsTable.startedAt,
+    })
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"))
+    .where(
+      cycleStart
+        ? and(
+            eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"),
+            gte(researchRunsTable.startedAt, cycleStart),
+          )
+        : eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"),
+    )
     .orderBy(desc(researchRunsTable.id));
 
   for (const run of runs) {
@@ -170,6 +206,7 @@ async function latestValidationRun(opportunityId: number): Promise<{
     if (notes.opportunity_id === opportunityId) return { id: run.id, notes };
   }
 
+  if (cycleStart) return null;
   const evidenceRows = await db
     .select({ researchRunId: evidenceTable.researchRunId })
     .from(evidenceTable)
@@ -214,6 +251,7 @@ async function readAssessments(opportunityId: number, runId: number): Promise<Un
 
 async function readValidationPlan(opportunityId: number): Promise<{
   opportunityVerdict: string;
+  evaluationCycleStartedAt: Date | null;
   latestPolicyStatus: string | null;
   latestDemandConclusion: string | null;
   latestKillRiskOutcome: KillScreenOverall | null;
@@ -228,30 +266,59 @@ async function readValidationPlan(opportunityId: number): Promise<{
     .where(eq(opportunitiesTable.id, opportunityId));
   if (!opportunity) throw new Error("Opportunity not found");
 
+  const cycleStart = await getEvaluationCycleStart(opportunityId);
   const policyRows = await db
     .select()
     .from(policyChecksTable)
-    .where(eq(policyChecksTable.opportunityId, opportunityId))
+    .where(
+      cycleStart
+        ? and(
+            eq(policyChecksTable.opportunityId, opportunityId),
+            gte(policyChecksTable.checkedAt, cycleStart),
+          )
+        : eq(policyChecksTable.opportunityId, opportunityId),
+    )
     .orderBy(desc(policyChecksTable.checkedAt));
   const demandRows = await db
     .select()
     .from(demandCheckResultsTable)
-    .where(eq(demandCheckResultsTable.opportunityId, opportunityId))
+    .where(
+      cycleStart
+        ? and(
+            eq(demandCheckResultsTable.opportunityId, opportunityId),
+            gte(demandCheckResultsTable.createdAt, cycleStart),
+          )
+        : eq(demandCheckResultsTable.opportunityId, opportunityId),
+    )
     .orderBy(desc(demandCheckResultsTable.createdAt));
 
   const killRiskRuns = await db
     .select({ notes: researchRunsTable.notes })
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"))
+    .where(
+      cycleStart
+        ? and(
+            eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"),
+            gte(researchRunsTable.startedAt, cycleStart),
+          )
+        : eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"),
+    )
     .orderBy(desc(researchRunsTable.id));
   const latestKillRiskOutcome = killRiskRuns
     .map((run) => parseJsonObject<KillRiskRunNote>(run.notes))
     .find((note) => note.opportunityId === opportunityId)?.killRiskOutcome ?? null;
 
   const validationRuns = await db
-    .select({ notes: researchRunsTable.notes })
+    .select({ notes: researchRunsTable.notes, startedAt: researchRunsTable.startedAt })
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"));
+    .where(
+      cycleStart
+        ? and(
+            eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"),
+            gte(researchRunsTable.startedAt, cycleStart),
+          )
+        : eq(researchRunsTable.triggerType, "VALIDATION_EVIDENCE"),
+    );
   const matchingValidationNotes = validationRuns
     .map((run) => parseJsonObject<ValidationRunNote>(run.notes))
     .filter((note) => note.opportunity_id === opportunityId);
@@ -261,7 +328,7 @@ async function readValidationPlan(opportunityId: number): Promise<{
       .toFixed(4),
   );
 
-  const latestRun = await latestValidationRun(opportunityId);
+  const latestRun = await latestValidationRun(opportunityId, cycleStart);
   const evidenceRunStatus: ValidationEvidenceRunStatus = latestRun
     ? validationRunStatus(latestRun.notes)
     : "NONE";
@@ -283,6 +350,7 @@ async function readValidationPlan(opportunityId: number): Promise<{
 
   return {
     opportunityVerdict: opportunity.verdict,
+    evaluationCycleStartedAt: cycleStart,
     latestPolicyStatus,
     latestDemandConclusion,
     latestKillRiskOutcome,
@@ -335,6 +403,61 @@ async function persistValidationDecision(
     .where(eq(researchRunsTable.id, runId));
 }
 
+async function setPostValidationActivity(opportunityId: number, plan: ValidationPlan): Promise<void> {
+  const cycle = await getActiveEvaluationCycle(opportunityId);
+  if (plan.phase === "BUILD_READY") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "READY_FOR_INTERNAL_BUILD",
+      currentActivityLabel: "Validated and ready for internal build",
+      activityStatus: "COMPLETE",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Use the Commercial Build Brief and Monetization Execution Plan for Build Orchestration.",
+      etaBasis: "NEXT_PHASE_NOT_STARTED",
+      lifecycleTransition: true,
+    });
+  } else if (plan.nextAction === "RESOLVE_AUTONOMOUSLY") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "RESOLUTION_QUEUED",
+      currentActivityLabel: "Autonomous resolution queued",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 600,
+      stageIndex: 0,
+      stageCount: 7,
+      nextAction: "Exhaust internal resolution methods before any owner escalation.",
+      etaBasis: "MULTI_WORKER_ESTIMATE_UNTIL_REAL_HISTORY",
+      lifecycleTransition: true,
+    });
+  } else if (plan.nextAction === "PLAN_EXPERIMENT") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "EXPERIMENT_PLANNING",
+      currentActivityLabel: "Planning cheapest falsifying experiment",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 60,
+      nextAction: "Execute only a safe, authorized experiment and feed results back into Validation.",
+      etaBasis: "PLAN_ONLY_EXTERNAL_EXECUTION_MAY_REQUIRE_APPROVAL",
+      lifecycleTransition: true,
+    });
+  } else if (plan.phase === "WATCH") {
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "WATCH_PENDING_REGISTRATION",
+      currentActivityLabel: "Preparing material-change monitoring",
+      activityStatus: "WAITING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Portfolio Reconciler will register explicit WATCH triggers.",
+      etaBasis: "EVENT_DRIVEN_NO_FIXED_ETA",
+      lifecycleTransition: true,
+    });
+  }
+}
+
 router.get("/opportunities/:opportunityId/validation-plan", async (req, res): Promise<void> => {
   const opportunityId = Number(req.params.opportunityId);
   if (!Number.isInteger(opportunityId) || opportunityId <= 0) {
@@ -345,6 +468,7 @@ router.get("/opportunities/:opportunityId/validation-plan", async (req, res): Pr
     const state = await readValidationPlan(opportunityId);
     res.status(200).json({
       opportunity_id: opportunityId,
+      evaluation_cycle_started_at: state.evaluationCycleStartedAt?.toISOString() ?? null,
       current_verdict: state.opportunityVerdict,
       latest_policy_status: state.latestPolicyStatus,
       latest_demand_conclusion: state.latestDemandConclusion,
@@ -377,6 +501,19 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
 
   activeValidationRuns.add(opportunityId);
   try {
+    const cycle = await getActiveEvaluationCycle(opportunityId);
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "VALIDATION_STARTING",
+      currentActivityLabel: "Starting Validation",
+      activityStatus: "RUNNING",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: 240,
+      stageIndex: 0,
+      stageCount: 1,
+      nextAction: "Underwrite the current evaluation cycle only.",
+      etaBasis: "STATIC_STAGE_ESTIMATE_UNTIL_REAL_HISTORY",
+    });
     await readValidationPlan(opportunityId);
     const execution = await executeValidationWorkflow({
       readPlan: async () => (await readValidationPlan(opportunityId)).plan,
@@ -389,6 +526,7 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
       postCollectionState.validationRunId,
       execution.finalPlan,
     );
+    await setPostValidationActivity(opportunityId, execution.finalPlan);
 
     let experimentPlanning: unknown = null;
     let experimentPlanningError: string | null = null;
@@ -408,6 +546,7 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
 
     res.status(200).json({
       opportunity_id: opportunityId,
+      evaluation_cycle_started_at: postCollectionState.evaluationCycleStartedAt?.toISOString() ?? null,
       evidence_collection_executed: execution.evidenceCollectionExecuted,
       current_verdict: updatedOpportunity?.verdict ?? postCollectionState.opportunityVerdict,
       kill_reason: updatedOpportunity?.killReason ?? null,
@@ -437,6 +576,17 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
       return;
     }
     req.log.error({ err: error, opportunityId }, "Autonomous validation advance failed");
+    const cycle = await getActiveEvaluationCycle(opportunityId).catch(() => null);
+    await setOpportunityActivity(opportunityId, {
+      activeEvaluationCycleId: cycle?.id ?? null,
+      currentActivityKey: "VALIDATION_INTERRUPTED",
+      currentActivityLabel: "Validation interrupted",
+      activityStatus: "BLOCKED",
+      activityStartedAt: new Date(),
+      expectedDurationSeconds: null,
+      nextAction: "Portfolio Reconciler will preserve state; no blind paid retry is allowed.",
+      etaBasis: "BLOCKED_PENDING_RECONCILIATION",
+    }).catch(() => undefined);
     res.status(502).json({
       error: "Autonomous validation stopped after a stage failure. No automatic retry was attempted.",
     });
