@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { Activity, CircleDollarSign, RefreshCw } from "lucide-react"
+import { Activity, CircleDollarSign, RefreshCw, FlaskConical } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +17,9 @@ type TimelineResponse = {
   current_verdict: string
   policy_status: string
   total_external_cost_usd: number
+  record_mode: "LIVE" | "PILOT" | "SIMULATION" | "TEST"
+  portfolio_eligible: boolean
+  record_warning: string | null
   items: TimelineItem[]
 }
 
@@ -28,7 +31,6 @@ type ResearchPlan = {
 }
 
 const nice = (value: string) => value.replaceAll("_", " ")
-
 const money = (value: number) => `$${value.toFixed(4)}`
 
 export function RunTimeline({ opportunityId }: { opportunityId: number }) {
@@ -85,6 +87,16 @@ export function RunTimeline({ opportunityId }: { opportunityId: number }) {
           <p className="text-sm text-muted-foreground animate-pulse">Loading run history...</p>
         ) : timeline ? (
           <>
+            {!timeline.portfolio_eligible && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 flex gap-2">
+                <FlaskConical className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-semibold">{timeline.record_mode} record</div>
+                  <div className="mt-1">{timeline.record_warning}</div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
               <div className="rounded-md border p-3">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Verdict</div>

@@ -8,6 +8,7 @@ import {
   policyChecksTable,
   researchRunsTable,
 } from "@workspace/db";
+import { classifyOpportunityRecordMode } from "../lib/runtime-safety";
 
 const router: IRouter = Router();
 
@@ -144,9 +145,16 @@ router.get("/opportunities/:opportunityId/run-timeline", async (req, res): Promi
   const totalExternalCostUsd = Number(
     items.reduce((sum, item) => sum + item.external_cost_usd, 0).toFixed(4),
   );
+  const recordMode = classifyOpportunityRecordMode(opportunity.name);
 
   res.json({
     opportunity_id: opportunityId,
+    record_mode: recordMode,
+    portfolio_eligible: recordMode === "LIVE",
+    record_warning:
+      recordMode === "LIVE"
+        ? null
+        : `${recordMode} records are excluded from live portfolio interpretation and require explicit approval before paid orchestration.`,
     current_verdict: opportunity.verdict,
     policy_status: opportunity.policyStatus,
     total_external_cost_usd: totalExternalCostUsd,

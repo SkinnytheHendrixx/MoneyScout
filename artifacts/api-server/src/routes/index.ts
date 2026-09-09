@@ -16,6 +16,7 @@ import runTimelineRouter from "./run-timeline";
 import candidateResearchHandoffRouter from "./candidate-research-handoff";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
+import { requireSafePaidResearchRuntime } from "../middlewares/paidResearchSafetyMiddleware";
 import { registerApifyExperimentAdapters } from "../lib/apify-experiment-adapters";
 
 registerApifyExperimentAdapters();
@@ -25,6 +26,7 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 router.use(requireMoneyScoutAccess);
+router.use(requireSafePaidResearchRuntime);
 router.use(opportunitiesRouter);
 router.use(evidenceRouter);
 router.use(evidenceWorkersRouter);
