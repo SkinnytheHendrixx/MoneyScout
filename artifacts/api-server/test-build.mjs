@@ -7,10 +7,10 @@ globalThis.require = createRequire(import.meta.url);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const workspace = path.resolve(here, "../..");
-const output = "/tmp/money-scout-zero-cost-demand-tests.mjs";
+const output = "/tmp/money-scout-zero-cost-research-tests.mjs";
 
 await build({
-  entryPoints: [path.join(here, "test/zero-cost-demand-tests.tsx")],
+  entryPoints: [path.join(here, "test/zero-cost-research-suite.ts")],
   outfile: output,
   bundle: true,
   platform: "node",
