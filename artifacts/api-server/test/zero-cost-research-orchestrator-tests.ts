@@ -5,6 +5,7 @@ const base = {
   opportunityVerdict: "RESEARCH",
   policyStatus: null,
   demandConclusion: null,
+  killRiskOutcome: null,
   externalCostUsd: 0,
 } as const;
 
@@ -14,8 +15,20 @@ assert.equal(
   "RUN_DEMAND_CHECK",
 );
 assert.equal(
-  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED" }).phase,
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED" }).nextAction,
+  "RUN_KILL_RISK_CHECK",
+);
+assert.equal(
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", killRiskOutcome: "CLEAR" }).phase,
   "VALIDATION_READY",
+);
+assert.equal(
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", killRiskOutcome: "BLOCKED" }).phase,
+  "REJECTED",
+);
+assert.equal(
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", killRiskOutcome: "INCOMPLETE" }).nextAction,
+  "HUMAN_KILL_RISK_REVIEW",
 );
 assert.equal(
   determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "UNSUPPORTED" }).phase,
@@ -42,7 +55,11 @@ assert.equal(
   "WATCH_FOR_MORE_EVIDENCE",
 );
 assert.equal(
-  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", externalCostUsd: 1 }).phase,
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", externalCostUsd: 1.1 }).phase,
+  "BUDGET_EXHAUSTED",
+);
+assert.equal(
+  determineResearchPlan({ ...base, policyStatus: "GREEN", demandConclusion: "SUPPORTED", externalCostUsd: 1.5 }).phase,
   "BUDGET_EXHAUSTED",
 );
 assert.equal(

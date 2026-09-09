@@ -1,13 +1,16 @@
-export const RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD = 1.0;
+export const RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD = 1.5;
 export const RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD = 0.5;
 
 export type ResearchPolicyStatus = "GREEN" | "YELLOW" | "RED" | "UNKNOWN" | null;
 export type ResearchDemandConclusion = "SUPPORTED" | "WEAK" | "UNSUPPORTED" | "UNKNOWN" | null;
+export type ResearchKillRiskOutcome = "CLEAR" | "BLOCKED" | "INCOMPLETE" | null;
 
 export type ResearchPhase =
   | "POLICY_REQUIRED"
   | "DEMAND_REQUIRED"
+  | "KILL_RISK_REQUIRED"
   | "HUMAN_REVIEW_REQUIRED"
+  | "KILL_RISK_REVIEW_REQUIRED"
   | "WATCH"
   | "VALIDATION_READY"
   | "REJECTED"
@@ -17,7 +20,9 @@ export type ResearchPhase =
 export type ResearchNextAction =
   | "RUN_POLICY_CHECK"
   | "RUN_DEMAND_CHECK"
+  | "RUN_KILL_RISK_CHECK"
   | "HUMAN_POLICY_REVIEW"
+  | "HUMAN_KILL_RISK_REVIEW"
   | "WATCH_FOR_MORE_EVIDENCE"
   | "VALIDATE_OPPORTUNITY"
   | "STOP";
@@ -26,6 +31,7 @@ export type ResearchPlanInput = {
   opportunityVerdict: string;
   policyStatus: ResearchPolicyStatus;
   demandConclusion: ResearchDemandConclusion;
+  killRiskOutcome: ResearchKillRiskOutcome;
   externalCostUsd: number;
 };
 
@@ -50,7 +56,9 @@ const plan = (
   nextAction,
   stopReason,
   automaticExternalCallsEnabled:
-    nextAction === "RUN_POLICY_CHECK" || nextAction === "RUN_DEMAND_CHECK",
+    nextAction === "RUN_POLICY_CHECK" ||
+    nextAction === "RUN_DEMAND_CHECK" ||
+    nextAction === "RUN_KILL_RISK_CHECK",
   externalCostUsd: input.externalCostUsd,
   totalExternalCostCeilingUsd: RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD,
   remainingExternalBudgetUsd: Math.max(
@@ -101,16 +109,41 @@ export const determineResearchPlan = (input: ResearchPlanInput): ResearchPlan =>
     return plan(input, "REJECTED", "STOP", "Demand Check found affirmative evidence against the thesis.");
   }
 
-  if (input.demandConclusion === "SUPPORTED") {
-    return plan(input, "VALIDATION_READY", "VALIDATE_OPPORTUNITY");
+  if (input.demandConclusion === "WEAK" || input.demandConclusion === "UNKNOWN") {
+    return plan(
+      input,
+      "WATCH",
+      "WATCH_FOR_MORE_EVIDENCE",
+      input.demandConclusion === "WEAK"
+        ? "Demand evidence exists but a major gap remains; do not auto-retry paid research."
+        : "Demand remains unresolved; wait for new evidence rather than repeating the same paid check.",
+    );
   }
 
-  return plan(
-    input,
-    "WATCH",
-    "WATCH_FOR_MORE_EVIDENCE",
-    input.demandConclusion === "WEAK"
-      ? "Demand evidence exists but a major gap remains; do not auto-retry paid research."
-      : "Demand remains unresolved; wait for new evidence rather than repeating the same paid check.",
-  );
+  if (input.killRiskOutcome === null) {
+    if (input.externalCostUsd + RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD > RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD) {
+      return plan(
+        input,
+        "BUDGET_EXHAUSTED",
+        "STOP",
+        "Insufficient remaining research budget for the bounded kill-risk stage.",
+      );
+    }
+    return plan(input, "KILL_RISK_REQUIRED", "RUN_KILL_RISK_CHECK");
+  }
+
+  if (input.killRiskOutcome === "BLOCKED") {
+    return plan(input, "REJECTED", "STOP", "Kill-risk screen found a confirmed fatal risk.");
+  }
+
+  if (input.killRiskOutcome === "INCOMPLETE") {
+    return plan(
+      input,
+      "KILL_RISK_REVIEW_REQUIRED",
+      "HUMAN_KILL_RISK_REVIEW",
+      "One or more fatal-risk classes remain unresolved after the bounded kill-risk collection; do not auto-retry.",
+    );
+  }
+
+  return plan(input, "VALIDATION_READY", "VALIDATE_OPPORTUNITY");
 };

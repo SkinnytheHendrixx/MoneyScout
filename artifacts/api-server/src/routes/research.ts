@@ -5,9 +5,11 @@ import {
   demandCheckResultsTable,
   opportunitiesTable,
   policyChecksTable,
+  researchRunsTable,
 } from "@workspace/db";
 import {
   determineResearchPlan,
+  type ResearchKillRiskOutcome,
   type ResearchPlan,
 } from "../lib/research-orchestrator";
 import { executeResearchWorkflow } from "../lib/research-execution";
@@ -15,10 +17,28 @@ import { executeResearchWorkflow } from "../lib/research-execution";
 const router: IRouter = Router();
 const activeResearchRuns = new Set<number>();
 
+type KillRiskRunNote = {
+  opportunityId?: number;
+  externalCostUsd?: number;
+  killRiskOutcome?: ResearchKillRiskOutcome;
+};
+
+function parseKillRiskRunNote(notes: string | null): KillRiskRunNote | null {
+  if (!notes) return null;
+  try {
+    const parsed = JSON.parse(notes) as KillRiskRunNote;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 async function readResearchPlan(opportunityId: number): Promise<{
   opportunityVerdict: string;
   latestPolicyStatus: "GREEN" | "YELLOW" | "RED" | "UNKNOWN" | null;
   latestDemandConclusion: "SUPPORTED" | "WEAK" | "UNSUPPORTED" | "UNKNOWN" | null;
+  latestKillRiskOutcome: ResearchKillRiskOutcome;
   plan: ResearchPlan;
 }> {
   const [opportunity] = await db
@@ -37,20 +57,35 @@ async function readResearchPlan(opportunityId: number): Promise<{
     .from(demandCheckResultsTable)
     .where(eq(demandCheckResultsTable.opportunityId, opportunityId))
     .orderBy(desc(demandCheckResultsTable.createdAt));
+  const killRiskRuns = await db
+    .select()
+    .from(researchRunsTable)
+    .where(eq(researchRunsTable.triggerType, "KILL_RISK_CHECK"))
+    .orderBy(desc(researchRunsTable.startedAt));
+  const matchingKillRiskNotes = killRiskRuns
+    .map((run) => parseKillRiskRunNote(run.notes))
+    .filter((note): note is KillRiskRunNote => note?.opportunityId === opportunityId);
 
+  const killRiskCostUsd = matchingKillRiskNotes.reduce(
+    (sum, note) => sum + Number(note.externalCostUsd ?? 0),
+    0,
+  );
   const externalCostUsd = Number(
     (
       policyRows.reduce((sum, row) => sum + Number(row.externalCostUsd ?? 0), 0) +
-      demandRows.reduce((sum, row) => sum + Number(row.externalCostUsd ?? 0), 0)
+      demandRows.reduce((sum, row) => sum + Number(row.externalCostUsd ?? 0), 0) +
+      killRiskCostUsd
     ).toFixed(4),
   );
 
   const latestPolicyStatus = policyRows[0]?.status ?? null;
   const latestDemandConclusion = demandRows[0]?.demandConclusion ?? null;
+  const latestKillRiskOutcome = matchingKillRiskNotes[0]?.killRiskOutcome ?? null;
   const plan = determineResearchPlan({
     opportunityVerdict: opportunity.verdict,
     policyStatus: latestPolicyStatus,
     demandConclusion: latestDemandConclusion,
+    killRiskOutcome: latestKillRiskOutcome,
     externalCostUsd,
   });
 
@@ -58,6 +93,7 @@ async function readResearchPlan(opportunityId: number): Promise<{
     opportunityVerdict: opportunity.verdict,
     latestPolicyStatus,
     latestDemandConclusion,
+    latestKillRiskOutcome,
     plan,
   };
 }
@@ -82,7 +118,7 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
 async function runInternalStage(
   req: Request,
   opportunityId: number,
-  stage: "policy-checks" | "demand-checks",
+  stage: "policy-checks" | "demand-checks" | "kill-screen/collect",
 ): Promise<void> {
   const response = await fetch(
     `${forwardedOrigin(req)}/api/opportunities/${opportunityId}/${stage}`,
@@ -142,6 +178,7 @@ router.get("/opportunities/:opportunityId/research-plan", async (req, res): Prom
       current_verdict: state.opportunityVerdict,
       latest_policy_status: state.latestPolicyStatus,
       latest_demand_conclusion: state.latestDemandConclusion,
+      latest_kill_risk_outcome: state.latestKillRiskOutcome,
       ...state.plan,
     });
   } catch (error) {
@@ -171,7 +208,8 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
       readPlan: async () => (await readResearchPlan(opportunityId)).plan,
       runPolicyCheck: () => runInternalStage(req, opportunityId, "policy-checks"),
       runDemandCheck: () => runInternalStage(req, opportunityId, "demand-checks"),
-      maxPaidSteps: 2,
+      runKillRiskCheck: () => runInternalStage(req, opportunityId, "kill-screen/collect"),
+      maxPaidSteps: 3,
     });
 
     await applyResearchOutcome(opportunityId, execution.finalPlan);
@@ -183,6 +221,7 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
       current_verdict: finalState.opportunityVerdict,
       latest_policy_status: finalState.latestPolicyStatus,
       latest_demand_conclusion: finalState.latestDemandConclusion,
+      latest_kill_risk_outcome: finalState.latestKillRiskOutcome,
       ...finalState.plan,
     });
   } catch (error) {

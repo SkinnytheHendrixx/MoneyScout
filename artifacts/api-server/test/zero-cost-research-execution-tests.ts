@@ -6,6 +6,7 @@ const base: ResearchPlanInput = {
   opportunityVerdict: "RESEARCH",
   policyStatus: null,
   demandConclusion: null,
+  killRiskOutcome: null,
   externalCostUsd: 0,
 };
 
@@ -22,9 +23,13 @@ const base: ResearchPlanInput = {
       calls.push("demand");
       state = { ...state, demandConclusion: "SUPPORTED", externalCostUsd: 0.45 };
     },
+    runKillRiskCheck: async () => {
+      calls.push("kill-risk");
+      state = { ...state, killRiskOutcome: "CLEAR", externalCostUsd: 0.7 };
+    },
   });
-  assert.deepEqual(calls, ["policy", "demand"]);
-  assert.deepEqual(result.stepsExecuted, ["POLICY_CHECK", "DEMAND_CHECK"]);
+  assert.deepEqual(calls, ["policy", "demand", "kill-risk"]);
+  assert.deepEqual(result.stepsExecuted, ["POLICY_CHECK", "DEMAND_CHECK", "KILL_RISK_CHECK"]);
   assert.equal(result.finalPlan.phase, "VALIDATION_READY");
 }
 
@@ -39,6 +44,9 @@ const base: ResearchPlanInput = {
     },
     runDemandCheck: async () => {
       calls.push("demand");
+    },
+    runKillRiskCheck: async () => {
+      calls.push("kill-risk");
     },
   });
   assert.deepEqual(calls, ["policy"]);
@@ -62,6 +70,9 @@ const base: ResearchPlanInput = {
       demandCalls += 1;
       state = { ...state, demandConclusion: "WEAK", externalCostUsd: 0.48 };
     },
+    runKillRiskCheck: async () => {
+      throw new Error("kill risk should not run for weak demand");
+    },
   });
   assert.equal(demandCalls, 1);
   assert.equal(result.finalPlan.phase, "WATCH");
@@ -69,20 +80,44 @@ const base: ResearchPlanInput = {
 }
 
 {
+  let state: ResearchPlanInput = {
+    ...base,
+    policyStatus: "GREEN",
+    demandConclusion: "SUPPORTED",
+    externalCostUsd: 0.5,
+  };
+  let killCalls = 0;
+  const result = await executeResearchWorkflow({
+    readPlan: async () => determineResearchPlan(state),
+    runPolicyCheck: async () => {
+      throw new Error("policy should not run");
+    },
+    runDemandCheck: async () => {
+      throw new Error("demand should not run");
+    },
+    runKillRiskCheck: async () => {
+      killCalls += 1;
+      state = { ...state, killRiskOutcome: "INCOMPLETE", externalCostUsd: 0.8 };
+    },
+  });
+  assert.equal(killCalls, 1);
+  assert.equal(result.finalPlan.phase, "KILL_RISK_REVIEW_REQUIRED");
+  assert.equal(result.finalPlan.automaticExternalCallsEnabled, false);
+}
+
+{
   const state: ResearchPlanInput = {
     ...base,
     policyStatus: "GREEN",
-    externalCostUsd: 1,
+    demandConclusion: "SUPPORTED",
+    externalCostUsd: 1.1,
   };
   let calls = 0;
   const result = await executeResearchWorkflow({
     readPlan: async () => determineResearchPlan(state),
-    runPolicyCheck: async () => {
-      calls += 1;
-    },
-    runDemandCheck: async () => {
-      calls += 1;
-    },
+    runPolicyCheck: async () => { calls += 1; },
+    runDemandCheck: async () => { calls += 1; },
+    runKillRiskCheck: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
   assert.equal(result.finalPlan.phase, "BUDGET_EXHAUSTED");
