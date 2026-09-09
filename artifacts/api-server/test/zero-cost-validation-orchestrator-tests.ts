@@ -115,7 +115,7 @@ const needsMore = determineValidationPlan({
   assessments: lowConfidenceAssessments,
 });
 assert.equal(needsMore.phase, "NEEDS_MORE_VALIDATION");
-assert.equal(needsMore.nextAction, "HUMAN_REVIEW");
+assert.equal(needsMore.nextAction, "PLAN_EXPERIMENT");
 assert.equal(needsMore.automaticExternalCallsEnabled, false);
 
 const fatalGate = determineValidationPlan({
