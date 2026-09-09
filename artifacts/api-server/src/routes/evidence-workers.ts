@@ -3,6 +3,7 @@ import { Router, type IRouter } from "express";
 import {
   db,
   demandCheckResultsTable,
+  evidenceTable,
   opportunitiesTable,
   policyChecksTable,
 } from "@workspace/db";
@@ -16,9 +17,11 @@ import {
   type DedicatedKillRiskInputs,
   type TriState,
 } from "../lib/kill-risk-workers";
+import { collectKillRiskEvidence } from "../lib/kill-risk-collector";
 
 const router: IRouter = Router();
 const TRI_STATES = new Set<TriState>(["YES", "NO", "UNKNOWN"]);
+const activeCollectors = new Set<number>();
 
 const validTriState = (value: unknown): value is TriState => typeof value === "string" && TRI_STATES.has(value as TriState);
 
@@ -116,6 +119,77 @@ router.post("/opportunities/:opportunityId/kill-screen/evaluate", async (req, re
       "UNKNOWN remains UNKNOWN when evidence is incomplete or mixed.",
     ],
   });
+});
+
+router.post("/opportunities/:opportunityId/kill-screen/collect", async (req, res): Promise<void> => {
+  const opportunityId = Number(req.params.opportunityId);
+  if (!Number.isInteger(opportunityId) || opportunityId <= 0) {
+    res.status(400).json({ error: "Invalid opportunity id" });
+    return;
+  }
+  if (activeCollectors.has(opportunityId)) {
+    res.status(409).json({ error: "Kill-risk evidence collection is already running for this opportunity" });
+    return;
+  }
+  const state = await readExistingContext(opportunityId);
+  if (!state) {
+    res.status(404).json({ error: "Opportunity not found" });
+    return;
+  }
+
+  activeCollectors.add(opportunityId);
+  try {
+    const collected = await collectKillRiskEvidence({
+      name: state.opportunity.name,
+      sourcePlatform: state.opportunity.sourcePlatform,
+      sourceUrl: state.opportunity.sourceUrl,
+      opportunityType: state.opportunity.opportunityType,
+      thesis: state.opportunity.thesis,
+    });
+
+    const observedDate = new Date().toISOString().slice(0, 10);
+    if (collected.findings.length) {
+      await db.insert(evidenceTable).values(collected.findings.map((finding) => ({
+        opportunityId,
+        claim: finding.claim,
+        sourceUrl: finding.source_url,
+        sourceTitle: finding.source_title,
+        observedDate,
+        classification: finding.classification,
+        evaluationDimension: finding.evaluation_dimension,
+      })));
+    }
+
+    const existingEvidence = runExistingResearchEvidenceWorkers(state.context);
+    const baseScreen = evaluateKillScreen(state.context, existingEvidence);
+    const dedicatedAssessments = runDedicatedKillRiskWorkers(collected.inputs);
+    const killScreen = mergeKillScreenAssessments(baseScreen, dedicatedAssessments);
+
+    res.status(200).json({
+      opportunity_id: opportunityId,
+      external_cost_usd: collected.externalCostUsd,
+      search_count: collected.searchCount,
+      ai_input_tokens: collected.inputTokens,
+      ai_output_tokens: collected.outputTokens,
+      findings_persisted: collected.findings.length,
+      collected_inputs: collected.inputs,
+      source_findings: collected.findings,
+      kill_screen: killScreen,
+      limitations: [
+        "The collector is bounded to one Claude call, four web searches, and an estimated $0.50 external-service ceiling.",
+        "Only findings whose URLs were actually returned by the web-search tool are accepted and persisted.",
+        "UNKNOWN is preserved when source evidence cannot establish a signal; absence of evidence is never converted into CLEAR or CONFIRMED.",
+      ],
+    });
+  } catch (error) {
+    req.log.error({ err: error, opportunityId }, "Kill-risk evidence collection failed");
+    const unavailable = error instanceof Error && error.message === "AI_INTEGRATION_UNAVAILABLE";
+    res.status(unavailable ? 503 : 502).json({
+      error: unavailable ? "AI_INTEGRATION_UNAVAILABLE" : "Kill-risk evidence collection failed without automatic retry",
+    });
+  } finally {
+    activeCollectors.delete(opportunityId);
+  }
 });
 
 export default router;
