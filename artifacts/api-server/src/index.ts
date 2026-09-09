@@ -1,3 +1,4 @@
+import "./lib/anthropic-provider";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { reconcileDiscoveryRunsOnStartup } from "./routes/discovery";
