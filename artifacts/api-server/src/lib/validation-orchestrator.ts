@@ -23,6 +23,7 @@ export type ValidationPhase =
 
 export type ValidationNextAction =
   | "RUN_VALIDATION_EVIDENCE"
+  | "PLAN_EXPERIMENT"
   | "HUMAN_REVIEW"
   | "APPLY_BUILD"
   | "APPLY_WATCH"
@@ -77,7 +78,7 @@ const planFromResult = (input: ValidationPlanInput, result: ValidationResult): V
     BUILD_READY: { phase: "BUILD_READY", action: "APPLY_BUILD" },
     WATCH: { phase: "WATCH", action: "APPLY_WATCH" },
     REJECT: { phase: "REJECTED", action: "APPLY_REJECT" },
-    NEEDS_MORE_VALIDATION: { phase: "NEEDS_MORE_VALIDATION", action: "HUMAN_REVIEW" },
+    NEEDS_MORE_VALIDATION: { phase: "NEEDS_MORE_VALIDATION", action: "PLAN_EXPERIMENT" },
   };
   const mapped = mapping[result.verdict];
   return plan(input, mapped.phase, mapped.action, result.rationale, result);
