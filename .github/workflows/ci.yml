@@ -60,6 +60,9 @@ jobs:
       - name: Build API server
         run: pnpm --filter @workspace/api-server run build
 
+      - name: Run zero-cost Research tests
+        run: pnpm --filter @workspace/api-server run test:zero-cost
+
       - name: Run zero-cost Discovery fixture tests
         run: pnpm --filter @workspace/api-server run test:zero-cost-discovery
 

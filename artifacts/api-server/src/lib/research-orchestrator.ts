@@ -1,0 +1,115 @@
+export const RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD = 1.0;
+export const RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD = 0.5;
+
+export type ResearchPolicyStatus = "GREEN" | "YELLOW" | "RED" | "UNKNOWN" | null;
+export type ResearchDemandConclusion = "SUPPORTED" | "WEAK" | "UNSUPPORTED" | "UNKNOWN" | null;
+
+export type ResearchPhase =
+  | "POLICY_REQUIRED"
+  | "DEMAND_REQUIRED"
+  | "HUMAN_REVIEW_REQUIRED"
+  | "WATCH"
+  | "VALIDATION_READY"
+  | "REJECTED"
+  | "BUDGET_EXHAUSTED"
+  | "STOPPED";
+
+export type ResearchNextAction =
+  | "RUN_POLICY_CHECK"
+  | "RUN_DEMAND_CHECK"
+  | "HUMAN_POLICY_REVIEW"
+  | "WATCH_FOR_MORE_EVIDENCE"
+  | "VALIDATE_OPPORTUNITY"
+  | "STOP";
+
+export type ResearchPlanInput = {
+  opportunityVerdict: string;
+  policyStatus: ResearchPolicyStatus;
+  demandConclusion: ResearchDemandConclusion;
+  externalCostUsd: number;
+};
+
+export type ResearchPlan = {
+  phase: ResearchPhase;
+  nextAction: ResearchNextAction;
+  stopReason: string | null;
+  automaticExternalCallsEnabled: false;
+  externalCostUsd: number;
+  totalExternalCostCeilingUsd: number;
+  remainingExternalBudgetUsd: number;
+  stageExternalCostCeilingUsd: number;
+};
+
+const plan = (
+  input: ResearchPlanInput,
+  phase: ResearchPhase,
+  nextAction: ResearchNextAction,
+  stopReason: string | null = null,
+): ResearchPlan => ({
+  phase,
+  nextAction,
+  stopReason,
+  automaticExternalCallsEnabled: false,
+  externalCostUsd: input.externalCostUsd,
+  totalExternalCostCeilingUsd: RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD,
+  remainingExternalBudgetUsd: Math.max(
+    0,
+    Number((RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD - input.externalCostUsd).toFixed(4)),
+  ),
+  stageExternalCostCeilingUsd: RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD,
+});
+
+export const determineResearchPlan = (input: ResearchPlanInput): ResearchPlan => {
+  if (input.opportunityVerdict === "KILL") {
+    return plan(input, "STOPPED", "STOP", "Opportunity is already killed.");
+  }
+
+  if (input.externalCostUsd >= RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD) {
+    return plan(
+      input,
+      "BUDGET_EXHAUSTED",
+      "STOP",
+      "Research external-service budget is exhausted; no automatic paid retry is allowed.",
+    );
+  }
+
+  if (input.policyStatus === "RED") {
+    return plan(input, "REJECTED", "STOP", "Policy review found a clear blocking conflict.");
+  }
+
+  if (input.policyStatus === null) {
+    return plan(input, "POLICY_REQUIRED", "RUN_POLICY_CHECK");
+  }
+
+  if (input.policyStatus === "UNKNOWN" || input.policyStatus === "YELLOW") {
+    return plan(
+      input,
+      "HUMAN_REVIEW_REQUIRED",
+      "HUMAN_POLICY_REVIEW",
+      input.policyStatus === "UNKNOWN"
+        ? "Policy evidence is unresolved; do not spend again automatically."
+        : "Policy constraints require human review before deeper validation.",
+    );
+  }
+
+  if (input.demandConclusion === null) {
+    return plan(input, "DEMAND_REQUIRED", "RUN_DEMAND_CHECK");
+  }
+
+  if (input.demandConclusion === "UNSUPPORTED") {
+    return plan(input, "REJECTED", "STOP", "Demand Check found affirmative evidence against the thesis.");
+  }
+
+  if (input.demandConclusion === "SUPPORTED") {
+    return plan(input, "VALIDATION_READY", "VALIDATE_OPPORTUNITY");
+  }
+
+  return plan(
+    input,
+    "WATCH",
+    "WATCH_FOR_MORE_EVIDENCE",
+    input.demandConclusion === "WEAK"
+      ? "Demand evidence exists but a major gap remains; do not auto-retry paid research."
+      : "Demand remains unresolved; wait for new evidence rather than repeating the same paid check.",
+  );
+};
