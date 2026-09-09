@@ -15,3 +15,4 @@ await import("./zero-cost-validation-orchestrator-tests");
 await import("./zero-cost-experiment-planner-tests");
 await import("./zero-cost-experiment-executor-tests");
 await import("./zero-cost-apify-experiment-adapter-tests");
+await import("./zero-cost-commercial-build-brief-tests");
