@@ -1,6 +1,6 @@
 import { ReactNode } from "react"
 import { Link, useLocation } from "wouter"
-import { ShieldCheck, Target, Radar } from "lucide-react"
+import { Activity, ShieldCheck, Target, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AuthUser } from "@workspace/replit-auth-web"
 import { Button } from "@/components/ui/button"
@@ -19,11 +19,11 @@ export function Layout({
   const navItems = [
     { href: "/", label: "Opportunities", icon: Target },
     { href: "/discovery", label: "Discovery Scout", icon: Radar },
+    { href: "/readiness", label: "System Readiness", icon: Activity },
   ]
 
   return (
     <div className="min-h-[100dvh] flex flex-col md:flex-row bg-muted/30">
-      {/* Sidebar */}
       <aside className="w-full md:w-64 border-b md:border-b-0 md:border-r bg-card flex-shrink-0 sticky top-0 md:h-[100dvh] z-20">
         <div className="p-4 flex items-center gap-2 font-bold text-lg border-b">
           <ShieldCheck className="h-5 w-5 text-primary" />
@@ -60,7 +60,6 @@ export function Layout({
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
           {children}
