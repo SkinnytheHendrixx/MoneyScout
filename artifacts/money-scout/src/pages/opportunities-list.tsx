@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react"
 import { Link } from "wouter"
-import { Plus, ArrowUpDown, ExternalLink, Search } from "lucide-react"
+import { Plus, ArrowUpDown, ExternalLink, Search, Activity } from "lucide-react"
 import { useListOpportunities } from "@workspace/api-client-react"
 import { getPolicyBadge, getVerdictBadge } from "@/components/badges"
 import { formatDate } from "@/lib/format"
@@ -159,6 +159,9 @@ export default function OpportunitiesList() {
                     <div className="flex items-center gap-2">
                       <Link href={`/opportunities/${opp.id}`} className="hover:underline hover:text-primary transition-colors">
                         {opp.name}
+                      </Link>
+                      <Link href={`/opportunities/${opp.id}/runs`} title="Run timeline" className="text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Activity className="h-3.5 w-3.5" />
                       </Link>
                       {opp.source_url && (
                         <a href={opp.source_url} target="_blank" rel="noopener noreferrer" className="text-muted-foreground hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity">
