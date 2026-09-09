@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import express from "express";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   db,
   discoveryCandidatesTable,
@@ -25,6 +25,8 @@ import discoveryRouter, {
 } from "../src/routes/discovery";
 import {
   finalizeStagedDiscoveryResult,
+  normalizeActor,
+  persistDiscoveryResult,
   setDiscoveryDerivedFailureForTests,
 } from "../src/lib/discovery";
 
@@ -356,6 +358,88 @@ await run("staged finalization persists multiple batches and protects linked his
   );
 });
 
+await run("legacy direct persistence preserves partial-slice safeguards", async () => {
+  const [runToPersist] = await db
+    .insert(discoveryRunsTable)
+    .values({
+      source: "APIFY_STORE",
+      acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+      queryDefinition: { fixture: "direct-partial-persistence" },
+      pageSize: 1_000,
+      pageCap: 15,
+      omittedOffset: 15_000,
+      effectivePageSize: 1_000,
+      pacingMs: 0,
+      formulaVersion: "fixture",
+    })
+    .returning();
+  runIds.push(runToPersist.id);
+  const actor = normalizeActor({
+    id: "direct-partial-actor",
+    username: "direct-partial-actor",
+    name: "Direct Partial Actor",
+    title: "Direct Partial Actor",
+    url: "https://apify.com/direct-partial-actor",
+    platform: "github",
+    categories: ["finance"],
+    stats: {
+      totalUsers: 100,
+      totalUsers7Days: 20,
+      totalUsers30Days: 100,
+      totalUsers90Days: 120,
+      totalRuns: 10,
+      totalBuilds: 5,
+    },
+  });
+  assert(actor);
+  await persistDiscoveryResult(runToPersist.id, {
+    ok: true,
+    total: 70_117,
+    pages: [],
+    actors: [actor],
+    progress: {
+      passNumber: 2,
+      offset: 14_000,
+      total: 70_117,
+      initialTotal: 70_117,
+      minObservedTotal: 70_117,
+      initialPageCount: 15,
+      maxObservedTotal: 70_117,
+      totalDrift: 0,
+      firstObservedTotal: 70_117,
+      lastObservedTotal: 70_117,
+      effectivePageSize: 1_000,
+      pagesFetched: 30,
+      requestCount: 30,
+      networkAttemptCount: 30,
+      maxNetworkAttempts: 30,
+      retryCount: 0,
+      uniqueActorCount: 1,
+      duplicateActorCount: 0,
+      acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+      pageCap: 15,
+      omittedOffset: 15_000,
+    },
+  });
+  const [completedRun] = await db
+    .select()
+    .from(discoveryRunsTable)
+    .where(eq(discoveryRunsTable.id, runToPersist.id));
+  assert.equal(completedRun.status, "COMPLETE");
+  assert.equal(completedRun.coverageStatus, "INCOMPLETE");
+  assert.equal(completedRun.verificationStatus, "VERIFIED_PARTIAL_CONVERGENCE");
+  assert.equal(completedRun.pageCap, 15);
+  assert.equal(completedRun.omittedOffset, 15_000);
+  const [snapshot] = await db
+    .select()
+    .from(discoveryClusterSnapshotsTable)
+    .where(eq(discoveryClusterSnapshotsTable.runId, runToPersist.id));
+  assert.equal(snapshot.usagePercentile, null);
+  assert.equal(snapshot.thinSupplyPercentile, null);
+  assert.equal(snapshot.hhi, null);
+  assert.equal(snapshot.emergence, false);
+});
+
 await run("manual discovery returns 202 and status polling reaches COMPLETE", async () => {
   setDiscoveryFetchPageForTests(async (offset, limit) => ({
     total: 0,
@@ -395,7 +479,8 @@ await run("canonical membership converges despite reordered actors and changed o
   const passes = await db
     .select()
     .from(discoveryRunPassesTable)
-    .where(eq(discoveryRunPassesTable.runId, startedId));
+    .where(eq(discoveryRunPassesTable.runId, startedId))
+    .orderBy(asc(discoveryRunPassesTable.id));
   assert.equal(passes.length, 2);
   assert.deepEqual(
     passes.map((pass) => ({

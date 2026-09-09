@@ -6,3 +6,4 @@
 - [Discovery upsert column qualification](discovery-upsert-column-qualification.md) — conflict updates combining target and excluded values must qualify target columns.
 - [Discovery finalization transaction](discovery-finalization-transaction.md) — actor, observation, derived-result, and staging writes must commit or roll back together.
 - [Discovery partial-slice strategy](discovery-partial-slice-strategy.md) — until exhaustive Store partitions are proven, only a bounded converged slice is safe for v0.
+- [Discovery fixture ordering](discovery-fixture-ordering.md) — database-backed pass assertions must use explicit ordering when validating per-pass telemetry.

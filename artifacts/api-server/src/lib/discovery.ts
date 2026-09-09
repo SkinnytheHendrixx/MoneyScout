@@ -1752,6 +1752,13 @@ const actorInsert = (actor: NormalizedActor, runId: number) => ({
 });
 
 export async function persistDiscoveryResult(runId: number, traversal: TraversalSuccess): Promise<void> {
+  const acquisitionMode = traversal.progress.acquisitionMode ?? "FULL_CATALOG";
+  const partialMode = acquisitionMode === "PARTIAL_OBSERVED_SLICE";
+  const previousBaseline = await previousDiscoverySnapshots(runId, acquisitionMode);
+  const scoringOptions: DiscoveryScoringOptions = {
+    acquisitionMode,
+    previousActorTelemetry: previousBaseline.actorTelemetryByKey,
+  };
   const actorKeys = traversal.actors.map((actor) => actor.actorKey);
   await db.transaction(async (tx) => {
     const existingActors = actorKeys.length
@@ -1830,25 +1837,18 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
       }
     }
 
-    const previousRun = await tx
-      .select({ id: discoveryRunsTable.id })
-      .from(discoveryRunsTable)
-      .where(and(eq(discoveryRunsTable.status, "COMPLETE"), lt(discoveryRunsTable.id, runId)))
-      .orderBy(desc(discoveryRunsTable.id))
-      .limit(1);
-    const previousSnapshots = previousRun[0]
-      ? await tx
-          .select()
-          .from(discoveryClusterSnapshotsTable)
-          .where(eq(discoveryClusterSnapshotsTable.runId, previousRun[0].id))
-      : [];
+    const previousSnapshots = previousBaseline.snapshots;
     const previousForScoring = previousSnapshots.map((snapshot) => ({
       clusterKey: snapshot.clusterKey,
       aggregateTotalUsers30Days: snapshot.aggregateTotalUsers30Days,
       aggregateTotalUsers7Days: snapshot.aggregateTotalUsers7Days,
       actorCount: snapshot.actorCount,
     }));
-    const scored = scoreClusters(aggregateClusters(traversal.actors, previousForScoring), previousForScoring);
+    const scored = scoreClusters(
+      aggregateClusters(traversal.actors, previousForScoring, scoringOptions),
+      previousForScoring,
+      scoringOptions,
+    );
     const savedSnapshots =
       scored.length === 0
         ? []
@@ -1926,7 +1926,9 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
             snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
             materialActorChangeScore: snapshot.materialActorChangeScore,
             materialUsageChangeScore: snapshot.materialUsageChangeScore,
-            usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
+            usageSignal: partialMode
+              ? "Apify Store usage telemetry from the verified observed slice; not market-wide supply or demand."
+              : "Apify Store usage telemetry; not revenue or validated demand.",
           },
           sourceSnapshotIds,
         })
@@ -1953,7 +1955,9 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
               snapshotNewnessPercentile: snapshot.snapshotNewnessPercentile,
               materialActorChangeScore: snapshot.materialActorChangeScore,
               materialUsageChangeScore: snapshot.materialUsageChangeScore,
-              usageSignal: "Apify Store usage telemetry; not revenue or validated demand.",
+              usageSignal: partialMode
+                ? "Apify Store usage telemetry from the verified observed slice; not market-wide supply or demand."
+                : "Apify Store usage telemetry; not revenue or validated demand.",
             },
             sourceSnapshotIds: sql.raw(
               `ARRAY(SELECT DISTINCT value FROM unnest(COALESCE("discovery_candidates"."source_snapshot_ids", ARRAY[]::integer[]) || COALESCE(excluded."source_snapshot_ids", ARRAY[]::integer[])) AS value)`,
@@ -2015,15 +2019,22 @@ export async function persistDiscoveryResult(runId: number, traversal: Traversal
       .update(discoveryRunsTable)
       .set({
         status: "COMPLETE",
-        coverageStatus: "COMPLETE",
-        verificationStatus: "VERIFIED_CONVERGENCE",
+        coverageStatus: partialMode ? "INCOMPLETE" : "COMPLETE",
+        verificationStatus: partialMode
+          ? "VERIFIED_PARTIAL_CONVERGENCE"
+          : "VERIFIED_CONVERGENCE",
+        acquisitionMode: partialMode ? "PARTIAL_OBSERVED_SLICE" : "FULL_CATALOG",
+        pageCap: traversal.progress.pageCap ?? null,
+        omittedOffset: traversal.progress.omittedOffset ?? null,
         finishedAt: new Date(),
         lastHeartbeatAt: new Date(),
         advertisedTotal: traversal.total,
         observedTotal: traversal.progress.uniqueActorCount,
         minObservedTotal: traversal.progress.minObservedTotal,
         effectivePageSize: traversal.progress.effectivePageSize,
-        expectedPages: Math.ceil(traversal.total / traversal.progress.effectivePageSize),
+        expectedPages: partialMode
+          ? traversal.progress.pageCap ?? DISCOVERY_PARTIAL_PAGE_COUNT
+          : Math.ceil(traversal.total / traversal.progress.effectivePageSize),
         pagesFetched: traversal.progress.pagesFetched,
         currentOffset: traversal.progress.offset,
         currentPass: traversal.progress.passNumber,
@@ -2110,12 +2121,33 @@ function stagedRowToActor(row: typeof discoveryStagingActorsTable.$inferSelect):
   };
 }
 
-async function previousDiscoverySnapshots(runId: number) {
+async function previousDiscoverySnapshots(
+  runId: number,
+  expectedAcquisitionMode?: DiscoveryAcquisitionMode,
+) {
   const [currentRun] = await db
     .select()
     .from(discoveryRunsTable)
     .where(eq(discoveryRunsTable.id, runId));
-  const partialMode = currentRun?.acquisitionMode === "PARTIAL_OBSERVED_SLICE";
+  if (!currentRun) {
+    throw new Error(`Discovery run ${runId} does not exist`);
+  }
+  const acquisitionMode = currentRun?.acquisitionMode ?? "FULL_CATALOG";
+  if (expectedAcquisitionMode && acquisitionMode !== expectedAcquisitionMode) {
+    throw new Error(
+      `Discovery run ${runId} acquisition mode ${acquisitionMode} does not match traversal mode ${expectedAcquisitionMode}`,
+    );
+  }
+  const partialMode = acquisitionMode === "PARTIAL_OBSERVED_SLICE";
+  if (
+    partialMode &&
+    (currentRun?.pageSize !== DISCOVERY_PAGE_SIZE ||
+      currentRun?.effectivePageSize !== DISCOVERY_PAGE_SIZE ||
+      currentRun?.pageCap !== DISCOVERY_PARTIAL_PAGE_COUNT ||
+      currentRun?.omittedOffset !== DISCOVERY_PARTIAL_OMITTED_OFFSET)
+  ) {
+    throw new Error(`Discovery run ${runId} has an incompatible partial observed-slice scope`);
+  }
   const previousRuns = await db
     .select()
     .from(discoveryRunsTable)
@@ -2500,9 +2532,10 @@ export async function finalizeStagedDiscoveryResult(
   runId: number,
   traversal: Extract<TraversalResult, { ok: true }>,
 ) {
-  const previousBaseline = await previousDiscoverySnapshots(runId);
+  const acquisitionMode = traversal.progress.acquisitionMode ?? "FULL_CATALOG";
+  const previousBaseline = await previousDiscoverySnapshots(runId, acquisitionMode);
   const scoringOptions: DiscoveryScoringOptions = {
-    acquisitionMode: traversal.progress.acquisitionMode,
+    acquisitionMode,
     previousActorTelemetry: previousBaseline.actorTelemetryByKey,
   };
   const accumulators = new Map<string, ClusterAccumulator>();
