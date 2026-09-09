@@ -33,7 +33,7 @@ export type ResearchPlan = {
   phase: ResearchPhase;
   nextAction: ResearchNextAction;
   stopReason: string | null;
-  automaticExternalCallsEnabled: false;
+  automaticExternalCallsEnabled: boolean;
   externalCostUsd: number;
   totalExternalCostCeilingUsd: number;
   remainingExternalBudgetUsd: number;
@@ -49,7 +49,8 @@ const plan = (
   phase,
   nextAction,
   stopReason,
-  automaticExternalCallsEnabled: false,
+  automaticExternalCallsEnabled:
+    nextAction === "RUN_POLICY_CHECK" || nextAction === "RUN_DEMAND_CHECK",
   externalCostUsd: input.externalCostUsd,
   totalExternalCostCeilingUsd: RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD,
   remainingExternalBudgetUsd: Math.max(
