@@ -17,6 +17,7 @@ import OpportunitiesList from '@/pages/opportunities-list';
 import OpportunityNew from '@/pages/opportunity-new';
 import OpportunityDetail from '@/pages/opportunity-detail';
 import OpportunityEdit from '@/pages/opportunity-edit';
+import OpportunityRuns from '@/pages/opportunity-runs';
 import Discovery from '@/pages/discovery';
 
 const queryClient = new QueryClient();
@@ -28,8 +29,9 @@ function Router({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
         <Switch>
           <Route path="/" component={OpportunitiesList} />
           <Route path="/opportunities/new" component={OpportunityNew} />
-          <Route path="/opportunities/:id" component={OpportunityDetail} />
+          <Route path="/opportunities/:id/runs" component={OpportunityRuns} />
           <Route path="/opportunities/:id/edit" component={OpportunityEdit} />
+          <Route path="/opportunities/:id" component={OpportunityDetail} />
           <Route path="/discovery" component={Discovery} />
           <Route component={NotFound} />
         </Switch>
