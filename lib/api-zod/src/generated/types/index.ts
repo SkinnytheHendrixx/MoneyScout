@@ -17,6 +17,7 @@ export * from './demandCheckResultAccessVsConsumption';
 export * from './demandCheckResultRecurringUsageSignal';
 export * from './demandConclusion';
 export * from './demandTriState';
+export * from './discoveryAcquisitionMode';
 export * from './discoveryAnomalyType';
 export * from './discoveryCandidate';
 export * from './discoveryCandidateAction';

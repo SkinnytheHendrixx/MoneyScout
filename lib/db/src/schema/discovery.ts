@@ -29,9 +29,15 @@ export const discoveryCoverageStatusEnum = pgEnum("discovery_coverage_status", [
   "INCOMPLETE",
 ]);
 
+export const discoveryAcquisitionModeEnum = pgEnum("discovery_acquisition_mode", [
+  "FULL_CATALOG",
+  "PARTIAL_OBSERVED_SLICE",
+]);
+
 export const discoveryVerificationStatusEnum = pgEnum("discovery_verification_status", [
   "UNVERIFIED",
   "VERIFIED_CONVERGENCE",
+  "VERIFIED_PARTIAL_CONVERGENCE",
 ]);
 
 export const discoveryPassStatusEnum = pgEnum("discovery_pass_status", [
@@ -62,6 +68,9 @@ export const discoveryRunsTable = pgTable(
   {
     id: serial("id").primaryKey(),
     source: text("source").notNull().default("APIFY_STORE"),
+    acquisitionMode: discoveryAcquisitionModeEnum("acquisition_mode")
+      .notNull()
+      .default("FULL_CATALOG"),
     status: discoveryRunStatusEnum("status").notNull().default("RUNNING"),
     coverageStatus: discoveryCoverageStatusEnum("coverage_status")
       .notNull()
@@ -74,6 +83,8 @@ export const discoveryRunsTable = pgTable(
     lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
     queryDefinition: jsonb("query_definition").$type<Record<string, unknown>>().notNull(),
     pageSize: integer("page_size").notNull(),
+    pageCap: integer("page_cap"),
+    omittedOffset: integer("omitted_offset"),
     effectivePageSize: integer("effective_page_size"),
     pacingMs: integer("pacing_ms").notNull(),
     formulaVersion: text("formula_version").notNull(),

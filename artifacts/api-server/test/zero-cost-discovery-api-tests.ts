@@ -21,6 +21,7 @@ import discoveryRouter, {
   setDiscoveryMaxRetriesForTests,
   setDiscoveryRequestTimeoutForTests,
   setDiscoverySleepForTests,
+  setDiscoveryAcquisitionModeForTests,
 } from "../src/routes/discovery";
 import {
   finalizeStagedDiscoveryResult,
@@ -57,6 +58,7 @@ const run = async (name: string, test: () => Promise<void>) => {
 
 const runIds: number[] = [];
 setDiscoverySleepForTests(async () => undefined);
+setDiscoveryAcquisitionModeForTests("FULL_CATALOG");
 
 const convergenceActor = (id: string) => ({
   id,
@@ -771,6 +773,7 @@ setDiscoveryFinalizeForTests(null);
 setDiscoveryRequestTimeoutForTests(null);
 setDiscoveryMaxRetriesForTests(null);
 setDiscoverySleepForTests(null);
+setDiscoveryAcquisitionModeForTests(null);
 if (runIds.length > 0) {
   await db.delete(discoveryRunsTable).where(inArray(discoveryRunsTable.id, runIds));
 }

@@ -5,6 +5,7 @@
  * Money Scout API
  * OpenAPI spec version: 0.1.0
  */
+import type { DiscoveryAcquisitionMode } from './discoveryAcquisitionMode';
 import type { DiscoveryCoverageStatus } from './discoveryCoverageStatus';
 import type { DiscoveryRunStatus } from './discoveryRunStatus';
 import type { DiscoveryVerificationStatus } from './discoveryVerificationStatus';
@@ -12,6 +13,7 @@ import type { DiscoveryVerificationStatus } from './discoveryVerificationStatus'
 export interface DiscoveryRun {
   id: number;
   source: string;
+  acquisition_mode: DiscoveryAcquisitionMode;
   status: DiscoveryRunStatus;
   coverage_status: DiscoveryCoverageStatus;
   verification_status: DiscoveryVerificationStatus;
@@ -21,6 +23,10 @@ export interface DiscoveryRun {
   /** @nullable */
   last_heartbeat_at: Date | null;
   page_size: number;
+  /** @nullable */
+  page_cap: number | null;
+  /** @nullable */
+  omitted_offset: number | null;
   /** @nullable */
   effective_page_size: number | null;
   pacing_ms: number;

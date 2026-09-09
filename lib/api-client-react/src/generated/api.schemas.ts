@@ -268,12 +268,21 @@ export const DiscoveryCoverageStatus = {
   INCOMPLETE: 'INCOMPLETE',
 } as const;
 
+export type DiscoveryAcquisitionMode = typeof DiscoveryAcquisitionMode[keyof typeof DiscoveryAcquisitionMode];
+
+
+export const DiscoveryAcquisitionMode = {
+  FULL_CATALOG: 'FULL_CATALOG',
+  PARTIAL_OBSERVED_SLICE: 'PARTIAL_OBSERVED_SLICE',
+} as const;
+
 export type DiscoveryVerificationStatus = typeof DiscoveryVerificationStatus[keyof typeof DiscoveryVerificationStatus];
 
 
 export const DiscoveryVerificationStatus = {
   UNVERIFIED: 'UNVERIFIED',
   VERIFIED_CONVERGENCE: 'VERIFIED_CONVERGENCE',
+  VERIFIED_PARTIAL_CONVERGENCE: 'VERIFIED_PARTIAL_CONVERGENCE',
 } as const;
 
 export type DiscoveryCandidateStatus = typeof DiscoveryCandidateStatus[keyof typeof DiscoveryCandidateStatus];
@@ -301,6 +310,7 @@ export const DiscoveryAnomalyType = {
 export interface DiscoveryRun {
   id: number;
   source: string;
+  acquisition_mode: DiscoveryAcquisitionMode;
   status: DiscoveryRunStatus;
   coverage_status: DiscoveryCoverageStatus;
   verification_status: DiscoveryVerificationStatus;
@@ -310,6 +320,10 @@ export interface DiscoveryRun {
   /** @nullable */
   last_heartbeat_at: string | null;
   page_size: number;
+  /** @nullable */
+  page_cap: number | null;
+  /** @nullable */
+  omitted_offset: number | null;
   /** @nullable */
   effective_page_size: number | null;
   pacing_ms: number;

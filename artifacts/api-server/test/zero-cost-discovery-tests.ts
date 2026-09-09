@@ -337,6 +337,120 @@ await run("network attempts are bounded and reported separately from page reques
   assert.equal(result.progress.networkAttemptCount <= result.progress.maxNetworkAttempts, true);
 });
 
+await run("partial acquisition requests exactly the verified observed slice", async () => {
+  const items = Array.from({ length: 15_000 }, (_, index) => actorFixture(index));
+  const offsets: number[] = [];
+  const limits: number[] = [];
+  const result = await traverseStore({
+    acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+    pageSize: 17,
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => {
+      offsets.push(offset);
+      limits.push(limit);
+      return {
+        total: 70_117,
+        offset,
+        limit,
+        items: items.slice(offset, offset + limit),
+      };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(offsets, Array.from({ length: 15 }, (_, index) => index * 1_000));
+  assert.deepEqual(limits, Array.from({ length: 15 }, () => 1_000));
+  assert.equal(offsets.includes(15_000), false);
+  assert.equal(result.progress.pageCap, 15);
+  assert.equal(result.progress.omittedOffset, 15_000);
+  assert.equal(result.progress.initialPageCount, 15);
+  assert.equal(result.progress.pagesFetched, 15);
+  assert.equal(result.progress.uniqueActorCount, 15_000);
+  assert.equal(result.progress.total, 70_117);
+});
+
+await run("partial acquisition never converts a short required page into coverage", async () => {
+  const offsets: number[] = [];
+  const result = await traverseStore({
+    acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => {
+      offsets.push(offset);
+      const count = offset === 14_000 ? 999 : 1_000;
+      return {
+        total: 70_117,
+        offset,
+        limit,
+        items: Array.from({ length: count }, (_, index) => actorFixture(offset + index)),
+      };
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failureTelemetry?.invariant, "item_count_mismatch");
+  assert.deepEqual(offsets, Array.from({ length: 15 }, (_, index) => index * 1_000).slice(0, 15));
+  assert.equal(offsets.includes(15_000), false);
+});
+
+await run("partial acquisition rejects unnormalizable records", async () => {
+  const result = await traverseStore({
+    acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+    pacingMs: 500,
+    sleep: async () => undefined,
+    fetchPage: async (offset, limit) => ({
+      total: 70_117,
+      offset,
+      limit,
+      items: [null, ...Array.from({ length: 999 }, (_, index) => actorFixture(offset + index))],
+    }),
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.failureTelemetry?.invariant, "invalid_actor_identity");
+});
+
+await run("partial scoring suppresses supply signals and ignores membership-only changes", () => {
+  const previousActor = normalizeActor(actorFixture(1, { platform: "github" })) as NormalizedActor;
+  const previousSnapshot = aggregateClusters([previousActor])[0];
+  const unchanged = aggregateClusters(
+    [previousActor],
+    [previousSnapshot],
+    {
+      acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+      previousActorTelemetry: new Map([[previousActor.actorKey, previousActor]]),
+    },
+  );
+  const [unchangedScore] = scoreClusters(unchanged, [], {
+    acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+  });
+  assert.equal(unchangedScore.emergence, false);
+  assert.equal(unchangedScore.usagePercentile, null);
+  assert.equal(unchangedScore.hhi, null);
+  assert.deepEqual(unchangedScore.anomalyTags, []);
+
+  const changedActor = normalizeActor(
+    actorFixture(1, {
+      platform: "github",
+      stats: { totalUsers: 100, totalUsers7Days: 50, totalUsers30Days: 160, totalUsers90Days: 240, totalRuns: 20 },
+    }),
+  ) as NormalizedActor;
+  const changed = aggregateClusters(
+    [changedActor],
+    [previousSnapshot],
+    {
+      acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+      previousActorTelemetry: new Map([[previousActor.actorKey, previousActor]]),
+    },
+  );
+  const [changedScore] = scoreClusters(changed, [], {
+    acquisitionMode: "PARTIAL_OBSERVED_SLICE",
+  });
+  assert.deepEqual(changedScore.anomalyTags, ["MATERIAL_SNAPSHOT_CHANGE"]);
+  assert.equal(changedScore.emergence, false);
+  assert.equal(changedScore.thinSupplyPercentile, null);
+  assert.equal(changedScore.concentrationPercentile, null);
+  assert.equal(changedScore.fragmentationPercentile, null);
+});
+
 await run("one-actor clusters never receive both thin-supply and concentration", () => {
   const actor = normalizeActor(actorFixture(1, { platform: "github" })) as NormalizedActor;
   const snapshots = aggregateClusters([actor]);

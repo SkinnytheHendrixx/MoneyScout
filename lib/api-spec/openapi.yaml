@@ -686,9 +686,12 @@ components:
     DiscoveryCoverageStatus:
       type: string
       enum: [UNKNOWN, COMPLETE, INCOMPLETE]
+    DiscoveryAcquisitionMode:
+      type: string
+      enum: [FULL_CATALOG, PARTIAL_OBSERVED_SLICE]
     DiscoveryVerificationStatus:
       type: string
-      enum: [UNVERIFIED, VERIFIED_CONVERGENCE]
+      enum: [UNVERIFIED, VERIFIED_CONVERGENCE, VERIFIED_PARTIAL_CONVERGENCE]
     DiscoveryCandidateStatus:
       type: string
       enum: [NEW, ACCEPTED, DISMISSED, SUPPRESSED, DUPLICATE]
@@ -705,6 +708,7 @@ components:
       required:
         - id
         - source
+        - acquisition_mode
         - status
         - coverage_status
         - verification_status
@@ -712,6 +716,8 @@ components:
         - finished_at
         - last_heartbeat_at
         - page_size
+        - page_cap
+        - omitted_offset
         - effective_page_size
         - pacing_ms
         - formula_version
@@ -738,6 +744,7 @@ components:
       properties:
         id: { type: integer }
         source: { type: string }
+        acquisition_mode: { $ref: "#/components/schemas/DiscoveryAcquisitionMode" }
         status: { $ref: "#/components/schemas/DiscoveryRunStatus" }
         coverage_status: { $ref: "#/components/schemas/DiscoveryCoverageStatus" }
         verification_status: { $ref: "#/components/schemas/DiscoveryVerificationStatus" }
@@ -745,6 +752,8 @@ components:
         finished_at: { type: [string, "null"], format: date-time }
         last_heartbeat_at: { type: [string, "null"], format: date-time }
         page_size: { type: integer }
+        page_cap: { type: [integer, "null"] }
+        omitted_offset: { type: [integer, "null"] }
         effective_page_size: { type: [integer, "null"] }
         pacing_ms: { type: integer }
         formula_version: { type: string }

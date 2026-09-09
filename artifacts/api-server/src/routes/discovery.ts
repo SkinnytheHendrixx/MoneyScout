@@ -31,6 +31,8 @@ import {
   DISCOVERY_FORMULA_VERSION,
   DISCOVERY_MAX_RETRIES,
   DISCOVERY_NORMALIZATION_VERSION,
+  DISCOVERY_PARTIAL_OMITTED_OFFSET,
+  DISCOVERY_PARTIAL_PAGE_COUNT,
   DISCOVERY_PAGE_SIZE,
   DISCOVERY_PLATFORM_ALIAS_VERSION,
   DISCOVERY_PACING_MS,
@@ -42,6 +44,7 @@ import {
   getActiveDiscoveryRun,
   reconcileStaleDiscoveryRuns,
   runDiscoveryConvergenceToStaging,
+  type DiscoveryAcquisitionMode,
   type TraversalProgress,
 } from "../lib/discovery";
 import { logger } from "../lib/logger";
@@ -53,6 +56,7 @@ let finalizeDiscovery = finalizeStagedDiscoveryResult;
 let discoveryRequestTimeoutMs = DISCOVERY_REQUEST_TIMEOUT_MS;
 let discoveryMaxRetries = DISCOVERY_MAX_RETRIES;
 let discoverySleep: ((milliseconds: number) => Promise<void>) | undefined;
+let discoveryAcquisitionModeForTests: DiscoveryAcquisitionMode = "PARTIAL_OBSERVED_SLICE";
 
 export function setDiscoveryFetchPageForTests(
   fetchPage: typeof fetchApifyStorePage | null,
@@ -80,9 +84,16 @@ export function setDiscoverySleepForTests(
   discoverySleep = sleepFn ?? undefined;
 }
 
+export function setDiscoveryAcquisitionModeForTests(
+  mode: DiscoveryAcquisitionMode | null,
+) {
+  discoveryAcquisitionModeForTests = mode ?? "PARTIAL_OBSERVED_SLICE";
+}
+
 const toApiRun = (run: typeof discoveryRunsTable.$inferSelect) => ({
   id: run.id,
   source: run.source,
+  acquisition_mode: run.acquisitionMode,
   status: run.status,
   coverage_status: run.coverageStatus,
   verification_status: run.verificationStatus,
@@ -90,6 +101,8 @@ const toApiRun = (run: typeof discoveryRunsTable.$inferSelect) => ({
   finished_at: run.finishedAt,
   last_heartbeat_at: run.lastHeartbeatAt,
   page_size: run.pageSize,
+  page_cap: run.pageCap,
+  omitted_offset: run.omittedOffset,
   effective_page_size: run.effectivePageSize,
   pacing_ms: run.pacingMs,
   formula_version: run.formulaVersion,
@@ -140,7 +153,10 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
     .update(discoveryRunsTable)
     .set({
       advertisedTotal: progress.total,
-      expectedPages: Math.ceil(progress.total / progress.effectivePageSize),
+      expectedPages:
+        progress.acquisitionMode === "PARTIAL_OBSERVED_SLICE"
+          ? progress.pageCap ?? DISCOVERY_PARTIAL_PAGE_COUNT
+          : Math.ceil(progress.total / progress.effectivePageSize),
       effectivePageSize: progress.effectivePageSize,
       pagesFetched: progress.pagesFetched,
       currentOffset: progress.offset,
@@ -155,6 +171,9 @@ const updateProgress = async (runId: number, progress: TraversalProgress) => {
       uniqueActorCount: progress.uniqueActorCount,
       duplicateActorCount: progress.duplicateActorCount,
       lastHeartbeatAt: new Date(),
+      acquisitionMode: progress.acquisitionMode ?? "FULL_CATALOG",
+      pageCap: progress.pageCap ?? null,
+      omittedOffset: progress.omittedOffset ?? null,
     })
     .where(eq(discoveryRunsTable.id, runId));
 };
@@ -226,6 +245,7 @@ async function executeDiscoveryRun(runId: number): Promise<void> {
   try {
     const convergence = await runDiscoveryConvergenceToStaging(runId, {
       fetchPage: fetchDiscoveryPage,
+      acquisitionMode: discoveryAcquisitionModeForTests,
       pageSize: DISCOVERY_PAGE_SIZE,
       pacingMs: DISCOVERY_PACING_MS,
       sleep: discoverySleep,
@@ -281,13 +301,22 @@ router.post("/discovery/runs", async (_req, res): Promise<void> => {
       .insert(discoveryRunsTable)
       .values({
         source: "APIFY_STORE",
+        acquisitionMode: discoveryAcquisitionModeForTests,
         status: "RUNNING",
         coverageStatus: "UNKNOWN",
         verificationStatus: "UNVERIFIED",
         startedAt: now,
         lastHeartbeatAt: now,
-        queryDefinition: discoveryQueryDefinition(),
+        queryDefinition: discoveryQueryDefinition(discoveryAcquisitionModeForTests),
         pageSize: DISCOVERY_PAGE_SIZE,
+        pageCap:
+          discoveryAcquisitionModeForTests === "PARTIAL_OBSERVED_SLICE"
+            ? DISCOVERY_PARTIAL_PAGE_COUNT
+            : null,
+        omittedOffset:
+          discoveryAcquisitionModeForTests === "PARTIAL_OBSERVED_SLICE"
+            ? DISCOVERY_PARTIAL_OMITTED_OFFSET
+            : null,
         pacingMs: DISCOVERY_PACING_MS,
         formulaVersion: DISCOVERY_FORMULA_VERSION,
       normalizationVersion: DISCOVERY_NORMALIZATION_VERSION,

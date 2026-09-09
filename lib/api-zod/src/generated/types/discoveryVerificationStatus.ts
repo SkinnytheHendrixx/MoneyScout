@@ -12,4 +12,5 @@ export type DiscoveryVerificationStatus = typeof DiscoveryVerificationStatus[key
 export const DiscoveryVerificationStatus = {
   UNVERIFIED: 'UNVERIFIED',
   VERIFIED_CONVERGENCE: 'VERIFIED_CONVERGENCE',
+  VERIFIED_PARTIAL_CONVERGENCE: 'VERIFIED_PARTIAL_CONVERGENCE',
 } as const;

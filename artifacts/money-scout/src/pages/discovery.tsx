@@ -70,6 +70,16 @@ function titleCase(value: string) {
     .join(" ")
 }
 
+function runLabel(run: Pick<DiscoveryRun, "status" | "acquisition_mode" | "verification_status">) {
+  if (run.acquisition_mode === "PARTIAL_OBSERVED_SLICE") {
+    if (run.status === "COMPLETE" && run.verification_status === "VERIFIED_PARTIAL_CONVERGENCE") {
+      return "Verified slice"
+    }
+    if (run.status === "RUNNING") return "Slice running"
+  }
+  return titleCase(run.status)
+}
+
 function shortDate(value: string | null | undefined) {
   return formatDateTime(value).replace(/, \d{4} /, " · ")
 }
@@ -127,7 +137,15 @@ function observationRows(candidate: DiscoveryCandidate) {
   return Object.entries(observations).slice(0, 3)
 }
 
-function RunStatus({ status }: { status: string }) {
+function RunStatus({
+  status,
+  acquisitionMode,
+  verificationStatus,
+}: {
+  status: DiscoveryRun["status"]
+  acquisitionMode: DiscoveryRun["acquisition_mode"]
+  verificationStatus: DiscoveryRun["verification_status"]
+}) {
   const isRunning = status === "RUNNING"
   return (
     <Badge
@@ -136,7 +154,11 @@ function RunStatus({ status }: { status: string }) {
       className={`gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] ${statusTone(status)}`}
     >
       {isRunning ? <Activity className="h-3 w-3 animate-pulse" /> : status === "COMPLETE" ? <Check className="h-3 w-3" /> : <CircleDashed className="h-3 w-3" />}
-      {titleCase(status)}
+      {runLabel({
+        status,
+        acquisition_mode: acquisitionMode,
+        verification_status: verificationStatus,
+      })}
     </Badge>
   )
 }
@@ -408,7 +430,7 @@ export default function Discovery() {
       onSuccess: (run) => {
         setSelectedRunId(run.id)
         void invalidateDiscovery()
-        toast({ title: "Discovery scan started", description: "The catalog is being scanned twice for exact membership convergence." })
+        toast({ title: "Discovery scan started", description: "The observed slice is being scanned twice for exact membership convergence." })
       },
       onError: () => toast({ title: "Could not start discovery", description: "The run did not start. Check the API server and retry.", variant: "destructive" }),
     })
@@ -476,7 +498,7 @@ export default function Discovery() {
                 <Database className="h-3.5 w-3.5 text-[#5f796b]" />
                 Source boundary
               </div>
-              <div className="mt-1 text-xs font-semibold text-[#3e564b]">Catalog telemetry only</div>
+               <div className="mt-1 text-xs font-semibold text-[#3e564b]">Verified observed slice</div>
             </div>
             <Button
               data-testid="button-run-discovery"
@@ -491,7 +513,7 @@ export default function Discovery() {
         </header>
 
         <section className="mb-7 grid grid-cols-2 gap-4 rounded-[1.2rem] border border-[#d7d5ca] bg-[#fbfaf5] p-4 shadow-[0_12px_35px_rgba(40,54,40,0.035)] sm:grid-cols-4 sm:p-5">
-          <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Verification" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? `${titleCase(activeRun.verification_status)} · pass ${activeRun.current_pass ?? "—"} / 2` : "Awaiting scan"} />
+           <Metric icon={<ShieldAlert className="h-3.5 w-3.5 text-[#a5542f]" />} label="Verification" value={activeRun ? `${coveragePercent}%` : "—"} note={activeRun ? `${runLabel(activeRun)} · pass ${activeRun.current_pass ?? "—"} / 2` : "Awaiting scan"} />
           <Metric icon={<Fingerprint className="h-3.5 w-3.5 text-[#5f796b]" />} label="Canonical actors" value={activeRun ? activeRun.unique_actor_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.duplicate_actor_count} duplicate records` : "No scan yet"} />
           <Metric icon={<Layers3 className="h-3.5 w-3.5 text-[#8c671e]" />} label="Clusters" value={activeRun ? activeRun.cluster_count.toLocaleString() : "—"} note={activeRun ? `${activeRun.candidate_count} candidate leads` : "No sample yet"} />
           <Metric icon={<Target className="h-3.5 w-3.5 text-[#a5542f]" />} label="Queue" value={candidatesQuery.isLoading ? "…" : candidates.length.toLocaleString()} note={queueFilter === "NEW" ? "Needs review" : titleCase(queueFilter)} />
@@ -504,7 +526,7 @@ export default function Discovery() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#a5542f]">Run ledger</div>
-                    <h2 className="mt-1 text-lg font-bold tracking-[-0.035em] text-[#183532]">Catalog scan history</h2>
+                     <h2 className="mt-1 text-lg font-bold tracking-[-0.035em] text-[#183532]">Observed-slice history</h2>
                   </div>
                   <RefreshCw className={`h-4 w-4 text-[#a8a79d] ${runsQuery.isFetching ? "animate-spin" : ""}`} />
                 </div>
@@ -523,7 +545,7 @@ export default function Discovery() {
                   </div>
                 ) : sortedRuns.length === 0 ? (
                   <div className="p-5 text-sm leading-relaxed text-[#77766e]">
-                    No discovery runs yet. Start a bounded catalog scan to create the first review queue.
+                     No discovery runs yet. Start a bounded observed-slice scan to create the first review queue.
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -541,7 +563,7 @@ export default function Discovery() {
                         </div>
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-xs text-[#77766e]">{shortDate(run.started_at)}</span>
-                          <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${statusTone(run.status)}`}>{run.status}</span>
+                           <span className={`rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em] ${statusTone(run.status)}`}>{runLabel(run)}</span>
                         </div>
                       </button>
                     ))}
@@ -558,11 +580,15 @@ export default function Discovery() {
                       <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#aab9a9]">Selected run</div>
                       <div className="mt-1 font-mono text-xl font-bold tracking-[-0.05em]">RUN-{String(activeRun.id).padStart(4, "0")}</div>
                     </div>
-                    <RunStatus status={activeRun.status} />
+                     <RunStatus
+                       status={activeRun.status}
+                       acquisitionMode={activeRun.acquisition_mode}
+                       verificationStatus={activeRun.verification_status}
+                     />
                   </div>
                   <div>
                     <div className="mb-2 flex items-center justify-between text-[10px] uppercase tracking-[0.13em] text-[#aab9a9]">
-                      <span>Pass verification</span>
+                       <span>{activeRun.acquisition_mode === "PARTIAL_OBSERVED_SLICE" ? "Slice verification" : "Pass verification"}</span>
                       <span className="font-mono text-[#f1d4a7]">{coveragePercent}%</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-[#365750]">
@@ -573,6 +599,11 @@ export default function Discovery() {
                     <div>
                       <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pass pages</div>
                       <div className="mt-1 font-mono text-sm font-bold">{activeRun.pages_fetched} / {activeRun.expected_pages ?? "—"}</div>
+                       {activeRun.acquisition_mode === "PARTIAL_OBSERVED_SLICE" && (
+                         <div className="mt-1 text-[10px] text-[#c7d2c5]">
+                           Offsets 0–{(activeRun.omitted_offset ?? 15000) - activeRun.page_size}; next page omitted
+                         </div>
+                       )}
                     </div>
                     <div>
                       <div className="text-[9px] uppercase tracking-[0.13em] text-[#8fa49a]">Pass</div>
@@ -651,7 +682,7 @@ export default function Discovery() {
 
             <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-[#deddd3] bg-[#e9e8df] px-4 py-3 text-xs text-[#68736a]">
               <ShieldAlert className="h-4 w-4 shrink-0 text-[#a5542f]" />
-              <span><strong className="font-bold text-[#3e564b]">Evidence boundary:</strong> high usage means repeated access or concentration in the catalog, not paid demand.</span>
+               <span><strong className="font-bold text-[#3e564b]">Evidence boundary:</strong> high usage means repeated access or concentration in the verified observed slice, not market-wide supply or paid demand.</span>
             </div>
 
             {candidatesQuery.isLoading ? (
