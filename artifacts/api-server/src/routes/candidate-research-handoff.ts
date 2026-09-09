@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import {
   db,
   discoveryCandidatesTable,
@@ -33,6 +33,47 @@ const toApiCandidate = (candidate: typeof discoveryCandidatesTable.$inferSelect)
   created_opportunity_id: candidate.createdOpportunityId,
   duplicate_of_opportunity_id: candidate.duplicateOfOpportunityId,
 });
+
+function requestOrigin(req: Request): string | null {
+  const forwardedProto = req.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const protocol = forwardedProto || req.protocol;
+  const host = req.get("host");
+  return host ? `${protocol}://${host}` : null;
+}
+
+function authHeaders(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const cookie = req.get("cookie");
+  const authorization = req.get("authorization");
+  if (cookie) headers.cookie = cookie;
+  if (authorization) headers.authorization = authorization;
+  return headers;
+}
+
+function startAutonomousResearch(req: Request, opportunityId: number): void {
+  const origin = requestOrigin(req);
+  if (!origin) {
+    req.log.error({ opportunityId }, "Unable to start autonomous research because request origin is unavailable");
+    return;
+  }
+
+  void fetch(`${origin}/api/opportunities/${opportunityId}/research/advance`, {
+    method: "POST",
+    headers: authHeaders(req),
+    signal: AbortSignal.timeout(180_000),
+  })
+    .then(async (response) => {
+      if (response.ok || response.status === 409) return;
+      const body = await response.text().catch(() => "");
+      req.log.error(
+        { opportunityId, status: response.status, body: body.slice(0, 500) },
+        "Autonomous research kickoff returned a non-success response",
+      );
+    })
+    .catch((error) => {
+      req.log.error({ err: error, opportunityId }, "Autonomous research kickoff failed");
+    });
+}
 
 router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promise<void> => {
   const params = AcceptDiscoveryCandidateParams.safeParse(req.params);
@@ -172,6 +213,8 @@ router.post("/discovery/candidates/:candidateId/accept", async (req, res): Promi
       opportunity_id: result.opportunityId,
     }),
   );
+
+  startAutonomousResearch(req, result.opportunityId);
 });
 
 export default router;
