@@ -14,6 +14,7 @@ import demandChecksRouter from "./demand-checks";
 import researchRouter from "./research";
 import runTimelineRouter from "./run-timeline";
 import candidateResearchHandoffRouter from "./candidate-research-handoff";
+import commercialBuildRouter from "./commercial-build";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
 import { requireSafePaidResearchRuntime } from "../middlewares/paidResearchSafetyMiddleware";
@@ -40,6 +41,7 @@ router.use(demandChecksRouter);
 router.use(researchRouter);
 router.use(runTimelineRouter);
 router.use(candidateResearchHandoffRouter);
+router.use(commercialBuildRouter);
 router.use(discoveryRouter);
 
 export default router;
