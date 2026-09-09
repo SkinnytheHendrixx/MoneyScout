@@ -211,7 +211,7 @@ export function createMonetizationExecutionPlan(
     pricing: {
       evidence: brief.commercialContract.monetizationEvidence,
       testPriceUsd: null,
-      confidenceState: brief.commercialContract.monetizationEvidence.length > 0 ? "DIRECTLY_OBSERVED" : "UNRESOLVED",
+      confidenceState: brief.commercialContract.monetizationConfidenceState,
       instruction: `Do not require an exact competitor price to proceed. Prefer direct observed prices when available; otherwise derive a strongly inferred range or bounded test hypothesis from paid substitutes, buyer budgets, economic value, labor displacement, unit economics, and marketplace norms. Current evidence anchor: ${priceAnchor}`,
     },
     distribution: {
