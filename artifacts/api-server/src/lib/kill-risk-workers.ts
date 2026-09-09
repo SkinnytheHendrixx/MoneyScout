@@ -1,4 +1,4 @@
-import type { KillAssessment, StructuredEvidence } from "./evidence-workers";
+import type { KillAssessment, KillScreenResult, StructuredEvidence } from "./evidence-workers";
 
 export type TriState = "YES" | "NO" | "UNKNOWN";
 
@@ -115,4 +115,17 @@ export function runDedicatedKillRiskWorkers(inputs: DedicatedKillRiskInputs): Ki
     evaluateDistributionRisk(inputs.distribution),
     evaluateNetworkEffectRisk(inputs.networkEffects),
   ];
+}
+
+export function mergeKillScreenAssessments(base: KillScreenResult, dedicated: KillAssessment[]): KillScreenResult {
+  const replacements = new Map(dedicated.map((assessment) => [assessment.killClass, assessment]));
+  const assessments = base.assessments.map((assessment) => replacements.get(assessment.killClass) ?? assessment);
+  const confirmedKills = assessments.filter((assessment) => assessment.status === "CONFIRMED").map((assessment) => assessment.killClass);
+  const unknownKills = assessments.filter((assessment) => assessment.status === "UNKNOWN").map((assessment) => assessment.killClass);
+  return {
+    overall: confirmedKills.length ? "BLOCKED" : unknownKills.length ? "INCOMPLETE" : "CLEAR",
+    assessments,
+    confirmedKills,
+    unknownKills,
+  };
 }
