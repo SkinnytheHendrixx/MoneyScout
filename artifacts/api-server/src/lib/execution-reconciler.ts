@@ -1,6 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import {
   db,
+  executionJobsTable,
   opportunitiesTable,
   opportunityRuntimeStateTable,
   researchRunsTable,
@@ -31,6 +32,11 @@ const parseObject = (value: string | null): Record<string, unknown> => {
     return {};
   }
 };
+
+const objectValue = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 
 const stringValue = (value: unknown): string | null =>
   typeof value === "string" && value.trim() ? value.trim() : null;
@@ -122,21 +128,28 @@ async function latestResolutionNote(opportunityId: number): Promise<{ runId: num
   return null;
 }
 
+function deterministicOwnerAction(
+  problem: ResolutionProblem | undefined,
+  recommendation: string | undefined,
+): ExecutionAction | null {
+  if (problem?.startsWith("COMMERCIAL_")) return "RECHECK_MONETIZATION_PLAN";
+  if (problem === "POLICY_AMBIGUITY" || problem === "DEMAND_UNCERTAINTY" || problem === "KILL_RISK_INCOMPLETE" || problem === "RESEARCH_BUDGET_EXHAUSTED" || problem === "RESEARCH_EXECUTION_FAILURE") {
+    return "RUN_RESEARCH";
+  }
+  if (recommendation === "PLAN_EXPERIMENT") return "PLAN_EXPERIMENT";
+  if (problem?.startsWith("VALIDATION_")) return "RUN_VALIDATION";
+  if (recommendation === "RETURN_TO_RESEARCH") return "RUN_RESEARCH";
+  if (recommendation === "RETURN_TO_VALIDATION" || recommendation === "BUILD_SUPPORTED") return "RUN_VALIDATION";
+  return null;
+}
+
 async function reconcileResolutionComplete(state: typeof opportunityRuntimeStateTable.$inferSelect) {
   const latest = await latestResolutionNote(state.opportunityId);
   if (!latest || latest.note.status !== "RESOLVED") return false;
   const recommendation = latest.note.recommendation;
   const problem = latest.note.problem;
-  const unresolved = latest.note.unresolved_question;
-  let action: ExecutionAction | null = null;
-  let payload: Record<string, unknown> = {};
 
-  if (recommendation === "RETURN_TO_RESEARCH") action = "RUN_RESEARCH";
-  else if (recommendation === "RETURN_TO_VALIDATION") action = "RUN_VALIDATION";
-  else if (recommendation === "PLAN_EXPERIMENT") action = "PLAN_EXPERIMENT";
-  else if (recommendation === "BUILD_SUPPORTED") {
-    action = problem?.startsWith("COMMERCIAL_") ? "RECHECK_MONETIZATION_PLAN" : "RUN_VALIDATION";
-  } else if (recommendation === "KILL_SUPPORTED") {
+  if (recommendation === "KILL_SUPPORTED") {
     await db
       .update(opportunitiesTable)
       .set({
@@ -163,18 +176,16 @@ async function reconcileResolutionComplete(state: typeof opportunityRuntimeState
       metadata: { resolution_run_id: latest.runId, problem },
     });
     return true;
-  } else if (recommendation === "CONTINUE_RESOLUTION" && problem && unresolved) {
-    action = "RUN_RESOLUTION";
-    payload = { problem, unresolved_question: unresolved };
   }
 
+  const action = deterministicOwnerAction(problem, recommendation);
   if (!action) return false;
   await enqueueForRuntimeState({
     opportunityId: state.opportunityId,
     evaluationCycleId: state.activeEvaluationCycleId,
     action,
-    payload,
-    discriminator: `resolution-run-${latest.runId}-${recommendation}`,
+    payload: {},
+    discriminator: `resolution-run-${latest.runId}-${recommendation ?? "resolved"}`,
     priority: 85,
   });
   return true;
@@ -199,6 +210,50 @@ async function reconcileInterruptedState(
     discriminator: `${state.currentActivityKey}-${state.updatedAt.toISOString()}`,
     priority: 95,
   });
+}
+
+async function reconcileCommercialResolutionResults(): Promise<number> {
+  const jobs = await db
+    .select()
+    .from(executionJobsTable)
+    .where(eq(executionJobsTable.status, "SUCCEEDED"))
+    .orderBy(desc(executionJobsTable.id))
+    .limit(300);
+
+  let queued = 0;
+  for (const job of jobs) {
+    if (job.action !== "RECHECK_MONETIZATION_PLAN") continue;
+    const result = objectValue(job.result);
+    if (result.status !== "NEEDS_AUTONOMOUS_RESOLUTION") continue;
+    const problems = Array.isArray(result.resolutionProblems)
+      ? result.resolutionProblems.filter((value): value is string => typeof value === "string" && value.startsWith("COMMERCIAL_"))
+      : [];
+    const normalization = Array.isArray(result.commercialNormalizationNeeded)
+      ? result.commercialNormalizationNeeded.filter((value): value is string => typeof value === "string")
+      : [];
+
+    for (const problem of problems) {
+      const outcome = await enqueueExecutionJob({
+        opportunityId: job.opportunityId,
+        evaluationCycleId: job.evaluationCycleId,
+        parentJobId: job.id,
+        action: "RUN_RESOLUTION",
+        payload: {
+          problem,
+          unresolved_question: normalization.join(" ").slice(0, 4_000) || `${problem} remains unresolved in the commercial execution plan.`,
+        },
+        idempotencyKey: executionIdempotencyKey({
+          opportunityId: job.opportunityId,
+          evaluationCycleId: job.evaluationCycleId,
+          action: "RUN_RESOLUTION",
+          discriminator: `monetization-job-${job.id}-${problem}`,
+        }),
+        priority: 80,
+      });
+      if (!outcome.reused) queued += 1;
+    }
+  }
+  return queued;
 }
 
 export async function runExecutionHandoffReconciliation(port: number): Promise<{
@@ -275,10 +330,12 @@ export async function runExecutionHandoffReconciliation(port: number): Promise<{
 }
 
 export async function runExecutionReconcilerTick(port: number) {
-  if (reconcilerRunning) return { scanned: 0, queuedOrRecovered: 0 };
+  if (reconcilerRunning) return { scanned: 0, queuedOrRecovered: 0, commercialResolutionsQueued: 0 };
   reconcilerRunning = true;
   try {
-    return await runExecutionHandoffReconciliation(port);
+    const handoffs = await runExecutionHandoffReconciliation(port);
+    const commercialResolutionsQueued = await reconcileCommercialResolutionResults();
+    return { ...handoffs, commercialResolutionsQueued };
   } finally {
     reconcilerRunning = false;
   }
