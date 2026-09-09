@@ -6,6 +6,7 @@ import {
   evidenceTable,
   opportunitiesTable,
   policyChecksTable,
+  researchRunsTable,
 } from "@workspace/db";
 import {
   evaluateKillScreen,
@@ -164,6 +165,19 @@ router.post("/opportunities/:opportunityId/kill-screen/collect", async (req, res
     const baseScreen = evaluateKillScreen(state.context, existingEvidence);
     const dedicatedAssessments = runDedicatedKillRiskWorkers(collected.inputs);
     const killScreen = mergeKillScreenAssessments(baseScreen, dedicatedAssessments);
+
+    await db.insert(researchRunsTable).values({
+      startedAt: new Date(),
+      finishedAt: new Date(),
+      triggerType: "KILL_RISK_CHECK",
+      notes: JSON.stringify({
+        opportunityId,
+        externalCostUsd: collected.externalCostUsd,
+        killRiskOutcome: killScreen.overall,
+        confirmedKills: killScreen.confirmedKills,
+        unknownKills: killScreen.unknownKills,
+      }),
+    });
 
     res.status(200).json({
       opportunity_id: opportunityId,
