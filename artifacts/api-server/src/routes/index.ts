@@ -12,6 +12,7 @@ import experimentExecutionRouter from "./experiment-execution";
 import policyChecksRouter from "./policy-checks";
 import demandChecksRouter from "./demand-checks";
 import researchRouter from "./research";
+import runTimelineRouter from "./run-timeline";
 import candidateResearchHandoffRouter from "./candidate-research-handoff";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
@@ -35,6 +36,7 @@ router.use(experimentExecutionRouter);
 router.use(policyChecksRouter);
 router.use(demandChecksRouter);
 router.use(researchRouter);
+router.use(runTimelineRouter);
 router.use(candidateResearchHandoffRouter);
 router.use(discoveryRouter);
 
