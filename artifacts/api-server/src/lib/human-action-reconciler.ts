@@ -79,9 +79,18 @@ const parseNote = (value: string | null): Partial<ResolutionNote> => {
 };
 
 const normalizeCapabilityKey = (platform: string): string =>
-  `${platform.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}_AUTHENTICATED_ACCESS`;
+  `${platform.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "")}_AUTOMATION_ACCESS`;
 
 const accessGateLanguage = /\b(login|log in|logged in|authenticated|authentication|account|seller account|publisher account|developer account|sign[ -]?up|kyc|identity verification|verify identity|accept (?:the )?terms|seller dashboard|publisher dashboard|developer dashboard|partner dashboard|paywall|paid access|requires? access|behind authentication|members? only)\b/i;
+
+const stringField = (
+  object: Record<string, unknown>,
+  camel: string,
+  snake: string,
+): string | null => {
+  const value = object[camel] ?? object[snake];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
 
 function candidateFromNotes(input: {
   platform: string;
@@ -93,31 +102,34 @@ function candidateFromNotes(input: {
     .map((note) => note.human_gate_candidate)
     .find((value) => value && typeof value === "object" && !Array.isArray(value)) as Record<string, unknown> | undefined;
   if (explicit) {
-    const verificationMode = explicit.verification_mode;
+    const actionType = stringField(explicit, "actionType", "action_type");
+    const title = stringField(explicit, "title", "title");
+    const whyNeeded = stringField(explicit, "whyNeeded", "why_needed");
+    const instructions = stringField(explicit, "instructions", "instructions");
+    const blockedStage = stringField(explicit, "blockedStage", "blocked_stage");
+    const requiredCapabilityKey = stringField(explicit, "requiredCapabilityKey", "required_capability_key");
+    const provider = stringField(explicit, "provider", "provider");
+    const verificationMode = explicit.verificationMode ?? explicit.verification_mode;
     const urgency = explicit.urgency;
     if (
-      typeof explicit.action_type === "string" &&
-      typeof explicit.title === "string" &&
-      typeof explicit.why_needed === "string" &&
-      typeof explicit.instructions === "string" &&
-      typeof explicit.blocked_stage === "string" &&
+      actionType &&
+      title &&
+      whyNeeded &&
+      instructions &&
+      blockedStage &&
       (verificationMode === "AUTOMATED_CHECK" || verificationMode === "HUMAN_ATTESTATION" || verificationMode === "EXTERNAL_CALLBACK") &&
       (urgency === "CRITICAL" || urgency === "HIGH" || urgency === "NORMAL" || urgency === "LOW")
     ) {
       return {
-        actionType: explicit.action_type.slice(0, 120),
-        title: explicit.title.slice(0, 300),
-        whyNeeded: explicit.why_needed.slice(0, 2_000),
-        instructions: explicit.instructions.slice(0, 2_000),
-        blockedStage: explicit.blocked_stage.slice(0, 160),
-        requiredCapabilityKey:
-          typeof explicit.required_capability_key === "string" && explicit.required_capability_key.trim()
-            ? explicit.required_capability_key.trim().toUpperCase().replace(/[^A-Z0-9_:-]/g, "_").slice(0, 160)
-            : null,
-        provider:
-          typeof explicit.provider === "string" && explicit.provider.trim()
-            ? explicit.provider.trim().slice(0, 160)
-            : input.platform,
+        actionType: actionType.slice(0, 120),
+        title: title.slice(0, 300),
+        whyNeeded: whyNeeded.slice(0, 2_000),
+        instructions: instructions.slice(0, 2_000),
+        blockedStage: blockedStage.slice(0, 160),
+        requiredCapabilityKey: requiredCapabilityKey
+          ? requiredCapabilityKey.toUpperCase().replace(/[^A-Z0-9_:-]/g, "_").slice(0, 160)
+          : null,
+        provider: provider?.slice(0, 160) ?? input.platform,
         verificationMode,
         urgency,
       };
@@ -136,9 +148,9 @@ function candidateFromNotes(input: {
 
   return {
     actionType: "CREATE_OR_CONNECT_PLATFORM_ACCOUNT",
-    title: `Create or connect ${input.platform} access`,
+    title: `Connect ${input.platform} access for Money Scout`,
     whyNeeded: `Money Scout exhausted the applicable internal research paths for ${input.problem}. The remaining material evidence appears to require authenticated ${input.platform} access rather than another public-search pass.`,
-    instructions: `Create or verify the required ${input.platform} account/access, then mark this action complete. If OAuth or API authorization is available, connect that access rather than sharing passwords with Money Scout.`,
+    instructions: `Create or verify the required ${input.platform} account if necessary, then connect usable authorized access for Money Scout through a supported OAuth, API, or integration path. Account creation alone does not resolve this action, and passwords or raw secrets should not be pasted into the action.`,
     blockedStage: `AUTONOMOUS_RESOLUTION:${input.problem}`,
     requiredCapabilityKey: normalizeCapabilityKey(input.platform),
     provider: input.platform,
@@ -252,7 +264,7 @@ export async function reconcileExhaustedHumanActions(): Promise<{
         activityStatus: "BLOCKED",
         activityStartedAt: new Date(),
         expectedDurationSeconds: null,
-        nextAction: `Capability ${candidate.requiredCapabilityKey} is already available. Human escalation is suppressed; the execution kernel must resume the blocked stage using that capability.`,
+        nextAction: `Capability ${candidate.requiredCapabilityKey} is already automation-ready. Human escalation is suppressed; the execution kernel must resume the blocked stage using that capability.`,
         etaBasis: "AUTONOMY_RECOVERY_REQUIRED",
         lifecycleTransition: true,
       });
