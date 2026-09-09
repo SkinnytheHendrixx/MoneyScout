@@ -31,6 +31,8 @@ assert.equal(ready.status, "READY_FOR_BUILDER");
 assert.equal(ready.nextGate, "BUILDER_WORKSPACE");
 assert.equal(ready.product.primaryShape, "MARKETPLACE_PRODUCT");
 assert.equal(ready.product.builderProfile, "MARKETPLACE_PACKAGE");
+assert.equal(readyPlan.pricing.confidenceState, "STRONGLY_INFERRED");
+assert.equal(ready.firstTransaction.pricingConfidenceState, "STRONGLY_INFERRED");
 assert.equal(ready.scope.externalSpendCeilingUsd, 0);
 assert.equal(ready.scope.openSourceReuseAuditRequired, true);
 assert.equal(ready.scope.reuseBeforeBuild, true);
