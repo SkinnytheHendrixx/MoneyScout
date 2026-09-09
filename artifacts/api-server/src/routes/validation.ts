@@ -89,6 +89,29 @@ async function runValidationEvidenceStage(req: Request, opportunityId: number): 
   }
 }
 
+async function runExperimentPlanningStage(req: Request, opportunityId: number): Promise<unknown> {
+  const response = await fetch(
+    `${forwardedOrigin(req)}/api/opportunities/${opportunityId}/experiments/plan`,
+    {
+      method: "POST",
+      headers: forwardedAuthHeaders(req),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const body = await response.text().catch(() => "");
+  if (!response.ok) {
+    throw new Error(
+      `experiments/plan failed with HTTP ${response.status}${body ? `: ${body.slice(0, 500)}` : ""}`,
+    );
+  }
+  if (!body) return null;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 async function latestValidationRun(opportunityId: number): Promise<{
   id: number;
   notes: Partial<ValidationRunNote>;
@@ -324,6 +347,17 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
       execution.finalPlan,
     );
 
+    let experimentPlanning: unknown = null;
+    let experimentPlanningError: string | null = null;
+    if (execution.finalPlan.nextAction === "PLAN_EXPERIMENT") {
+      try {
+        experimentPlanning = await runExperimentPlanningStage(req, opportunityId);
+      } catch (error) {
+        experimentPlanningError = error instanceof Error ? error.message : "Unknown experiment-planning failure";
+        req.log.error({ err: error, opportunityId }, "Automatic falsifying experiment planning failed");
+      }
+    }
+
     const [updatedOpportunity] = await db
       .select({ verdict: opportunitiesTable.verdict, killReason: opportunitiesTable.killReason })
       .from(opportunitiesTable)
@@ -341,6 +375,8 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
       evidence_run_status: postCollectionState.evidenceRunStatus,
       assessments: postCollectionState.assessments,
       ...execution.finalPlan,
+      experiment_planning: experimentPlanning,
+      experiment_planning_error: experimentPlanningError,
       retry_policy:
         execution.finalPlan.phase === "NEEDS_MORE_VALIDATION"
           ? "NO_AUTOMATIC_PAID_RETRY"
