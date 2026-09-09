@@ -110,8 +110,14 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   const headers: Record<string, string> = {};
   const cookie = req.get("cookie");
   const authorization = req.get("authorization");
+  const pilotSpendApproval = req.get("x-money-scout-allow-pilot-spend");
+  const unverifiedProviderApproval = req.get("x-money-scout-allow-unverified-provider");
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
+  if (pilotSpendApproval) headers["x-money-scout-allow-pilot-spend"] = pilotSpendApproval;
+  if (unverifiedProviderApproval) {
+    headers["x-money-scout-allow-unverified-provider"] = unverifiedProviderApproval;
+  }
   return headers;
 }
 
