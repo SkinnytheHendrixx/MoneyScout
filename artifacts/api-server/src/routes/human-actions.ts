@@ -64,7 +64,11 @@ async function ensureCapabilityUnlockCycle(
   return cycle.id;
 }
 
-const isExecutionResumeAction = (value: HumanActionResumeAction): value is ExecutionAction =>
+type ExecutableHumanResumeAction = Extract<HumanActionResumeAction, ExecutionAction>;
+
+const isExecutionResumeAction = (
+  value: HumanActionResumeAction,
+): value is ExecutableHumanResumeAction =>
   value === "RUN_RESEARCH" ||
   value === "RUN_VALIDATION" ||
   value === "PLAN_EXPERIMENT" ||
