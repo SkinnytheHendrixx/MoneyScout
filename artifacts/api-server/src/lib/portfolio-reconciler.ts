@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   db,
   discoveryCandidatesTable,
@@ -131,7 +131,7 @@ async function recoverStaleResearchRuns(now: Date): Promise<number> {
   const runs = await db
     .select()
     .from(researchRunsTable)
-    .where(eq(researchRunsTable.finishedAt, null as never))
+    .where(isNull(researchRunsTable.finishedAt))
     .orderBy(desc(researchRunsTable.startedAt));
 
   let recovered = 0;
