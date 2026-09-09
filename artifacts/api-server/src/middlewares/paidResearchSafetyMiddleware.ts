@@ -10,7 +10,7 @@ import {
   unverifiedProviderSpendApproved,
 } from "../lib/runtime-safety";
 
-const PAID_ORCHESTRATION_PATH = /^\/opportunities\/(\d+)\/(?:research\/advance|validation\/advance)$/;
+const PAID_ORCHESTRATION_PATH = /^\/opportunities\/(\d+)\/(?:research\/advance|validation\/advance|resolution\/advance)$/;
 
 export async function requireSafePaidResearchRuntime(
   req: Request,
