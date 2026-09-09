@@ -5,7 +5,11 @@ import {
   db,
   humanActionsTable,
 } from "@workspace/db";
-import { internalAutomationHeaders } from "../lib/internal-automation-auth";
+import {
+  enqueueExecutionJob,
+  executionIdempotencyKey,
+  type ExecutionAction,
+} from "../lib/execution-kernel";
 import {
   HUMAN_ACTION_NOTIFICATION_POLICY,
   markHumanActionResolved,
@@ -22,12 +26,6 @@ import {
 } from "../lib/lifecycle-state";
 
 const router: IRouter = Router();
-
-function apiBaseUrl(): string {
-  const rawPort = process.env.PORT;
-  if (!rawPort) throw new Error("PORT is unavailable for autonomous resume dispatch");
-  return `http://127.0.0.1:${Number(rawPort)}/api`;
-}
 
 function jsonPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -66,117 +64,96 @@ async function ensureCapabilityUnlockCycle(
   return cycle.id;
 }
 
-async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelect): Promise<void> {
+const isExecutionResumeAction = (value: HumanActionResumeAction): value is ExecutionAction =>
+  value === "RUN_RESEARCH" ||
+  value === "RUN_VALIDATION" ||
+  value === "PLAN_EXPERIMENT" ||
+  value === "EXECUTE_EXPERIMENT" ||
+  value === "RUN_RESOLUTION" ||
+  value === "RECHECK_MONETIZATION_PLAN";
+
+async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelect): Promise<{
+  queued: boolean;
+  executionJobId: number | null;
+  effectiveResumeAction: HumanActionResumeAction;
+}> {
   let resumeAction = action.resumeAction as HumanActionResumeAction;
-  if (resumeAction === "NO_AUTOMATIC_RESUME") return;
+  if (resumeAction === "NO_AUTOMATIC_RESUME") {
+    return { queued: false, executionJobId: null, effectiveResumeAction: resumeAction };
+  }
 
   const payload = jsonPayload(action.resumePayload);
   const cycleId = await ensureCapabilityUnlockCycle(action, resumeAction);
 
-  // A newly unlocked capability is a genuinely new evidence condition. If the
-  // prior blocker occurred in Validation, reopen Research first so the fresh
-  // evaluation cycle can establish coherent current-cycle prerequisites rather
-  // than combining old Research with new authenticated evidence.
+  // Authenticated access changes the evidence condition. If the old workflow was
+  // blocked in Validation, reopen Research in a fresh cycle first rather than
+  // combining old Research evidence with newly accessible authenticated data.
   if (action.requiredCapabilityKey && resumeAction === "RUN_VALIDATION") {
     resumeAction = "RUN_RESEARCH";
   }
 
-  let method = "POST";
-  let path: string | null = null;
-  let body: string | undefined;
-
-  switch (resumeAction) {
-    case "RUN_RESEARCH":
-      path = `/opportunities/${action.opportunityId}/research/advance`;
-      break;
-    case "RUN_VALIDATION":
-      path = `/opportunities/${action.opportunityId}/validation/advance`;
-      break;
-    case "PLAN_EXPERIMENT":
-      path = `/opportunities/${action.opportunityId}/experiments/plan`;
-      break;
-    case "EXECUTE_EXPERIMENT": {
-      const experimentId = Number(payload.experiment_id);
-      if (!Number.isInteger(experimentId) || experimentId <= 0) return;
-      path = `/opportunities/${action.opportunityId}/experiments/${experimentId}/execute`;
-      break;
-    }
-    case "RUN_RESOLUTION":
-      path = `/opportunities/${action.opportunityId}/resolution/advance`;
-      body = JSON.stringify({
-        problem: payload.problem,
-        unresolved_question: payload.unresolved_question,
-      });
-      break;
-    case "RECHECK_MONETIZATION_PLAN":
-      method = "GET";
-      path = `/opportunities/${action.opportunityId}/monetization-plan`;
-      break;
+  if (!isExecutionResumeAction(resumeAction)) {
+    return { queued: false, executionJobId: null, effectiveResumeAction: resumeAction };
   }
 
-  if (!path) return;
+  // Persist the effective resume contract so restart recovery reconstructs the
+  // exact same successor instead of re-enqueuing the pre-normalized action.
+  if (cycleId !== action.evaluationCycleId || resumeAction !== action.resumeAction) {
+    await db
+      .update(humanActionsTable)
+      .set({
+        evaluationCycleId: cycleId,
+        resumeAction,
+        updatedAt: new Date(),
+      })
+      .where(eq(humanActionsTable.id, action.id));
+  }
+
+  const queued = await enqueueExecutionJob({
+    opportunityId: action.opportunityId,
+    evaluationCycleId: cycleId,
+    action: resumeAction,
+    payload,
+    idempotencyKey: executionIdempotencyKey({
+      opportunityId: action.opportunityId,
+      evaluationCycleId: cycleId,
+      action: resumeAction,
+      discriminator: `human-action-${action.id}`,
+    }),
+    priority: 90,
+  });
+
+  await setOpportunityActivity(action.opportunityId, {
+    activeEvaluationCycleId: cycleId,
+    currentActivityKey: "HUMAN_ACTION_RESUME_QUEUED",
+    currentActivityLabel: "Human bottleneck cleared; automation queued to resume",
+    activityStatus: "WAITING",
+    activityStartedAt: new Date(),
+    expectedDurationSeconds: null,
+    nextAction: resumeAction.replaceAll("_", " "),
+    etaBasis: "DURABLE_EXECUTION_QUEUE",
+    lifecycleTransition: true,
+  });
   await recordLifecycleEvent({
     opportunityId: action.opportunityId,
     evaluationCycleId: cycleId,
-    eventType: "HUMAN_ACTION_RESUME_DISPATCHED",
-    summary: `Human action ${action.id} resolved; dispatching ${resumeAction}.`,
+    eventType: "HUMAN_ACTION_RESUME_QUEUED",
+    summary: `Human action ${action.id} resolved; ${resumeAction} is durably queued.`,
     metadata: {
       human_action_id: action.id,
       configured_resume_action: action.resumeAction,
-      dispatched_resume_action: resumeAction,
+      effective_resume_action: resumeAction,
       capability_key: action.requiredCapabilityKey,
+      execution_job_id: queued.job.id,
+      reused_execution_job: queued.reused,
     },
   });
 
-  void fetch(`${apiBaseUrl()}${path}`, {
-    method,
-    headers: {
-      ...internalAutomationHeaders(),
-      ...(body ? { "content-type": "application/json" } : {}),
-    },
-    body,
-    signal: AbortSignal.timeout(360_000),
-  })
-    .then(async (response) => {
-      if (response.ok || response.status === 409) return;
-      const text = await response.text().catch(() => "");
-      await setOpportunityActivity(action.opportunityId, {
-        activeEvaluationCycleId: cycleId,
-        currentActivityKey: "RESUME_DISPATCH_FAILED",
-        currentActivityLabel: "Human bottleneck cleared; automatic resume needs recovery",
-        activityStatus: "BLOCKED",
-        activityStartedAt: new Date(),
-        expectedDurationSeconds: null,
-        nextAction: `Automatic resume ${resumeAction} returned HTTP ${response.status}. Portfolio recovery should retry only after classifying the failure.`,
-        etaBasis: "RECOVERY_REQUIRED",
-      });
-      await recordLifecycleEvent({
-        opportunityId: action.opportunityId,
-        evaluationCycleId: cycleId,
-        eventType: "HUMAN_ACTION_RESUME_FAILED",
-        summary: `Automatic resume ${resumeAction} returned HTTP ${response.status}.`,
-        metadata: { human_action_id: action.id, response: text.slice(0, 500) },
-      });
-    })
-    .catch(async (error) => {
-      await setOpportunityActivity(action.opportunityId, {
-        activeEvaluationCycleId: cycleId,
-        currentActivityKey: "RESUME_DISPATCH_FAILED",
-        currentActivityLabel: "Human bottleneck cleared; automatic resume needs recovery",
-        activityStatus: "BLOCKED",
-        activityStartedAt: new Date(),
-        expectedDurationSeconds: null,
-        nextAction: "Automatic resume failed at the transport layer. Preserve the resolved human action and recover from durable lifecycle state.",
-        etaBasis: "RECOVERY_REQUIRED",
-      });
-      await recordLifecycleEvent({
-        opportunityId: action.opportunityId,
-        evaluationCycleId: cycleId,
-        eventType: "HUMAN_ACTION_RESUME_FAILED",
-        summary: error instanceof Error ? error.message.slice(0, 1_000) : "Unknown resume dispatch failure",
-        metadata: { human_action_id: action.id, resume_action: resumeAction },
-      });
-    });
+  return {
+    queued: true,
+    executionJobId: queued.job.id,
+    effectiveResumeAction: resumeAction,
+  };
 }
 
 router.get("/human-actions", async (req, res): Promise<void> => {
@@ -240,7 +217,8 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     return;
   }
   if (action.status === "RESOLVED") {
-    res.json({ action, reused_resolution: true });
+    const resume = await resumeResolvedAction(action);
+    res.json({ action, reused_resolution: true, ...resume });
     return;
   }
   if (action.status === "CANCELLED") {
@@ -302,12 +280,14 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     res.status(404).json({ error: "Human action disappeared during resolution" });
     return;
   }
-  await resumeResolvedAction(resolved);
+  const resume = await resumeResolvedAction(resolved);
   res.json({
     action: resolved,
     reused_resolution: false,
     capability_unlocked: resolved.requiredCapabilityKey,
-    automatic_resume_dispatched: resolved.resumeAction !== "NO_AUTOMATIC_RESUME",
+    automatic_resume_queued: resume.queued,
+    execution_job_id: resume.executionJobId,
+    effective_resume_action: resume.effectiveResumeAction,
   });
 });
 
@@ -336,11 +316,13 @@ router.post("/capabilities/:capabilityKey/confirm", async (req, res): Promise<vo
     capabilityKey,
     resolutionData: { ...metadata, attested: true, access_ready_for_money_scout: true },
   });
-  for (const action of resolvedActions) await resumeResolvedAction(action);
+  const resumes = [];
+  for (const action of resolvedActions) resumes.push(await resumeResolvedAction(action));
   res.json({
     capability,
     resolved_human_action_ids: resolvedActions.map((action) => action.id),
-    automatic_resumes_dispatched: resolvedActions.length,
+    automatic_resumes_queued: resumes.filter((item) => item.queued).length,
+    execution_job_ids: resumes.flatMap((item) => item.executionJobId == null ? [] : [item.executionJobId]),
   });
 });
 
