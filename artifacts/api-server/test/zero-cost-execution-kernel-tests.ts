@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
-import {
+import { createAutonomousResolutionPlan } from "../src/lib/autonomous-resolution-engine";
+
+const priorNodeEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = "production";
+const {
   classifyExecutionFailure,
   executionIdempotencyKey,
-} from "../src/lib/execution-kernel";
-import { createAutonomousResolutionPlan } from "../src/lib/autonomous-resolution-engine";
+} = await import("../src/lib/execution-kernel");
+process.env.NODE_ENV = priorNodeEnv;
 
 const keyA = executionIdempotencyKey({
   opportunityId: 42,
