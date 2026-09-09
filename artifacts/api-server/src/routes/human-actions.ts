@@ -14,7 +14,12 @@ import {
   setCapabilityAvailable,
   type HumanActionResumeAction,
 } from "../lib/human-gates";
-import { recordLifecycleEvent, setOpportunityActivity } from "../lib/lifecycle-state";
+import {
+  getActiveEvaluationCycle,
+  recordLifecycleEvent,
+  setOpportunityActivity,
+  startNewEvaluationCycle,
+} from "../lib/lifecycle-state";
 
 const router: IRouter = Router();
 
@@ -30,11 +35,52 @@ function jsonPayload(value: unknown): Record<string, unknown> {
     : {};
 }
 
+async function ensureCapabilityUnlockCycle(
+  action: typeof humanActionsTable.$inferSelect,
+  resumeAction: HumanActionResumeAction,
+): Promise<number | null> {
+  if (!action.requiredCapabilityKey || (resumeAction !== "RUN_RESEARCH" && resumeAction !== "RUN_VALIDATION")) {
+    return action.evaluationCycleId;
+  }
+
+  const current = await getActiveEvaluationCycle(action.opportunityId);
+  const metadata = current?.triggerMetadata as Record<string, unknown> | undefined;
+  if (
+    current?.triggerType === "HUMAN_CAPABILITY_UNLOCKED" &&
+    metadata?.capability_key === action.requiredCapabilityKey
+  ) {
+    return current.id;
+  }
+
+  const cycle = await startNewEvaluationCycle({
+    opportunityId: action.opportunityId,
+    triggerType: "HUMAN_CAPABILITY_UNLOCKED",
+    triggerReason: `Human-only access bottleneck was resolved and ${action.requiredCapabilityKey} became available to Money Scout.`,
+    triggerMetadata: {
+      human_action_id: action.id,
+      capability_key: action.requiredCapabilityKey,
+      provider: action.requiredCapabilityProvider,
+      prior_resume_action: resumeAction,
+    },
+  });
+  return cycle.id;
+}
+
 async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelect): Promise<void> {
-  const resumeAction = action.resumeAction as HumanActionResumeAction;
+  let resumeAction = action.resumeAction as HumanActionResumeAction;
   if (resumeAction === "NO_AUTOMATIC_RESUME") return;
 
   const payload = jsonPayload(action.resumePayload);
+  const cycleId = await ensureCapabilityUnlockCycle(action, resumeAction);
+
+  // A newly unlocked capability is a genuinely new evidence condition. If the
+  // prior blocker occurred in Validation, reopen Research first so the fresh
+  // evaluation cycle can establish coherent current-cycle prerequisites rather
+  // than combining old Research with new authenticated evidence.
+  if (action.requiredCapabilityKey && resumeAction === "RUN_VALIDATION") {
+    resumeAction = "RUN_RESEARCH";
+  }
+
   let method = "POST";
   let path: string | null = null;
   let body: string | undefined;
@@ -71,10 +117,15 @@ async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelec
   if (!path) return;
   await recordLifecycleEvent({
     opportunityId: action.opportunityId,
-    evaluationCycleId: action.evaluationCycleId,
+    evaluationCycleId: cycleId,
     eventType: "HUMAN_ACTION_RESUME_DISPATCHED",
     summary: `Human action ${action.id} resolved; dispatching ${resumeAction}.`,
-    metadata: { human_action_id: action.id, resume_action: resumeAction },
+    metadata: {
+      human_action_id: action.id,
+      configured_resume_action: action.resumeAction,
+      dispatched_resume_action: resumeAction,
+      capability_key: action.requiredCapabilityKey,
+    },
   });
 
   void fetch(`${apiBaseUrl()}${path}`, {
@@ -90,7 +141,7 @@ async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelec
       if (response.ok || response.status === 409) return;
       const text = await response.text().catch(() => "");
       await setOpportunityActivity(action.opportunityId, {
-        activeEvaluationCycleId: action.evaluationCycleId,
+        activeEvaluationCycleId: cycleId,
         currentActivityKey: "RESUME_DISPATCH_FAILED",
         currentActivityLabel: "Human bottleneck cleared; automatic resume needs recovery",
         activityStatus: "BLOCKED",
@@ -101,7 +152,7 @@ async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelec
       });
       await recordLifecycleEvent({
         opportunityId: action.opportunityId,
-        evaluationCycleId: action.evaluationCycleId,
+        evaluationCycleId: cycleId,
         eventType: "HUMAN_ACTION_RESUME_FAILED",
         summary: `Automatic resume ${resumeAction} returned HTTP ${response.status}.`,
         metadata: { human_action_id: action.id, response: text.slice(0, 500) },
@@ -109,7 +160,7 @@ async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelec
     })
     .catch(async (error) => {
       await setOpportunityActivity(action.opportunityId, {
-        activeEvaluationCycleId: action.evaluationCycleId,
+        activeEvaluationCycleId: cycleId,
         currentActivityKey: "RESUME_DISPATCH_FAILED",
         currentActivityLabel: "Human bottleneck cleared; automatic resume needs recovery",
         activityStatus: "BLOCKED",
@@ -120,7 +171,7 @@ async function resumeResolvedAction(action: typeof humanActionsTable.$inferSelec
       });
       await recordLifecycleEvent({
         opportunityId: action.opportunityId,
-        evaluationCycleId: action.evaluationCycleId,
+        evaluationCycleId: cycleId,
         eventType: "HUMAN_ACTION_RESUME_FAILED",
         summary: error instanceof Error ? error.message.slice(0, 1_000) : "Unknown resume dispatch failure",
         metadata: { human_action_id: action.id, resume_action: resumeAction },
@@ -197,8 +248,8 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     return;
   }
 
-  await markHumanActionVerifying(action.id);
   if (action.verificationMode === "AUTOMATED_CHECK") {
+    await markHumanActionVerifying(action.id);
     res.status(409).json({
       error: "This action requires its provider-specific automated verifier. Human attestation cannot bypass that verification contract.",
       action_status: "VERIFYING",
@@ -206,6 +257,7 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     return;
   }
   if (action.verificationMode === "EXTERNAL_CALLBACK") {
+    await markHumanActionVerifying(action.id);
     res.status(409).json({
       error: "This action is waiting for an external callback. Manual completion cannot bypass that callback contract.",
       action_status: "VERIFYING",
@@ -216,20 +268,35 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     res.status(400).json({ error: "Human-attested actions require attested: true" });
     return;
   }
+  if (action.requiredCapabilityKey && req.body?.access_ready_for_money_scout !== true) {
+    res.status(409).json({
+      error: "Creating an account alone does not resolve this bottleneck. Confirm access_ready_for_money_scout: true only after Money Scout has usable authorized access (for example OAuth, API, or another supported integration). Do not place passwords or raw secrets in this request.",
+      action_status: action.status,
+    });
+    return;
+  }
 
+  await markHumanActionVerifying(action.id);
   const resolutionData = jsonPayload(req.body?.resolution_data);
   if (action.requiredCapabilityKey) {
     await setCapabilityAvailable({
       key: action.requiredCapabilityKey,
       provider: action.requiredCapabilityProvider ?? String(req.body?.provider ?? "UNKNOWN"),
-      accessLevel: typeof req.body?.access_level === "string" ? req.body.access_level : "AUTHENTICATED",
-      verificationMethod: "HUMAN_ATTESTATION",
-      metadata: resolutionData,
+      accessLevel: "AUTOMATION_READY",
+      verificationMethod: "HUMAN_ATTESTATION_OF_CONNECTED_ACCESS",
+      metadata: {
+        ...resolutionData,
+        access_ready_for_money_scout: true,
+      },
     });
   }
   const resolved = await markHumanActionResolved({
     actionId: action.id,
-    resolutionData: { ...resolutionData, attested: true },
+    resolutionData: {
+      ...resolutionData,
+      attested: true,
+      ...(action.requiredCapabilityKey ? { access_ready_for_money_scout: true } : {}),
+    },
   });
   if (!resolved) {
     res.status(404).json({ error: "Human action disappeared during resolution" });
@@ -246,21 +313,28 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
 
 router.post("/capabilities/:capabilityKey/confirm", async (req, res): Promise<void> => {
   const capabilityKey = String(req.params.capabilityKey ?? "").trim();
-  if (!capabilityKey || req.body?.attested !== true || typeof req.body?.provider !== "string") {
-    res.status(400).json({ error: "capability key, provider, and attested: true are required" });
+  if (
+    !capabilityKey ||
+    req.body?.attested !== true ||
+    req.body?.access_ready_for_money_scout !== true ||
+    typeof req.body?.provider !== "string"
+  ) {
+    res.status(400).json({
+      error: "capability key, provider, attested: true, and access_ready_for_money_scout: true are required. Account existence alone is not an automation-ready capability.",
+    });
     return;
   }
   const metadata = jsonPayload(req.body?.metadata);
   const capability = await setCapabilityAvailable({
     key: capabilityKey,
     provider: req.body.provider,
-    accessLevel: typeof req.body?.access_level === "string" ? req.body.access_level : "AUTHENTICATED",
-    verificationMethod: "HUMAN_ATTESTATION",
-    metadata,
+    accessLevel: "AUTOMATION_READY",
+    verificationMethod: "HUMAN_ATTESTATION_OF_CONNECTED_ACCESS",
+    metadata: { ...metadata, access_ready_for_money_scout: true },
   });
   const resolvedActions = await resolveOpenActionsForCapability({
     capabilityKey,
-    resolutionData: { ...metadata, attested: true },
+    resolutionData: { ...metadata, attested: true, access_ready_for_money_scout: true },
   });
   for (const action of resolvedActions) await resumeResolvedAction(action);
   res.json({
