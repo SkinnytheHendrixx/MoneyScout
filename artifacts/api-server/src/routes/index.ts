@@ -5,6 +5,7 @@ import opportunitiesRouter from "./opportunities";
 import evidenceRouter from "./evidence";
 import policyChecksRouter from "./policy-checks";
 import demandChecksRouter from "./demand-checks";
+import researchRouter from "./research";
 import candidateResearchHandoffRouter from "./candidate-research-handoff";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
@@ -18,6 +19,7 @@ router.use(opportunitiesRouter);
 router.use(evidenceRouter);
 router.use(policyChecksRouter);
 router.use(demandChecksRouter);
+router.use(researchRouter);
 router.use(candidateResearchHandoffRouter);
 router.use(discoveryRouter);
 
