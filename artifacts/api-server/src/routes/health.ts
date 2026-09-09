@@ -62,6 +62,10 @@ router.get("/health/readiness", async (_req, res): Promise<void> => {
 
   res.json({
     state: readiness.state,
+    infrastructure_safe: readiness.infrastructureSafe,
+    ai_provider_ready: readiness.aiProviderReady,
+    provider_readiness: readiness.providerReadiness,
+    live_research_ready: readiness.liveResearchReady,
     paid_research_safe: readiness.paidResearchSafe,
     checked_at: new Date().toISOString(),
     blockers: readiness.blockers,
@@ -78,11 +82,12 @@ router.get("/health/readiness", async (_req, res): Promise<void> => {
         error: databaseError,
       },
       anthropic: {
-        status: provider.source === "UNAVAILABLE" ? "BLOCKED" : provider.source === "REPLIT_MANAGED" ? "ATTENTION" : "READY",
+        status: readiness.providerReadiness === "READY" ? "READY" : readiness.providerReadiness === "UNVERIFIED" ? "ATTENTION" : "BLOCKED",
         source: provider.source,
         configured: provider.apiKeyPresent,
         connectivity_verified: false,
         billable_call_performed: false,
+        readiness: readiness.providerReadiness,
       },
       runtime: {
         status: freshness === "MATCH" ? "READY" : freshness === "STALE" ? "BLOCKED" : "ATTENTION",

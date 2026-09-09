@@ -8,9 +8,13 @@ import { determineStartupReadiness } from "../src/lib/startup-readiness";
     runtimeFreshness: "MATCH",
   });
   assert.equal(result.state, "READY");
+  assert.equal(result.infrastructureSafe, true);
+  assert.equal(result.aiProviderReady, true);
+  assert.equal(result.providerReadiness, "READY");
+  assert.equal(result.liveResearchReady, true);
   assert.equal(result.paidResearchSafe, true);
-  assert.deepEqual(result.blockers, []);
-  assert.deepEqual(result.warnings, []);
+  assert.equal(result.blockers.length, 0);
+  assert.equal(result.warnings.length, 1);
 }
 
 {
@@ -20,9 +24,12 @@ import { determineStartupReadiness } from "../src/lib/startup-readiness";
     runtimeFreshness: "UNKNOWN",
   });
   assert.equal(result.state, "ATTENTION");
+  assert.equal(result.infrastructureSafe, true);
+  assert.equal(result.aiProviderReady, true);
+  assert.equal(result.liveResearchReady, true);
   assert.equal(result.paidResearchSafe, true);
   assert.equal(result.blockers.length, 0);
-  assert.equal(result.warnings.length, 1);
+  assert.equal(result.warnings.length, 2);
 }
 
 {
@@ -32,8 +39,25 @@ import { determineStartupReadiness } from "../src/lib/startup-readiness";
     runtimeFreshness: "MATCH",
   });
   assert.equal(result.state, "ATTENTION");
-  assert.equal(result.paidResearchSafe, true);
+  assert.equal(result.infrastructureSafe, true);
+  assert.equal(result.aiProviderReady, false);
+  assert.equal(result.providerReadiness, "UNVERIFIED");
+  assert.equal(result.liveResearchReady, false);
+  assert.equal(result.paidResearchSafe, false);
+  assert.equal(result.blockers.length, 0);
   assert.equal(result.warnings.length, 1);
+}
+
+{
+  const result = determineStartupReadiness({
+    databaseReachable: false,
+    anthropicProvider: "DIRECT",
+    runtimeFreshness: "MATCH",
+  });
+  assert.equal(result.infrastructureSafe, false);
+  assert.equal(result.aiProviderReady, true);
+  assert.equal(result.liveResearchReady, false);
+  assert.equal(result.paidResearchSafe, false);
 }
 
 {
@@ -43,6 +67,10 @@ import { determineStartupReadiness } from "../src/lib/startup-readiness";
     runtimeFreshness: "STALE",
   });
   assert.equal(result.state, "BLOCKED");
+  assert.equal(result.infrastructureSafe, false);
+  assert.equal(result.aiProviderReady, false);
+  assert.equal(result.providerReadiness, "UNAVAILABLE");
+  assert.equal(result.liveResearchReady, false);
   assert.equal(result.paidResearchSafe, false);
   assert.equal(result.blockers.length, 3);
 }
