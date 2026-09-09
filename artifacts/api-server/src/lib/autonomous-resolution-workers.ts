@@ -9,6 +9,7 @@ import {
 } from "./autonomous-resolution-engine";
 
 export const RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD = 1.0;
+export const RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD = 0.15;
 export const RESOLUTION_RESEARCH_SEARCH_LIMIT = 4;
 export const RESOLUTION_MAX_OUTPUT_TOKENS = 2_500;
 export const RESOLUTION_MAX_STEPS_PER_ADVANCE = 7;
@@ -308,7 +309,10 @@ export async function executeAutonomousResolutionAdvance(input: {
     if (resolvedInternally || activeMonitoring) break;
     const method = nextResolutionMethod(input.context.problem, attempts);
     if (!method) break;
-    if (totalExternalCostUsd >= RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD) {
+    if (
+      totalExternalCostUsd + RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD >
+      RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD
+    ) {
       stoppedForBudget = true;
       break;
     }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {
+  RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD,
+  RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD,
   buildResolutionWorkerSystemPrompt,
   buildResolutionWorkerUserPrompt,
   executeAutonomousResolutionAdvance,
@@ -41,6 +43,8 @@ assert.equal(methodAllowsWebSearch("ECONOMIC_INFERENCE"), false);
 assert.match(buildResolutionWorkerSystemPrompt("ECONOMIC_INFERENCE"), /defensibly|defensible|bounds/i);
 assert.match(buildResolutionWorkerSystemPrompt("ADVERSARIAL_REVIEW"), /absence of evidence/i);
 assert.match(buildResolutionWorkerUserPrompt("PROXY_RESEARCH", context), /A paid substitute exists/);
+assert.ok(RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD > 0);
+assert.ok(RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD < RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD);
 
 const parsed = validateResolutionWorkerResult("ECONOMIC_INFERENCE", {
   status: "RESOLVED",
@@ -157,6 +161,22 @@ const methodExecution = (
   assert.equal(result.executions.length, 0);
   assert.equal(result.exhaustionCertificate.issued, true);
   assert.equal(result.exhaustionCertificate.humanEscalationEligible, true);
+}
+
+{
+  let calls = 0;
+  const result = await executeAutonomousResolutionAdvance({
+    context,
+    priorExternalCostUsd:
+      RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD - RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD + 0.01,
+    runWorker: async (method) => {
+      calls += 1;
+      return methodExecution(method, "EXHAUSTED");
+    },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.stoppedForBudget, true);
+  assert.equal(result.exhaustionCertificate.humanEscalationEligible, false);
 }
 
 console.log("PASS zero-cost autonomous resolution workers");
