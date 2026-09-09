@@ -8,6 +8,12 @@ export type BuildProductShape =
   | "BOT"
   | "EXTENSION";
 
+export type CommercialMonetizationConfidence =
+  | "DIRECTLY_OBSERVED"
+  | "STRONGLY_INFERRED"
+  | "BOUNDED_HYPOTHESIS"
+  | "UNRESOLVED";
+
 export type BuildRouterInput = {
   sourcePlatform: string;
   opportunityType: string;
@@ -31,6 +37,7 @@ export type CommercialBuildBriefInput = BuildRouterInput & {
   buyerEvidence: string[];
   problemEvidence: string[];
   monetizationEvidence: string[];
+  monetizationConfidenceState?: CommercialMonetizationConfidence;
   distributionEvidence: string[];
   technicalEvidence: string[];
 };
@@ -56,6 +63,7 @@ export type CommercialBuildBrief = {
     targetBuyerEvidence: string[];
     problemEvidence: string[];
     monetizationEvidence: string[];
+    monetizationConfidenceState: CommercialMonetizationConfidence;
     distributionEvidence: string[];
     minimumSellableOutcome: string;
     transactionDefinition: string;
@@ -167,6 +175,8 @@ export function createCommercialBuildBrief(input: CommercialBuildBriefInput): Co
   const problem = firstEvidence(input.problemEvidence, input.thesis);
   const monetization = firstEvidence(input.monetizationEvidence, "No structured pricing or paid-analog evidence was extracted into the build brief.");
   const distribution = firstEvidence(input.distributionEvidence, `Use the validated source platform ${input.sourcePlatform} as the initial distribution context unless stronger evidence specifies another channel.`);
+  const monetizationConfidenceState = input.monetizationConfidenceState
+    ?? (input.monetizationEvidence.length > 0 ? "STRONGLY_INFERRED" : "UNRESOLVED");
 
   return {
     schemaVersion: 1,
@@ -189,6 +199,7 @@ export function createCommercialBuildBrief(input: CommercialBuildBriefInput): Co
       targetBuyerEvidence: input.buyerEvidence,
       problemEvidence: input.problemEvidence,
       monetizationEvidence: input.monetizationEvidence,
+      monetizationConfidenceState,
       distributionEvidence: input.distributionEvidence,
       minimumSellableOutcome: `Deliver the narrowest working ${route.primaryShape.toLowerCase().replaceAll("_", " ")} that resolves this validated problem: ${problem}`,
       transactionDefinition: `A monetization test is successful only when the identified target buyer can obtain the promised outcome through the selected product shape and complete a real commercial commitment supported by the monetization evidence. Current buyer anchor: ${buyer}. Current monetization anchor: ${monetization}.`,

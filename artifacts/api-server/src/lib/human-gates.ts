@@ -86,13 +86,15 @@ export function resumeActionForResolutionProblem(problem: ResolutionProblem): Hu
     problem === "POLICY_AMBIGUITY" ||
     problem === "DEMAND_UNCERTAINTY" ||
     problem === "KILL_RISK_INCOMPLETE" ||
-    problem === "RESEARCH_BUDGET_EXHAUSTED"
+    problem === "RESEARCH_BUDGET_EXHAUSTED" ||
+    problem === "RESEARCH_EXECUTION_FAILURE"
   ) return "RUN_RESEARCH";
 
   if (
     problem === "VALIDATION_PREREQUISITE_REGRESSION" ||
     problem === "VALIDATION_EVIDENCE_FAILURE" ||
     problem === "VALIDATION_BUDGET_EXHAUSTED" ||
+    problem === "VALIDATION_EXECUTION_FAILURE" ||
     problem === "VALIDATION_WATCH" ||
     problem === "VALIDATION_REJECT_CHALLENGE"
   ) return "RUN_VALIDATION";

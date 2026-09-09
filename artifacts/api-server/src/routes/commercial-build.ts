@@ -1,9 +1,19 @@
 import { eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db, evidenceTable, opportunitiesTable } from "@workspace/db";
-import { createCommercialBuildBrief, type CommercialBuildBrief } from "../lib/commercial-build-brief";
+import {
+  createCommercialBuildBrief,
+  type CommercialBuildBrief,
+  type CommercialMonetizationConfidence,
+} from "../lib/commercial-build-brief";
 
 const router: IRouter = Router();
+
+type CommercialEvidenceRow = {
+  claim: string;
+  evaluationDimension: string;
+  classification: string;
+};
 
 const factorFromDimension = (value: string): string | null => {
   if (!value.startsWith("underwriting:")) return null;
@@ -11,17 +21,37 @@ const factorFromDimension = (value: string): string | null => {
   return factor || null;
 };
 
-const claimsForFactors = (
-  rows: Array<{ claim: string; evaluationDimension: string }>,
-  factors: Set<string>,
-): string[] => rows
-  .filter((row) => {
-    const factor = factorFromDimension(row.evaluationDimension);
-    return factor != null && factors.has(factor);
-  })
+const uniqueClaims = (rows: CommercialEvidenceRow[]): string[] => rows
   .map((row) => row.claim)
   .filter((claim, index, all) => all.indexOf(claim) === index)
   .slice(0, 12);
+
+const rowsForFactors = (
+  rows: CommercialEvidenceRow[],
+  factors: Set<string>,
+): CommercialEvidenceRow[] => rows.filter((row) => {
+  const factor = factorFromDimension(row.evaluationDimension);
+  return factor != null && factors.has(factor);
+});
+
+const rowsForResolutionProblem = (
+  rows: CommercialEvidenceRow[],
+  problem: "buyer" | "pricing" | "distribution",
+): CommercialEvidenceRow[] => rows.filter((row) =>
+  row.evaluationDimension.startsWith(`resolution_commercial_${problem}_unresolved_`),
+);
+
+const mergeEvidenceRows = (...groups: CommercialEvidenceRow[][]): CommercialEvidenceRow[] => {
+  const seen = new Set<string>();
+  const merged: CommercialEvidenceRow[] = [];
+  for (const row of groups.flat()) {
+    const key = `${row.classification}:${row.evaluationDimension}:${row.claim}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(row);
+  }
+  return merged;
+};
 
 const BUYER_FACTORS = new Set([
   "buyer_budget_clarity",
@@ -51,6 +81,15 @@ const TECHNICAL_FACTORS = new Set([
   "falsifiability_feedback_velocity",
 ]);
 
+function monetizationConfidence(rows: CommercialEvidenceRow[]): CommercialMonetizationConfidence {
+  if (!rows.length) return "UNRESOLVED";
+  if (rows.some((row) => row.classification === "FACT")) return "DIRECTLY_OBSERVED";
+  if (rows.some((row) => row.evaluationDimension.startsWith("resolution_commercial_pricing_unresolved_"))) {
+    return "BOUNDED_HYPOTHESIS";
+  }
+  return "STRONGLY_INFERRED";
+}
+
 export async function loadCommercialBuildBrief(opportunityId: number): Promise<CommercialBuildBrief | null> {
   const [opportunity] = await db
     .select()
@@ -58,13 +97,27 @@ export async function loadCommercialBuildBrief(opportunityId: number): Promise<C
     .where(eq(opportunitiesTable.id, opportunityId));
   if (!opportunity) return null;
 
-  const evidence = await db
+  const evidence: CommercialEvidenceRow[] = await db
     .select({
       claim: evidenceTable.claim,
       evaluationDimension: evidenceTable.evaluationDimension,
+      classification: evidenceTable.classification,
     })
     .from(evidenceTable)
     .where(eq(evidenceTable.opportunityId, opportunityId));
+
+  const buyerRows = mergeEvidenceRows(
+    rowsForFactors(evidence, BUYER_FACTORS),
+    rowsForResolutionProblem(evidence, "buyer"),
+  );
+  const monetizationRows = mergeEvidenceRows(
+    rowsForFactors(evidence, MONETIZATION_FACTORS),
+    rowsForResolutionProblem(evidence, "pricing"),
+  );
+  const distributionRows = mergeEvidenceRows(
+    rowsForFactors(evidence, DISTRIBUTION_FACTORS),
+    rowsForResolutionProblem(evidence, "distribution"),
+  );
 
   return createCommercialBuildBrief({
     opportunityId,
@@ -76,11 +129,12 @@ export async function loadCommercialBuildBrief(opportunityId: number): Promise<C
     engineFamily: opportunity.engineFamily,
     verdict: opportunity.verdict,
     policyStatus: opportunity.policyStatus,
-    buyerEvidence: claimsForFactors(evidence, BUYER_FACTORS),
-    problemEvidence: claimsForFactors(evidence, PROBLEM_FACTORS),
-    monetizationEvidence: claimsForFactors(evidence, MONETIZATION_FACTORS),
-    distributionEvidence: claimsForFactors(evidence, DISTRIBUTION_FACTORS),
-    technicalEvidence: claimsForFactors(evidence, TECHNICAL_FACTORS),
+    buyerEvidence: uniqueClaims(buyerRows),
+    problemEvidence: uniqueClaims(rowsForFactors(evidence, PROBLEM_FACTORS)),
+    monetizationEvidence: uniqueClaims(monetizationRows),
+    monetizationConfidenceState: monetizationConfidence(monetizationRows),
+    distributionEvidence: uniqueClaims(distributionRows),
+    technicalEvidence: uniqueClaims(rowsForFactors(evidence, TECHNICAL_FACTORS)),
   });
 }
 
@@ -103,7 +157,7 @@ router.get("/opportunities/:opportunityId/commercial-build-brief", async (req, r
       external_cost_usd: 0,
       external_calls_performed: 0,
       persisted: false,
-      note: "This brief is a deterministic read-only projection over persisted Money Scout evidence. It does not trigger a coding agent or external side effect.",
+      note: "This brief is a deterministic read-only projection over persisted Money Scout evidence. It includes completed autonomous commercial-resolution evidence without upgrading inference to direct observation. It does not trigger a coding agent or external side effect.",
     },
   });
 });
