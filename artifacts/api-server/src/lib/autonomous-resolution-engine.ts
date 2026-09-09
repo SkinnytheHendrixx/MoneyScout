@@ -7,6 +7,7 @@ export type ResolutionProblem =
   | "VALIDATION_EVIDENCE_FAILURE"
   | "VALIDATION_BUDGET_EXHAUSTED"
   | "VALIDATION_WATCH"
+  | "VALIDATION_REJECT_CHALLENGE"
   | "COMMERCIAL_BUYER_UNRESOLVED"
   | "COMMERCIAL_PRICING_UNRESOLVED"
   | "COMMERCIAL_DISTRIBUTION_UNRESOLVED";
@@ -90,6 +91,8 @@ const objectiveFor = (problem: ResolutionProblem): string => {
       return "Resolve remaining underwriting uncertainty with existing evidence, inference, and safe experiments before requesting more capital.";
     case "VALIDATION_WATCH":
       return "Determine whether WATCH is truly the correct temporal outcome or whether additional internal reasoning can reach BUILD, experiment, or REJECT.";
+    case "VALIDATION_REJECT_CHALLENGE":
+      return "Challenge a proposed rejection using contrary evidence, alternate explanations, economics, and a cheapest falsifying experiment before allowing a reversible AI judgment to become a terminal kill.";
     case "COMMERCIAL_BUYER_UNRESOLVED":
       return "Infer or bound the first paying buyer from validated evidence, adjacent buyers, workflows, and purchase authority before human escalation.";
     case "COMMERCIAL_PRICING_UNRESOLVED":
@@ -108,6 +111,7 @@ const alternativeThesisApplicable = (problem: ResolutionProblem): boolean =>
 const watchApplicable = (problem: ResolutionProblem): boolean =>
   problem === "DEMAND_UNCERTAINTY" ||
   problem === "VALIDATION_WATCH" ||
+  problem === "VALIDATION_REJECT_CHALLENGE" ||
   problem === "COMMERCIAL_BUYER_UNRESOLVED" ||
   problem === "COMMERCIAL_PRICING_UNRESOLVED" ||
   problem === "COMMERCIAL_DISTRIBUTION_UNRESOLVED";
