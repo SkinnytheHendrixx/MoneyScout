@@ -1,3 +1,4 @@
+import type { ResolutionProblem } from "./autonomous-resolution-engine";
 import {
   evaluateValidation,
   type KillScreenOverall,
@@ -16,6 +17,7 @@ export type ValidationPhase =
   | "EVIDENCE_REQUIRED"
   | "EVIDENCE_IN_PROGRESS"
   | "NEEDS_MORE_VALIDATION"
+  | "AUTONOMOUS_RESOLUTION_REQUIRED"
   | "BUILD_READY"
   | "WATCH"
   | "REJECTED"
@@ -24,7 +26,7 @@ export type ValidationPhase =
 export type ValidationNextAction =
   | "RUN_VALIDATION_EVIDENCE"
   | "PLAN_EXPERIMENT"
-  | "HUMAN_REVIEW"
+  | "RESOLVE_AUTONOMOUSLY"
   | "APPLY_BUILD"
   | "APPLY_WATCH"
   | "APPLY_REJECT"
@@ -44,6 +46,7 @@ export type ValidationPlan = {
   phase: ValidationPhase;
   nextAction: ValidationNextAction;
   stopReason: string | null;
+  resolutionProblem: ResolutionProblem | null;
   automaticExternalCallsEnabled: boolean;
   validationExternalCostUsd: number;
   totalExternalCostCeilingUsd: number;
@@ -58,10 +61,12 @@ const plan = (
   nextAction: ValidationNextAction,
   stopReason: string | null = null,
   result: ValidationResult | null = null,
+  resolutionProblem: ResolutionProblem | null = null,
 ): ValidationPlan => ({
   phase,
   nextAction,
   stopReason,
+  resolutionProblem,
   automaticExternalCallsEnabled: nextAction === "RUN_VALIDATION_EVIDENCE",
   validationExternalCostUsd: input.validationExternalCostUsd,
   totalExternalCostCeilingUsd: VALIDATION_TOTAL_EXTERNAL_COST_CEILING_USD,
@@ -73,15 +78,38 @@ const plan = (
   result,
 });
 
+const resolve = (
+  input: ValidationPlanInput,
+  problem: ResolutionProblem,
+  reason: string,
+  result: ValidationResult | null = null,
+): ValidationPlan => plan(
+  input,
+  "AUTONOMOUS_RESOLUTION_REQUIRED",
+  "RESOLVE_AUTONOMOUSLY",
+  reason,
+  result,
+  problem,
+);
+
 const planFromResult = (input: ValidationPlanInput, result: ValidationResult): ValidationPlan => {
-  const mapping: Record<ValidationVerdict, { phase: ValidationPhase; action: ValidationNextAction }> = {
-    BUILD_READY: { phase: "BUILD_READY", action: "APPLY_BUILD" },
-    WATCH: { phase: "WATCH", action: "APPLY_WATCH" },
-    REJECT: { phase: "REJECTED", action: "APPLY_REJECT" },
-    NEEDS_MORE_VALIDATION: { phase: "NEEDS_MORE_VALIDATION", action: "PLAN_EXPERIMENT" },
+  const mapping: Record<ValidationVerdict, () => ValidationPlan> = {
+    BUILD_READY: () => plan(input, "BUILD_READY", "APPLY_BUILD", result.rationale, result),
+    NEEDS_MORE_VALIDATION: () => plan(input, "NEEDS_MORE_VALIDATION", "PLAN_EXPERIMENT", result.rationale, result),
+    WATCH: () => resolve(
+      input,
+      "VALIDATION_WATCH",
+      `${result.rationale} WATCH is not terminal: autonomous resolution must exhaust research, inference, adversarial review, alternative-thesis analysis, and safe experiments before temporal monitoring is accepted.`,
+      result,
+    ),
+    REJECT: () => resolve(
+      input,
+      "VALIDATION_REJECT_CHALLENGE",
+      `${result.rationale} A model-generated rejection must be independently challenged before it can become a terminal KILL.`,
+      result,
+    ),
   };
-  const mapped = mapping[result.verdict];
-  return plan(input, mapped.phase, mapped.action, result.rationale, result);
+  return mapping[result.verdict]();
 };
 
 export const determineValidationPlan = (input: ValidationPlanInput): ValidationPlan => {
@@ -92,7 +120,11 @@ export const determineValidationPlan = (input: ValidationPlanInput): ValidationP
     return plan(input, "BUILD_READY", "STOP", "Opportunity is already build-ready and promoted to BUILD.");
   }
   if (input.opportunityVerdict === "WATCH") {
-    return plan(input, "WATCH", "STOP", "Opportunity is already on WATCH.");
+    return resolve(
+      input,
+      "VALIDATION_WATCH",
+      "Opportunity is on WATCH. Do not leave it parked indefinitely; autonomous resolution must determine whether new internal work can resolve it or whether explicit delta monitoring is the correct next state.",
+    );
   }
   if (input.opportunityVerdict !== "TEST") {
     return plan(input, "NOT_ELIGIBLE", "STOP", "Validation orchestration requires a TEST opportunity.");
@@ -106,15 +138,19 @@ export const determineValidationPlan = (input: ValidationPlanInput): ValidationP
       killScreenOverall: input.killScreenOverall ?? "INCOMPLETE",
       assessments: input.assessments,
     });
-    return plan(input, "REJECTED", "APPLY_REJECT", result.rationale, result);
+    return resolve(
+      input,
+      "VALIDATION_REJECT_CHALLENGE",
+      `${result.rationale} Hard-negative prerequisites must be independently challenged before a reversible AI assessment is persisted as KILL.`,
+      result,
+    );
   }
 
   if (input.policyStatus !== "GREEN" || input.demandConclusion !== "SUPPORTED" || input.killScreenOverall !== "CLEAR") {
-    return plan(
+    return resolve(
       input,
-      "NEEDS_MORE_VALIDATION",
-      "HUMAN_REVIEW",
-      "Research prerequisites are no longer fully resolved; no validation spend is permitted until GREEN policy, SUPPORTED demand, and a CLEAR kill screen are restored.",
+      "VALIDATION_PREREQUISITE_REGRESSION",
+      "Research prerequisites are no longer fully resolved. Autonomous resolution must explain the conflict and exhaust internal paths before owner review or additional spend.",
     );
   }
 
@@ -123,11 +159,10 @@ export const determineValidationPlan = (input: ValidationPlanInput): ValidationP
   }
 
   if (input.evidenceRunStatus === "FAILED") {
-    return plan(
+    return resolve(
       input,
-      "NEEDS_MORE_VALIDATION",
-      "HUMAN_REVIEW",
-      "The bounded validation evidence collection failed. No automatic retry is allowed because the failed attempt may already have incurred external cost.",
+      "VALIDATION_EVIDENCE_FAILURE",
+      "The bounded validation evidence collection failed. No blind paid retry is allowed; autonomous resolution must determine whether existing evidence, proxy research, inference, or a safe experiment can resolve the uncertainty.",
     );
   }
 
@@ -136,11 +171,10 @@ export const determineValidationPlan = (input: ValidationPlanInput): ValidationP
       input.validationExternalCostUsd + VALIDATION_STAGE_EXTERNAL_COST_CEILING_USD >
       VALIDATION_TOTAL_EXTERNAL_COST_CEILING_USD
     ) {
-      return plan(
+      return resolve(
         input,
-        "NEEDS_MORE_VALIDATION",
-        "HUMAN_REVIEW",
-        "Insufficient validation budget remains for the single bounded evidence-collection stage.",
+        "VALIDATION_BUDGET_EXHAUSTED",
+        "Insufficient validation budget remains for the bounded evidence stage. Exhaust zero-cost internal resolution before requesting additional capital.",
       );
     }
     return plan(input, "EVIDENCE_REQUIRED", "RUN_VALIDATION_EVIDENCE");
