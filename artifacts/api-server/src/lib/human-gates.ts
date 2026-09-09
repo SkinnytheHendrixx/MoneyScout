@@ -102,9 +102,14 @@ export function resumeActionForResolutionProblem(problem: ResolutionProblem): Hu
 
 export function capabilityIsUsable(input: {
   status: string;
+  accessLevel?: string | null;
   expiresAt: Date | null;
 }, now = new Date()): boolean {
-  return input.status === "AVAILABLE" && (!input.expiresAt || input.expiresAt.getTime() > now.getTime());
+  return (
+    input.status === "AVAILABLE" &&
+    input.accessLevel === "AUTOMATION_READY" &&
+    (!input.expiresAt || input.expiresAt.getTime() > now.getTime())
+  );
 }
 
 export async function getCapability(capabilityKey: string) {
@@ -129,13 +134,14 @@ export async function setCapabilityAvailable(input: {
   expiresAt?: Date | null;
 }) {
   const now = new Date();
+  const accessLevel = input.accessLevel ?? "AUTOMATION_READY";
   const [capability] = await db
     .insert(capabilitiesTable)
     .values({
       key: input.key,
       provider: input.provider,
       status: "AVAILABLE",
-      accessLevel: input.accessLevel ?? "AUTHENTICATED",
+      accessLevel,
       verificationMethod: input.verificationMethod,
       metadata: input.metadata ?? {},
       verifiedAt: now,
@@ -147,7 +153,7 @@ export async function setCapabilityAvailable(input: {
       set: {
         provider: input.provider,
         status: "AVAILABLE",
-        accessLevel: input.accessLevel ?? "AUTHENTICATED",
+        accessLevel,
         verificationMethod: input.verificationMethod,
         metadata: input.metadata ?? {},
         verifiedAt: now,
