@@ -220,15 +220,20 @@ export function validateResolutionWorkerResult(
     ? raw.findings
         .filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item))
         .filter((item) => typeof item.claim === "string")
-        .map((item) => ({
-          claim: String(item.claim).trim().slice(0, 2_000),
-          sourceUrl: typeof item.source_url === "string" && item.source_url.trim() ? item.source_url.trim() : null,
-          sourceTitle: typeof item.source_title === "string" && item.source_title.trim() ? item.source_title.trim().slice(0, 500) : null,
-          classification:
-            item.classification === "FACT" || item.classification === "CLAIM" || item.classification === "INFERENCE"
+        .map((item): ResolutionFinding => {
+          const classification: ResolutionFinding["classification"] =
+            item.classification === "FACT" ||
+            item.classification === "CLAIM" ||
+            item.classification === "INFERENCE"
               ? item.classification
-              : "UNKNOWN",
-        }))
+              : "UNKNOWN";
+          return {
+            claim: String(item.claim).trim().slice(0, 2_000),
+            sourceUrl: typeof item.source_url === "string" && item.source_url.trim() ? item.source_url.trim() : null,
+            sourceTitle: typeof item.source_title === "string" && item.source_title.trim() ? item.source_title.trim().slice(0, 500) : null,
+            classification,
+          };
+        })
         .slice(0, 20)
     : [];
 
