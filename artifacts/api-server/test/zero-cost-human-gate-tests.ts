@@ -36,9 +36,10 @@ assert.equal(humanGateCreationAllowed({ exhaustionCertificate: issuedCertificate
 assert.equal(resumeActionForResolutionProblem("POLICY_AMBIGUITY"), "RUN_RESEARCH");
 assert.equal(resumeActionForResolutionProblem("VALIDATION_WATCH"), "RUN_VALIDATION");
 assert.equal(resumeActionForResolutionProblem("COMMERCIAL_PRICING_UNRESOLVED"), "RECHECK_MONETIZATION_PLAN");
-assert.equal(capabilityIsUsable({ status: "AVAILABLE", expiresAt: null }), true);
-assert.equal(capabilityIsUsable({ status: "MISSING", expiresAt: null }), false);
-assert.equal(capabilityIsUsable({ status: "AVAILABLE", expiresAt: new Date(Date.now() - 1_000) }), false);
+assert.equal(capabilityIsUsable({ status: "AVAILABLE", accessLevel: "AUTOMATION_READY", expiresAt: null }), true);
+assert.equal(capabilityIsUsable({ status: "AVAILABLE", accessLevel: "AUTHENTICATED", expiresAt: null }), false);
+assert.equal(capabilityIsUsable({ status: "MISSING", accessLevel: "AUTOMATION_READY", expiresAt: null }), false);
+assert.equal(capabilityIsUsable({ status: "AVAILABLE", accessLevel: "AUTOMATION_READY", expiresAt: new Date(Date.now() - 1_000) }), false);
 assert.equal(HUMAN_ACTION_NOTIFICATION_POLICY.CRITICAL.immediate, true);
 assert.equal(HUMAN_ACTION_NOTIFICATION_POLICY.NORMAL.includeInDailySummary, true);
 
@@ -55,18 +56,18 @@ const parsed = validateResolutionWorkerResult("DIRECT_RESEARCH", {
   unresolved_questions: ["Seller dashboard economics remain inaccessible."],
   human_gate_candidate: {
     action_type: "CREATE_OR_CONNECT_PLATFORM_ACCOUNT",
-    title: "Create or connect Example Market access",
+    title: "Connect Example Market access",
     why_needed: "Authenticated seller economics remain material after public research.",
-    instructions: "Create the account and confirm access without sharing a password.",
+    instructions: "Create the account if needed and connect usable authorized access without sharing a password.",
     blocked_stage: "AUTONOMOUS_RESOLUTION:DEMAND_UNCERTAINTY",
-    required_capability_key: "example market seller access",
+    required_capability_key: "example market automation access",
     provider: "Example Market",
     verification_mode: "HUMAN_ATTESTATION",
     urgency: "HIGH",
   },
 });
 assert.equal(parsed.humanGateCandidate?.actionType, "CREATE_OR_CONNECT_PLATFORM_ACCOUNT");
-assert.equal(parsed.humanGateCandidate?.requiredCapabilityKey, "EXAMPLE_MARKET_SELLER_ACCESS");
+assert.equal(parsed.humanGateCandidate?.requiredCapabilityKey, "EXAMPLE_MARKET_AUTOMATION_ACCESS");
 assert.equal(parsed.humanGateCandidate?.urgency, "HIGH");
 
 console.log("PASS zero-cost human gate tests");
