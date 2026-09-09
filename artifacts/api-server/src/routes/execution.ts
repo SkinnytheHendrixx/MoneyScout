@@ -1,7 +1,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db, executionJobEventsTable, executionJobsTable } from "@workspace/db";
-import { executionQueueSnapshot, runExecutionKernelTick } from "../lib/execution-kernel";
+import { executionQueueSnapshot } from "../lib/execution-kernel";
 import { runExecutionReconcilerTick } from "../lib/execution-reconciler";
 
 const router: IRouter = Router();
@@ -70,10 +70,13 @@ router.post("/execution/reconcile", async (_req, res): Promise<void> => {
     res.status(503).json({ error: "PORT unavailable" });
     return;
   }
-  const port = Number(rawPort);
-  const handoffs = await runExecutionReconcilerTick(port);
-  const kernel = await runExecutionKernelTick(port);
-  res.json({ handoffs, kernel, external_cost_usd: 0 });
+  const handoffs = await runExecutionReconcilerTick(Number(rawPort));
+  res.json({
+    handoffs,
+    external_cost_usd: 0,
+    execution_started: false,
+    note: "This endpoint repairs durable handoff state only. The autonomous execution kernel independently claims eligible jobs under the configured safety and budget policies.",
+  });
 });
 
 export default router;
