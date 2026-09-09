@@ -5,6 +5,7 @@ import {
   pilotSpendApproved,
   requiresExplicitPilotSpendApproval,
   runtimeFreshness,
+  unverifiedProviderSpendApproved,
 } from "../src/lib/runtime-safety";
 
 assert.equal(classifyOpportunityRecordMode("Normal live opportunity"), "LIVE");
@@ -17,6 +18,10 @@ assert.equal(pilotSpendApproved("true"), true);
 assert.equal(pilotSpendApproved(" TRUE "), true);
 assert.equal(pilotSpendApproved("false"), false);
 assert.equal(pilotSpendApproved(undefined), false);
+assert.equal(unverifiedProviderSpendApproved("true"), true);
+assert.equal(unverifiedProviderSpendApproved(" TRUE "), true);
+assert.equal(unverifiedProviderSpendApproved("false"), false);
+assert.equal(unverifiedProviderSpendApproved(undefined), false);
 
 assert.equal(detectRuntimeCommit({ MONEY_SCOUT_BUILD_SHA: "abc123" } as NodeJS.ProcessEnv), "abc123");
 assert.equal(
@@ -29,4 +34,4 @@ assert.equal(
 );
 assert.equal(runtimeFreshness({} as NodeJS.ProcessEnv), "UNKNOWN");
 
-console.log("PASS zero-cost runtime freshness and pilot safety");
+console.log("PASS zero-cost runtime freshness and paid-run approvals");

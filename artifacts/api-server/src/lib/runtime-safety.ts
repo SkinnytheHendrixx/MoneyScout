@@ -32,5 +32,11 @@ export const classifyOpportunityRecordMode = (name: string): OpportunityRecordMo
 export const requiresExplicitPilotSpendApproval = (name: string): boolean =>
   classifyOpportunityRecordMode(name) !== "LIVE";
 
-export const pilotSpendApproved = (headerValue: string | undefined): boolean =>
+const explicitTrue = (headerValue: string | undefined): boolean =>
   headerValue?.trim().toLowerCase() === "true";
+
+export const pilotSpendApproved = (headerValue: string | undefined): boolean =>
+  explicitTrue(headerValue);
+
+export const unverifiedProviderSpendApproved = (headerValue: string | undefined): boolean =>
+  explicitTrue(headerValue);
