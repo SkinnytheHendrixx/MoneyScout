@@ -19,12 +19,18 @@ function intervalMs(): number {
   return DEFAULT_INTERVAL_MS;
 }
 
+const stillPlaceholderJob = (jobId: number) => and(
+  eq(executionJobsTable.id, jobId),
+  eq(executionJobsTable.status, "WAITING"),
+  eq(executionJobsTable.lastErrorCode, "BUILD_ORCHESTRATOR_NOT_IMPLEMENTED"),
+);
+
 async function markExecutionSucceeded(
   job: typeof executionJobsTable.$inferSelect,
   result: Record<string, unknown>,
-): Promise<void> {
+): Promise<boolean> {
   const now = new Date();
-  await db
+  const [updated] = await db
     .update(executionJobsTable)
     .set({
       status: "SUCCEEDED",
@@ -36,12 +42,10 @@ async function markExecutionSucceeded(
       lastErrorMessage: null,
       updatedAt: now,
     })
-    .where(
-      and(
-        eq(executionJobsTable.id, job.id),
-        eq(executionJobsTable.status, "WAITING"),
-      ),
-    );
+    .where(stillPlaceholderJob(job.id))
+    .returning({ id: executionJobsTable.id });
+  if (!updated) return false;
+
   await db.insert(executionJobEventsTable).values({
     jobId: job.id,
     opportunityId: job.opportunityId,
@@ -49,6 +53,7 @@ async function markExecutionSucceeded(
     summary: "RUN_BUILD_ORCHESTRATOR created a durable build contract and handed it to the builder-workspace gate.",
     metadata: result,
   });
+  return true;
 }
 
 async function processWaitingBuildOrchestratorJob(
@@ -72,7 +77,7 @@ async function processWaitingBuildOrchestratorJob(
 
   if (result.kind === "BLOCKED") {
     const now = new Date();
-    await db
+    const [updated] = await db
       .update(executionJobsTable)
       .set({
         status: "FAILED_TERMINAL",
@@ -83,7 +88,10 @@ async function processWaitingBuildOrchestratorJob(
         lastErrorMessage: result.contract.blockers.join(" ").slice(0, 4_000),
         updatedAt: now,
       })
-      .where(eq(executionJobsTable.id, job.id));
+      .where(stillPlaceholderJob(job.id))
+      .returning({ id: executionJobsTable.id });
+    if (!updated) return;
+
     await enqueueExecutionJob({
       opportunityId: job.opportunityId,
       evaluationCycleId: job.evaluationCycleId,
@@ -113,7 +121,7 @@ async function processWaitingBuildOrchestratorJob(
       lastErrorMessage: "The opportunity no longer exists when the Build Orchestrator attempted to run.",
       updatedAt: now,
     })
-    .where(eq(executionJobsTable.id, job.id));
+    .where(stillPlaceholderJob(job.id));
 }
 
 export async function runBuildOrchestratorWorkerTick(): Promise<{ processedJobId: number | null }> {
