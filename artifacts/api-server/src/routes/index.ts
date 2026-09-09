@@ -22,6 +22,7 @@ import humanActionsRouter from "./human-actions";
 import executionRouter from "./execution";
 import discoveryRouter from "./discovery";
 import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware";
+import { normalizeExecutionRecoveryResolutionProblem } from "../middlewares/executionRecoveryResolutionMiddleware";
 import { requireSafePaidResearchRuntime } from "../middlewares/paidResearchSafetyMiddleware";
 import { registerApifyExperimentAdapters } from "../lib/apify-experiment-adapters";
 
@@ -33,6 +34,7 @@ router.use(healthRouter);
 router.use(authRouter);
 router.use(requireMoneyScoutAccess);
 router.use(requireSafePaidResearchRuntime);
+router.use(normalizeExecutionRecoveryResolutionProblem);
 router.use(opportunitiesRouter);
 router.use(evidenceRouter);
 router.use(evidenceWorkersRouter);
