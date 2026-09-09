@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
-import { determineStartupReadiness } from "../src/lib/startup-readiness";
+import {
+  determineStartupReadiness,
+  paidProviderPreflightAllows,
+  providerReadinessForSource,
+} from "../src/lib/startup-readiness";
+
+assert.equal(providerReadinessForSource("DIRECT"), "READY");
+assert.equal(providerReadinessForSource("REPLIT_MANAGED"), "UNVERIFIED");
+assert.equal(providerReadinessForSource("UNAVAILABLE"), "UNAVAILABLE");
+assert.equal(paidProviderPreflightAllows("DIRECT"), true);
+assert.equal(paidProviderPreflightAllows("REPLIT_MANAGED"), false);
+assert.equal(paidProviderPreflightAllows("REPLIT_MANAGED", true), true);
+assert.equal(paidProviderPreflightAllows("UNAVAILABLE", true), false);
 
 {
   const result = determineStartupReadiness({
@@ -75,4 +87,4 @@ import { determineStartupReadiness } from "../src/lib/startup-readiness";
   assert.equal(result.blockers.length, 3);
 }
 
-console.log("PASS zero-cost startup readiness evaluator");
+console.log("PASS zero-cost startup readiness and paid-provider preflight");
