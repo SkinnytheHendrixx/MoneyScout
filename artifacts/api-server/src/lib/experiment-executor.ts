@@ -125,7 +125,7 @@ export function experimentExecutionCapability(input: {
       mode: "EXPLICIT_EXTERNAL_ACTION_REQUIRED",
       automaticExecutionAllowed: false,
       adapterKey: null,
-      reason: `${input.experimentType} can create real-world outreach, payment, publication, user interaction, migration, or marketplace side effects. Money Scout must not execute it through the generic autonomous executor without a separately authorized dedicated integration.`,
+      reason: `EXTERNAL ACTION REQUIRED: ${input.experimentType} can create real-world outreach, payment, publication, user interaction, migration, or marketplace side effects. Money Scout must not execute it through the generic autonomous executor without a separately authorized dedicated integration.`,
     };
   }
 
