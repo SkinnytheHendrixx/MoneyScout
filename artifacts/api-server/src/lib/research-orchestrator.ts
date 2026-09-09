@@ -1,3 +1,5 @@
+import type { ResolutionProblem } from "./autonomous-resolution-engine";
+
 export const RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD = 1.5;
 export const RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD = 0.5;
 
@@ -9,8 +11,7 @@ export type ResearchPhase =
   | "POLICY_REQUIRED"
   | "DEMAND_REQUIRED"
   | "KILL_RISK_REQUIRED"
-  | "HUMAN_REVIEW_REQUIRED"
-  | "KILL_RISK_REVIEW_REQUIRED"
+  | "AUTONOMOUS_RESOLUTION_REQUIRED"
   | "WATCH"
   | "VALIDATION_READY"
   | "REJECTED"
@@ -21,9 +22,8 @@ export type ResearchNextAction =
   | "RUN_POLICY_CHECK"
   | "RUN_DEMAND_CHECK"
   | "RUN_KILL_RISK_CHECK"
-  | "HUMAN_POLICY_REVIEW"
-  | "HUMAN_KILL_RISK_REVIEW"
-  | "WATCH_FOR_MORE_EVIDENCE"
+  | "RESOLVE_AUTONOMOUSLY"
+  | "REGISTER_WATCH"
   | "VALIDATE_OPPORTUNITY"
   | "STOP";
 
@@ -39,6 +39,7 @@ export type ResearchPlan = {
   phase: ResearchPhase;
   nextAction: ResearchNextAction;
   stopReason: string | null;
+  resolutionProblem: ResolutionProblem | null;
   automaticExternalCallsEnabled: boolean;
   externalCostUsd: number;
   totalExternalCostCeilingUsd: number;
@@ -51,10 +52,12 @@ const plan = (
   phase: ResearchPhase,
   nextAction: ResearchNextAction,
   stopReason: string | null = null,
+  resolutionProblem: ResolutionProblem | null = null,
 ): ResearchPlan => ({
   phase,
   nextAction,
   stopReason,
+  resolutionProblem,
   automaticExternalCallsEnabled:
     nextAction === "RUN_POLICY_CHECK" ||
     nextAction === "RUN_DEMAND_CHECK" ||
@@ -68,36 +71,42 @@ const plan = (
   stageExternalCostCeilingUsd: RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD,
 });
 
+const resolve = (
+  input: ResearchPlanInput,
+  problem: ResolutionProblem,
+  reason: string,
+): ResearchPlan => plan(
+  input,
+  "AUTONOMOUS_RESOLUTION_REQUIRED",
+  "RESOLVE_AUTONOMOUSLY",
+  reason,
+  problem,
+);
+
 export const determineResearchPlan = (input: ResearchPlanInput): ResearchPlan => {
   if (input.opportunityVerdict === "KILL") {
     return plan(input, "STOPPED", "STOP", "Opportunity is already killed.");
   }
 
   if (input.externalCostUsd >= RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD) {
-    return plan(
+    return resolve(
       input,
-      "BUDGET_EXHAUSTED",
-      "STOP",
-      "Research external-service budget is exhausted; no automatic paid retry is allowed.",
+      "RESEARCH_BUDGET_EXHAUSTED",
+      "The bounded paid-research budget is exhausted. Exhaustion of a research budget is not proof that the opportunity failed; zero-cost internal resolution must run before owner escalation.",
     );
-  }
-
-  if (input.policyStatus === "RED") {
-    return plan(input, "REJECTED", "STOP", "Policy review found a clear blocking conflict.");
   }
 
   if (input.policyStatus === null) {
     return plan(input, "POLICY_REQUIRED", "RUN_POLICY_CHECK");
   }
 
-  if (input.policyStatus === "UNKNOWN" || input.policyStatus === "YELLOW") {
-    return plan(
+  if (input.policyStatus !== "GREEN") {
+    return resolve(
       input,
-      "HUMAN_REVIEW_REQUIRED",
-      "HUMAN_POLICY_REVIEW",
-      input.policyStatus === "UNKNOWN"
-        ? "Policy evidence is unresolved; do not spend again automatically."
-        : "Policy constraints require human review before deeper validation.",
+      "POLICY_AMBIGUITY",
+      input.policyStatus === "RED"
+        ? "The first policy pass found a blocking conflict. Before treating it as fatal, autonomous resolution must verify the primary rule, search exceptions and adjacent interpretations, challenge the blocker, and test alternative product shapes when applicable."
+        : "Policy evidence is ambiguous or incomplete. Do not convert ambiguity into owner homework or a fatal verdict until autonomous resolution is exhausted.",
     );
   }
 
@@ -105,43 +114,34 @@ export const determineResearchPlan = (input: ResearchPlanInput): ResearchPlan =>
     return plan(input, "DEMAND_REQUIRED", "RUN_DEMAND_CHECK");
   }
 
-  if (input.demandConclusion === "UNSUPPORTED") {
-    return plan(input, "REJECTED", "STOP", "Demand Check found affirmative evidence against the thesis.");
-  }
-
-  if (input.demandConclusion === "WEAK" || input.demandConclusion === "UNKNOWN") {
-    return plan(
+  if (input.demandConclusion !== "SUPPORTED") {
+    return resolve(
       input,
-      "WATCH",
-      "WATCH_FOR_MORE_EVIDENCE",
-      input.demandConclusion === "WEAK"
-        ? "Demand evidence exists but a major gap remains; do not auto-retry paid research."
-        : "Demand remains unresolved; wait for new evidence rather than repeating the same paid check.",
+      "DEMAND_UNCERTAINTY",
+      input.demandConclusion === "UNSUPPORTED"
+        ? "The first demand pass found evidence against the thesis. Autonomous resolution must adversarially verify that conclusion, inspect paid substitutes and adjacent demand, test alternate buyers or packaging, and select a cheap falsifying experiment before rejection."
+        : "Demand is weak or unresolved. Run direct and proxy research, inference, adversarial review, alternative-thesis analysis, and safe experiments before WATCH or human escalation.",
     );
   }
 
   if (input.killRiskOutcome === null) {
     if (input.externalCostUsd + RESEARCH_STAGE_EXTERNAL_COST_CEILING_USD > RESEARCH_TOTAL_EXTERNAL_COST_CEILING_USD) {
-      return plan(
+      return resolve(
         input,
-        "BUDGET_EXHAUSTED",
-        "STOP",
-        "Insufficient remaining research budget for the bounded kill-risk stage.",
+        "RESEARCH_BUDGET_EXHAUSTED",
+        "Insufficient paid-research budget remains for the bounded kill-risk stage. Use autonomous zero-cost resolution before requesting more capital.",
       );
     }
     return plan(input, "KILL_RISK_REQUIRED", "RUN_KILL_RISK_CHECK");
   }
 
-  if (input.killRiskOutcome === "BLOCKED") {
-    return plan(input, "REJECTED", "STOP", "Kill-risk screen found a confirmed fatal risk.");
-  }
-
-  if (input.killRiskOutcome === "INCOMPLETE") {
-    return plan(
+  if (input.killRiskOutcome !== "CLEAR") {
+    return resolve(
       input,
-      "KILL_RISK_REVIEW_REQUIRED",
-      "HUMAN_KILL_RISK_REVIEW",
-      "One or more fatal-risk classes remain unresolved after the bounded kill-risk collection; do not auto-retry.",
+      "KILL_RISK_INCOMPLETE",
+      input.killRiskOutcome === "BLOCKED"
+        ? "A fatal-risk worker reported a blocker. Because false-positive kill decisions are costly, autonomous resolution must independently challenge and verify the claimed fatal condition before the opportunity can be rejected."
+        : "One or more fatal-risk classes remain unresolved. Exhaust internal research and reasoning before owner escalation.",
     );
   }
 
