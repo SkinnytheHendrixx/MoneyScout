@@ -43,7 +43,7 @@ router.post("/opportunities/:opportunityId/validation-evidence/collect", async (
     .values({
       startedAt: new Date(),
       triggerType: "VALIDATION_EVIDENCE",
-      notes: JSON.stringify({ status: "RUNNING", external_cost_usd: 0 }),
+      notes: JSON.stringify({ opportunity_id: opportunityId, status: "RUNNING", external_cost_usd: 0 }),
     })
     .returning();
 
@@ -77,6 +77,7 @@ router.post("/opportunities/:opportunityId/validation-evidence/collect", async (
 
     const finishedAt = new Date();
     const notes = {
+      opportunity_id: opportunityId,
       status: "COMPLETED",
       external_cost_usd: collected.externalCostUsd,
       search_count: collected.searchCount,
@@ -121,6 +122,7 @@ router.post("/opportunities/:opportunityId/validation-evidence/collect", async (
       .set({
         finishedAt: new Date(),
         notes: JSON.stringify({
+          opportunity_id: opportunityId,
           status: "FAILED",
           external_cost_usd: 0,
           retry_policy: "NO_AUTOMATIC_RETRY",
