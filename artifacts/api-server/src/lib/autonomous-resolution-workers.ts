@@ -7,6 +7,7 @@ import {
   type ResolutionMethod,
   type ResolutionProblem,
 } from "./autonomous-resolution-engine";
+import type { HumanGateCandidate } from "./human-gates";
 
 export const RESOLUTION_TOTAL_EXTERNAL_COST_CEILING_USD = 1.0;
 export const RESOLUTION_STAGE_EXTERNAL_COST_RESERVE_USD = 0.15;
@@ -50,6 +51,7 @@ export type ResolutionWorkerResult = {
   watchTriggers: string[];
   experiment: ResolutionExperimentProposal;
   unresolvedQuestions: string[];
+  humanGateCandidate: HumanGateCandidate | null;
 };
 
 export type ResolutionWorkerContext = {
@@ -131,6 +133,8 @@ export function buildResolutionWorkerSystemPrompt(method: ResolutionMethod): str
     "A recommendation to KILL requires affirmative evidence that survives adversarial challenge, not merely lack of proof.",
     "If the question is resolvable by a reversible experiment, prefer PLAN_EXPERIMENT over human escalation.",
     "Human escalation is not available to you as a shortcut.",
+    "If an account, login, KYC step, agreement acceptance, domain purchase, paid access, or other inherently human authority appears necessary, record it only as a human_gate_candidate. That candidate does not stop this resolution ladder and does not authorize escalation. Continue all other applicable internal research first.",
+    "Only nominate a human gate when the access or authority would unlock evidence or action that materially matters to the unresolved question. Do not nominate a login merely because one page was inaccessible.",
   ];
 
   const methodInstruction: Record<ResolutionMethod, string> = {
@@ -175,7 +179,7 @@ export function buildResolutionWorkerUserPrompt(
   method: ResolutionMethod,
   context: ResolutionWorkerContext,
 ): string {
-  return `Resolution method: ${method}\nProblem: ${context.problem}\nUnresolved question: ${context.unresolvedQuestion}\n\nOpportunity\nName: ${context.opportunity.name}\nPlatform: ${context.opportunity.sourcePlatform}\nURL: ${context.opportunity.sourceUrl}\nType: ${context.opportunity.opportunityType}\nCurrent verdict: ${context.opportunity.verdict}\nThesis: ${context.opportunity.thesis}\n\nPrior resolution attempts\n${compactHistory(context.priorAttempts)}\n\nPersisted evidence\n${compactEvidence(context)}\n\nReturn a conservative structured result. Use RESOLVED only when this method actually settles the unresolved question well enough to change or preserve a decision. Use EXHAUSTED when this method has been genuinely attempted but cannot settle it. Use ACTIVE_MONITORING only for WATCH_FOR_DELTA when concrete future triggers are defined. Do not repeat prior attempts. If a bounded hypothesis or experiment is sufficient to continue autonomously, say so instead of asking for a human.`;
+  return `Resolution method: ${method}\nProblem: ${context.problem}\nUnresolved question: ${context.unresolvedQuestion}\n\nOpportunity\nName: ${context.opportunity.name}\nPlatform: ${context.opportunity.sourcePlatform}\nURL: ${context.opportunity.sourceUrl}\nType: ${context.opportunity.opportunityType}\nCurrent verdict: ${context.opportunity.verdict}\nThesis: ${context.opportunity.thesis}\n\nPrior resolution attempts\n${compactHistory(context.priorAttempts)}\n\nPersisted evidence\n${compactEvidence(context)}\n\nReturn a conservative structured result. Use RESOLVED only when this method actually settles the unresolved question well enough to change or preserve a decision. Use EXHAUSTED when this method has been genuinely attempted but cannot settle it. Use ACTIVE_MONITORING only for WATCH_FOR_DELTA when concrete future triggers are defined. Do not repeat prior attempts. If a bounded hypothesis or experiment is sufficient to continue autonomously, say so instead of asking for a human. If authenticated access or human authority appears genuinely necessary, populate human_gate_candidate but continue to judge this method independently; the orchestrator will ignore that candidate unless the full internal ladder is exhausted.`;
 }
 
 export function validateResolutionWorkerResult(
@@ -264,6 +268,42 @@ export function validateResolutionWorkerResult(
     }
   }
 
+  let humanGateCandidate: HumanGateCandidate | null = null;
+  if (raw.human_gate_candidate && typeof raw.human_gate_candidate === "object" && !Array.isArray(raw.human_gate_candidate)) {
+    const candidate = raw.human_gate_candidate as Record<string, unknown>;
+    const verificationMode = candidate.verification_mode;
+    const urgency = candidate.urgency;
+    if (
+      typeof candidate.action_type === "string" &&
+      typeof candidate.title === "string" &&
+      typeof candidate.why_needed === "string" &&
+      typeof candidate.instructions === "string" &&
+      typeof candidate.blocked_stage === "string" &&
+      (candidate.required_capability_key === null || typeof candidate.required_capability_key === "string") &&
+      (candidate.provider === null || typeof candidate.provider === "string") &&
+      (verificationMode === "AUTOMATED_CHECK" || verificationMode === "HUMAN_ATTESTATION" || verificationMode === "EXTERNAL_CALLBACK") &&
+      (urgency === "CRITICAL" || urgency === "HIGH" || urgency === "NORMAL" || urgency === "LOW")
+    ) {
+      humanGateCandidate = {
+        actionType: candidate.action_type.trim().slice(0, 120),
+        title: candidate.title.trim().slice(0, 300),
+        whyNeeded: candidate.why_needed.trim().slice(0, 2_000),
+        instructions: candidate.instructions.trim().slice(0, 2_000),
+        blockedStage: candidate.blocked_stage.trim().slice(0, 160),
+        requiredCapabilityKey:
+          typeof candidate.required_capability_key === "string" && candidate.required_capability_key.trim()
+            ? candidate.required_capability_key.trim().toUpperCase().replace(/[^A-Z0-9_:-]/g, "_").slice(0, 160)
+            : null,
+        provider:
+          typeof candidate.provider === "string" && candidate.provider.trim()
+            ? candidate.provider.trim().slice(0, 160)
+            : null,
+        verificationMode,
+        urgency,
+      };
+    }
+  }
+
   const watchTriggers = strings(raw.watch_triggers, 12);
   if (status === "ACTIVE_MONITORING" && watchTriggers.length === 0) {
     throw new Error("ACTIVE_MONITORING requires at least one concrete watch trigger");
@@ -281,6 +321,7 @@ export function validateResolutionWorkerResult(
     watchTriggers,
     experiment,
     unresolvedQuestions: strings(raw.unresolved_questions, 12),
+    humanGateCandidate,
   };
 }
 
