@@ -7,6 +7,7 @@ import {
   policyChecksTable,
   researchRunsTable,
 } from "@workspace/db";
+import { createAutonomousResolutionPlan } from "../lib/autonomous-resolution-engine";
 import {
   determineResearchPlan,
   type ResearchKillRiskOutcome,
@@ -33,6 +34,9 @@ function parseKillRiskRunNote(notes: string | null): KillRiskRunNote | null {
     return null;
   }
 }
+
+const resolutionPlanFor = (plan: ResearchPlan) =>
+  plan.resolutionProblem ? createAutonomousResolutionPlan(plan.resolutionProblem) : null;
 
 async function readResearchPlan(opportunityId: number): Promise<{
   opportunityVerdict: string;
@@ -213,6 +217,7 @@ router.get("/opportunities/:opportunityId/research-plan", async (req, res): Prom
       latest_demand_conclusion: state.latestDemandConclusion,
       latest_kill_risk_outcome: state.latestKillRiskOutcome,
       ...state.plan,
+      autonomous_resolution_plan: resolutionPlanFor(state.plan),
     });
   } catch (error) {
     if (error instanceof Error && error.message === "Opportunity not found") {
@@ -256,6 +261,8 @@ router.post("/opportunities/:opportunityId/research/advance", async (req, res): 
       latest_demand_conclusion: finalState.latestDemandConclusion,
       latest_kill_risk_outcome: finalState.latestKillRiskOutcome,
       ...finalState.plan,
+      autonomous_resolution_plan: resolutionPlanFor(finalState.plan),
+      escalation_policy: "OWNER_ESCALATION_FOR_KNOWLEDGE_GAPS_FORBIDDEN_WITHOUT_EXHAUSTION_CERTIFICATE",
     });
 
     if (finalState.opportunityVerdict === "TEST" && finalState.plan.phase === "VALIDATION_READY") {
