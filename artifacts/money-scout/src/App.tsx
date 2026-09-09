@@ -20,6 +20,7 @@ import OpportunityEdit from '@/pages/opportunity-edit';
 import OpportunityRuns from '@/pages/opportunity-runs';
 import Discovery from '@/pages/discovery';
 import Readiness from '@/pages/readiness';
+import NeedsYouPage from '@/pages/needs-you';
 
 const queryClient = new QueryClient();
 
@@ -29,6 +30,7 @@ function Router({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
       <RoutedErrorBoundary>
         <Switch>
           <Route path="/" component={OpportunitiesList} />
+          <Route path="/needs-you" component={NeedsYouPage} />
           <Route path="/opportunities/new" component={OpportunityNew} />
           <Route path="/opportunities/:id/runs" component={OpportunityRuns} />
           <Route path="/opportunities/:id/edit" component={OpportunityEdit} />
