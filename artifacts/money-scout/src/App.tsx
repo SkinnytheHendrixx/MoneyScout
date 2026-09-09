@@ -19,6 +19,7 @@ import OpportunityDetail from '@/pages/opportunity-detail';
 import OpportunityEdit from '@/pages/opportunity-edit';
 import OpportunityRuns from '@/pages/opportunity-runs';
 import Discovery from '@/pages/discovery';
+import Readiness from '@/pages/readiness';
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ function Router({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
           <Route path="/opportunities/:id/edit" component={OpportunityEdit} />
           <Route path="/opportunities/:id" component={OpportunityDetail} />
           <Route path="/discovery" component={Discovery} />
+          <Route path="/readiness" component={Readiness} />
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>
