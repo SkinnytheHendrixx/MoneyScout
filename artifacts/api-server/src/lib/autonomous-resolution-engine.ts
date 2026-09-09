@@ -3,9 +3,11 @@ export type ResolutionProblem =
   | "DEMAND_UNCERTAINTY"
   | "KILL_RISK_INCOMPLETE"
   | "RESEARCH_BUDGET_EXHAUSTED"
+  | "RESEARCH_EXECUTION_FAILURE"
   | "VALIDATION_PREREQUISITE_REGRESSION"
   | "VALIDATION_EVIDENCE_FAILURE"
   | "VALIDATION_BUDGET_EXHAUSTED"
+  | "VALIDATION_EXECUTION_FAILURE"
   | "VALIDATION_WATCH"
   | "VALIDATION_REJECT_CHALLENGE"
   | "COMMERCIAL_BUYER_UNRESOLVED"
@@ -83,12 +85,16 @@ const objectiveFor = (problem: ResolutionProblem): string => {
       return "Resolve each remaining fatal-risk hypothesis and distinguish confirmed blockers from merely unproven concerns.";
     case "RESEARCH_BUDGET_EXHAUSTED":
       return "Use zero-cost reasoning, existing evidence, proxy analysis, and safe experiments before requesting more research capital.";
+    case "RESEARCH_EXECUTION_FAILURE":
+      return "Diagnose an interrupted or failed Research workflow from persisted evidence and stage state, determine whether the failed step can be safely resumed without a blind paid replay, and choose the least-cost recovery path.";
     case "VALIDATION_PREREQUISITE_REGRESSION":
       return "Explain and resolve the conflict between current research prerequisites and the validation state before escalating.";
     case "VALIDATION_EVIDENCE_FAILURE":
       return "Determine whether the failed evidence run is a tooling failure, evidence gap, or thesis problem without blindly retrying paid work.";
     case "VALIDATION_BUDGET_EXHAUSTED":
       return "Resolve remaining underwriting uncertainty with existing evidence, inference, and safe experiments before requesting more capital.";
+    case "VALIDATION_EXECUTION_FAILURE":
+      return "Diagnose an interrupted or failed Validation workflow from persisted evidence and stage state, distinguish tooling failure from thesis failure, and choose a safe recovery path without blindly repeating a paid call.";
     case "VALIDATION_WATCH":
       return "Determine whether WATCH is truly the correct temporal outcome or whether additional internal reasoning can reach BUILD, experiment, or REJECT.";
     case "VALIDATION_REJECT_CHALLENGE":
@@ -103,10 +109,17 @@ const objectiveFor = (problem: ResolutionProblem): string => {
 };
 
 const economicInferenceApplicable = (problem: ResolutionProblem): boolean =>
-  problem !== "POLICY_AMBIGUITY" && problem !== "KILL_RISK_INCOMPLETE";
+  problem !== "POLICY_AMBIGUITY" &&
+  problem !== "KILL_RISK_INCOMPLETE" &&
+  problem !== "RESEARCH_EXECUTION_FAILURE" &&
+  problem !== "VALIDATION_EXECUTION_FAILURE";
 
 const alternativeThesisApplicable = (problem: ResolutionProblem): boolean =>
-  problem !== "VALIDATION_EVIDENCE_FAILURE" && problem !== "RESEARCH_BUDGET_EXHAUSTED" && problem !== "VALIDATION_BUDGET_EXHAUSTED";
+  problem !== "VALIDATION_EVIDENCE_FAILURE" &&
+  problem !== "RESEARCH_BUDGET_EXHAUSTED" &&
+  problem !== "VALIDATION_BUDGET_EXHAUSTED" &&
+  problem !== "RESEARCH_EXECUTION_FAILURE" &&
+  problem !== "VALIDATION_EXECUTION_FAILURE";
 
 const watchApplicable = (problem: ResolutionProblem): boolean =>
   problem === "DEMAND_UNCERTAINTY" ||
@@ -120,15 +133,19 @@ export function createAutonomousResolutionPlan(problem: ResolutionProblem): Auto
   const raw: Array<Omit<ResolutionStep, "order"> | null> = [
     {
       method: "DIRECT_RESEARCH",
-      objective: "Search specifically for primary evidence that directly answers the unresolved question.",
+      objective: problem === "RESEARCH_EXECUTION_FAILURE" || problem === "VALIDATION_EXECUTION_FAILURE"
+        ? "Inspect the persisted stage state, error context, provider/runtime state, and already-collected evidence before considering any replay."
+        : "Search specifically for primary evidence that directly answers the unresolved question.",
       requiredBeforeHumanEscalation: true,
-      mayUseExternalPaidResearch: true,
+      mayUseExternalPaidResearch: problem !== "RESEARCH_EXECUTION_FAILURE" && problem !== "VALIDATION_EXECUTION_FAILURE",
     },
     {
       method: "PROXY_RESEARCH",
-      objective: "Search adjacent evidence such as paid substitutes, comparable buyers, neighboring markets, public complaints, service pricing, procurement behavior, or analogous platform activity.",
+      objective: problem === "RESEARCH_EXECUTION_FAILURE" || problem === "VALIDATION_EXECUTION_FAILURE"
+        ? "Use surrounding stage results and durable workflow history to determine whether the failure is infrastructural, duplicated, already completed, or semantically unresolved."
+        : "Search adjacent evidence such as paid substitutes, comparable buyers, neighboring markets, public complaints, service pricing, procurement behavior, or analogous platform activity.",
       requiredBeforeHumanEscalation: true,
-      mayUseExternalPaidResearch: true,
+      mayUseExternalPaidResearch: problem !== "RESEARCH_EXECUTION_FAILURE" && problem !== "VALIDATION_EXECUTION_FAILURE",
     },
     economicInferenceApplicable(problem)
       ? {
@@ -140,7 +157,9 @@ export function createAutonomousResolutionPlan(problem: ResolutionProblem): Auto
       : null,
     {
       method: "ADVERSARIAL_REVIEW",
-      objective: "Actively challenge the obstacle, search for contrary evidence, and test whether absence of proof is being mistaken for proof of failure.",
+      objective: problem === "RESEARCH_EXECUTION_FAILURE" || problem === "VALIDATION_EXECUTION_FAILURE"
+        ? "Challenge the proposed recovery: verify that it does not silently duplicate a potentially billable action or misclassify a persisted successful step as failed."
+        : "Actively challenge the obstacle, search for contrary evidence, and test whether absence of proof is being mistaken for proof of failure.",
       requiredBeforeHumanEscalation: true,
       mayUseExternalPaidResearch: false,
     },
@@ -154,7 +173,9 @@ export function createAutonomousResolutionPlan(problem: ResolutionProblem): Auto
       : null,
     {
       method: "SAFE_EXPERIMENT",
-      objective: "Choose the cheapest reversible experiment that can resolve the remaining uncertainty without unauthorized side effects or blind paid retries.",
+      objective: problem === "RESEARCH_EXECUTION_FAILURE" || problem === "VALIDATION_EXECUTION_FAILURE"
+        ? "Choose the safest bounded recovery action, favoring read-only reconciliation and zero-cost verification before any repeat paid call."
+        : "Choose the cheapest reversible experiment that can resolve the remaining uncertainty without unauthorized side effects or blind paid retries.",
       requiredBeforeHumanEscalation: true,
       mayUseExternalPaidResearch: false,
     },
@@ -181,6 +202,7 @@ export function createAutonomousResolutionPlan(problem: ResolutionProblem): Auto
       "Exact pricing is not required when a defensible paid range or bounded pricing hypothesis can be derived.",
       "Prefer internally resolvable reasoning or experiments over human review.",
       "Do not repeat the same paid research merely because the previous result was inconclusive.",
+      "A runtime or transport failure does not authorize blind replay of a potentially billable stage.",
       "Human escalation is forbidden until every applicable internal resolution method is resolved, exhausted, or not applicable.",
     ],
     steps,
