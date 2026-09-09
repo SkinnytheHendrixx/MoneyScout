@@ -27,6 +27,7 @@ const baseBrief = createCommercialBuildBrief({
   assert.equal(plan.ventureBudget.totalExternalSpendCeilingUsd, 0);
   assert.equal(plan.ventureBudget.ownerConfiguredCeilingRequiredBeforeSpend, true);
   assert.equal(plan.pricing.testPriceUsd, null);
+  assert.equal(plan.pricing.confidenceState, "DIRECTLY_OBSERVED");
   assert.ok(plan.autonomy.approvalRequiredFor.includes("CUSTOMER_CHARGING"));
   assert.ok(plan.autonomy.approvalRequiredFor.includes("EXTERNAL_PUBLICATION"));
   assert.ok(plan.decisionContract.prohibitedInference.some((item) => item.includes("working product")));
@@ -50,10 +51,17 @@ const baseBrief = createCommercialBuildBrief({
     technicalEvidence: [],
   });
   const plan = createMonetizationExecutionPlan(brief);
-  assert.equal(plan.status, "NEEDS_COMMERCIAL_NORMALIZATION");
-  assert.equal(plan.autonomy.nextGate, "COMMERCIAL_NORMALIZATION");
+  assert.equal(plan.status, "NEEDS_AUTONOMOUS_RESOLUTION");
+  assert.equal(plan.autonomy.nextGate, "AUTONOMOUS_RESOLUTION");
   assert.equal(plan.firstTransaction.testType, "PAID_WORKFLOW_PILOT");
   assert.equal(plan.commercialNormalizationNeeded.length, 3);
+  assert.deepEqual(plan.resolutionProblems.sort(), [
+    "COMMERCIAL_BUYER_UNRESOLVED",
+    "COMMERCIAL_DISTRIBUTION_UNRESOLVED",
+    "COMMERCIAL_PRICING_UNRESOLVED",
+  ]);
+  assert.equal(plan.pricing.confidenceState, "UNRESOLVED");
+  assert.ok(plan.pricing.instruction.includes("bounded test hypothesis"));
   assert.equal(plan.ventureBudget.totalExternalSpendCeilingUsd, 0);
 }
 
