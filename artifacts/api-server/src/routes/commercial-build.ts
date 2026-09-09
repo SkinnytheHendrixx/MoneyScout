@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db, evidenceTable, opportunitiesTable } from "@workspace/db";
-import { createCommercialBuildBrief } from "../lib/commercial-build-brief";
+import { createCommercialBuildBrief, type CommercialBuildBrief } from "../lib/commercial-build-brief";
 
 const router: IRouter = Router();
 
@@ -51,21 +51,12 @@ const TECHNICAL_FACTORS = new Set([
   "falsifiability_feedback_velocity",
 ]);
 
-router.get("/opportunities/:opportunityId/commercial-build-brief", async (req, res): Promise<void> => {
-  const opportunityId = Number(req.params.opportunityId);
-  if (!Number.isInteger(opportunityId) || opportunityId <= 0) {
-    res.status(400).json({ error: "Invalid opportunity id" });
-    return;
-  }
-
+export async function loadCommercialBuildBrief(opportunityId: number): Promise<CommercialBuildBrief | null> {
   const [opportunity] = await db
     .select()
     .from(opportunitiesTable)
     .where(eq(opportunitiesTable.id, opportunityId));
-  if (!opportunity) {
-    res.status(404).json({ error: "Opportunity not found" });
-    return;
-  }
+  if (!opportunity) return null;
 
   const evidence = await db
     .select({
@@ -75,7 +66,7 @@ router.get("/opportunities/:opportunityId/commercial-build-brief", async (req, r
     .from(evidenceTable)
     .where(eq(evidenceTable.opportunityId, opportunityId));
 
-  const brief = createCommercialBuildBrief({
+  return createCommercialBuildBrief({
     opportunityId,
     name: opportunity.name,
     sourcePlatform: opportunity.sourcePlatform,
@@ -91,6 +82,20 @@ router.get("/opportunities/:opportunityId/commercial-build-brief", async (req, r
     distributionEvidence: claimsForFactors(evidence, DISTRIBUTION_FACTORS),
     technicalEvidence: claimsForFactors(evidence, TECHNICAL_FACTORS),
   });
+}
+
+router.get("/opportunities/:opportunityId/commercial-build-brief", async (req, res): Promise<void> => {
+  const opportunityId = Number(req.params.opportunityId);
+  if (!Number.isInteger(opportunityId) || opportunityId <= 0) {
+    res.status(400).json({ error: "Invalid opportunity id" });
+    return;
+  }
+
+  const brief = await loadCommercialBuildBrief(opportunityId);
+  if (!brief) {
+    res.status(404).json({ error: "Opportunity not found" });
+    return;
+  }
 
   res.status(200).json({
     ...brief,
