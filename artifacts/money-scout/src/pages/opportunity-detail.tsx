@@ -1,11 +1,11 @@
 import { useState } from "react"
 import { useLocation, useParams, Link } from "wouter"
-import { ArrowLeft, Edit, ExternalLink, Plus, Trash2, ShieldAlert } from "lucide-react"
+import { Activity, ArrowLeft, ChevronDown, Edit, ExternalLink, Plus, Trash2, ShieldAlert } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 
-import { 
-  useGetOpportunity, 
-  useDeleteOpportunity, 
+import {
+  useGetOpportunity,
+  useDeleteOpportunity,
   getListOpportunitiesQueryKey,
   useListEvidence,
   useDeleteEvidence,
@@ -23,6 +23,8 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { EvidenceDialog } from "@/components/evidence-dialog"
 import { DemandChecks } from "@/components/demand-checks"
+import { NeedsYouList } from "@/components/needs-you-list"
+import { RevOppGlance } from "@/components/revopp-glance"
 import { Select } from "@/components/ui/select"
 
 export const filterEvidenceByDimension = <
@@ -82,10 +84,10 @@ export default function OpportunityDetail() {
       },
       onError: (error: any) => {
         const isConflict = error?.status === 409 || error?.response?.status === 409 || String(error).includes("409")
-        toast({ 
-          title: "Policy check failed", 
+        toast({
+          title: "Policy check failed",
           description: isConflict ? "A policy check is already in progress or cannot be run right now." : "An error occurred while running the check.",
-          variant: "destructive" 
+          variant: "destructive"
         })
       }
     }
@@ -128,6 +130,8 @@ export default function OpportunityDetail() {
   const showEvidence = (evId: number) => {
     setEvidenceFilter("all")
     window.setTimeout(() => {
+      const details = document.getElementById("research-details") as HTMLDetailsElement | null
+      if (details) details.open = true
       const element = document.getElementById(`evidence-${evId}`)
       if (!element) return
       element.scrollIntoView({ behavior: "smooth", block: "center" })
@@ -142,14 +146,14 @@ export default function OpportunityDetail() {
   const filteredEvidence = filterEvidenceByDimension(evidenceList, evidenceFilter)
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="flex items-center gap-4">
           <Link href="/" className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground">
             <ArrowLeft className="h-4 w-4" />
           </Link>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-3xl font-bold tracking-tight">{opportunity.name}</h1>
               {getVerdictBadge(opportunity.verdict)}
               {getPolicyBadge(opportunity.policy_status)}
@@ -168,6 +172,10 @@ export default function OpportunityDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Link href={`/opportunities/${id}/runs`} className="inline-flex h-9 items-center justify-center rounded-md border bg-background px-3 text-sm font-medium hover:bg-muted">
+            <Activity className="mr-2 h-4 w-4" />
+            Timeline
+          </Link>
           <Link href={`/opportunities/${id}/edit`} className="inline-flex h-9 items-center justify-center rounded-md bg-secondary px-4 py-2 text-sm font-medium text-secondary-foreground shadow-sm hover:bg-secondary/80">
             <Edit className="mr-2 h-4 w-4" />
             Edit
@@ -178,30 +186,31 @@ export default function OpportunityDetail() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 space-y-6">
+      <RevOppGlance opportunityId={id} opportunity={opportunity} evidence={evidenceList} />
+      <NeedsYouList opportunityId={id} compact />
+
+      <details id="research-details" className="group rounded-lg border bg-card shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5">
+          <div>
+            <h2 className="font-semibold">Research, demand & evidence</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Open the full evidence stack only when you want to inspect how Money Scout reached its read.</p>
+          </div>
+          <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t p-5 space-y-6">
           <Card>
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-base">Investment Thesis</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4">
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{opportunity.thesis}</p>
-            </CardContent>
+            <CardHeader className="pb-3 border-b"><CardTitle className="text-base">Investment Thesis</CardTitle></CardHeader>
+            <CardContent className="pt-4"><p className="whitespace-pre-wrap text-sm leading-relaxed">{opportunity.thesis}</p></CardContent>
           </Card>
 
           <DemandChecks opportunityId={id} onShowEvidence={showEvidence} />
 
-          {opportunity.verdict === 'KILL' && opportunity.kill_reason && (
+          {opportunity.verdict === "KILL" && opportunity.kill_reason && (
             <Card className="border-destructive/50 bg-destructive/5">
               <CardHeader className="pb-3 border-b border-destructive/20">
-                <CardTitle className="text-base text-destructive flex items-center gap-2">
-                  <ShieldAlert className="h-4 w-4" />
-                  Kill Reason
-                </CardTitle>
+                <CardTitle className="text-base text-destructive flex items-center gap-2"><ShieldAlert className="h-4 w-4" />Kill Reason</CardTitle>
               </CardHeader>
-              <CardContent className="pt-4 text-black">
-                <p className="whitespace-pre-wrap text-sm">{opportunity.kill_reason}</p>
-              </CardContent>
+              <CardContent className="pt-4 text-black"><p className="whitespace-pre-wrap text-sm">{opportunity.kill_reason}</p></CardContent>
             </Card>
           )}
 
@@ -217,10 +226,7 @@ export default function OpportunityDetail() {
                   <option value="agent_api_usefulness">Agent/API Usefulness</option>
                   <option value="incumbent_weakness">Incumbent Weakness</option>
                 </Select>
-                <Button size="sm" onClick={openNewEvidence} className="h-9">
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Evidence
-                </Button>
+                <Button size="sm" onClick={openNewEvidence} className="h-9"><Plus className="mr-2 h-4 w-4" />Add Evidence</Button>
               </div>
             </div>
 
@@ -234,31 +240,20 @@ export default function OpportunityDetail() {
                       <div className="flex-1 space-y-2">
                         <div className="flex items-center gap-2 mb-1">
                           {getClassificationBadge(ev.classification)}
-                          <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">
-                            {ev.evaluation_dimension}
-                          </span>
+                          <span className="text-xs text-muted-foreground font-mono bg-muted px-1.5 py-0.5 rounded">{ev.evaluation_dimension}</span>
                         </div>
                         <p className="text-sm font-medium leading-tight">{ev.claim}</p>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
                           <span className="flex items-center gap-1">
                             {ev.source_title}
-                            {ev.source_url && (
-                              <a href={ev.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-primary">
-                                <ExternalLink className="h-3 w-3" />
-                              </a>
-                            )}
+                            {ev.source_url && <a href={ev.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-primary"><ExternalLink className="h-3 w-3" /></a>}
                           </span>
-                          <span>•</span>
-                          <span>{formatDate(ev.observed_date)}</span>
+                          <span>•</span><span>{formatDate(ev.observed_date)}</span>
                         </div>
                       </div>
                       <div className="flex sm:flex-col items-center justify-end gap-2 border-t sm:border-t-0 sm:border-l pt-3 sm:pt-0 sm:pl-3">
-                        <Button variant="ghost" size="sm" className="h-8 text-xs w-full justify-start" onClick={() => openEditEvidence(ev.id)}>
-                          Edit
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-8 text-xs w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteEvidence(ev.id)}>
-                          Remove
-                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 text-xs w-full justify-start" onClick={() => openEditEvidence(ev.id)}>Edit</Button>
+                        <Button variant="ghost" size="sm" className="h-8 text-xs w-full justify-start text-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleDeleteEvidence(ev.id)}>Remove</Button>
                       </div>
                     </div>
                   </Card>
@@ -272,42 +267,26 @@ export default function OpportunityDetail() {
             )}
           </div>
         </div>
+      </details>
 
-        <div className="space-y-6">
+      <details className="group rounded-lg border bg-card shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 p-5">
+          <div>
+            <h2 className="font-semibold">Policy, metadata & manual controls</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Operational metadata and manual inspection tools.</p>
+          </div>
+          <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="border-t p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
-            <CardHeader className="pb-3 border-b">
-              <CardTitle className="text-base">Metadata</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4 text-sm">
-              <div>
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Score</div>
-                <div className="font-mono text-xl">{opportunity.overall_score}<span className="text-muted-foreground text-sm">/100</span></div>
-              </div>
-              
-              <div>
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Type</div>
-                <div>{opportunity.opportunity_type}</div>
-              </div>
-
-              <div>
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Engine</div>
-                <div>{opportunity.engine_family}</div>
-              </div>
-
-              <div>
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Status</div>
-                <div>{opportunity.status}</div>
-              </div>
-
-              <div className="pt-4 border-t border-dashed">
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">First Seen</div>
-                <div>{formatDateTime(opportunity.first_seen)}</div>
-              </div>
-              
-              <div>
-                <div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Last Researched</div>
-                <div>{formatDateTime(opportunity.last_researched)}</div>
-              </div>
+            <CardHeader className="pb-3 border-b"><CardTitle className="text-base">Metadata</CardTitle></CardHeader>
+            <CardContent className="pt-4 grid grid-cols-2 gap-4 text-sm">
+              <div><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Score</div><div className="font-mono text-xl">{opportunity.overall_score}<span className="text-muted-foreground text-sm">/100</span></div></div>
+              <div><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Type</div><div>{opportunity.opportunity_type}</div></div>
+              <div><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Engine</div><div>{opportunity.engine_family}</div></div>
+              <div><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Status</div><div>{opportunity.status}</div></div>
+              <div className="pt-3 border-t border-dashed"><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">First Seen</div><div>{formatDateTime(opportunity.first_seen)}</div></div>
+              <div className="pt-3 border-t border-dashed"><div className="text-muted-foreground mb-1 text-xs uppercase tracking-wider font-semibold">Last Researched</div><div>{formatDateTime(opportunity.last_researched)}</div></div>
             </CardContent>
           </Card>
 
@@ -315,16 +294,9 @@ export default function OpportunityDetail() {
             <CardHeader className="pb-3 border-b">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Policy Checks</CardTitle>
-                <Button 
-                  size="sm" 
-                  variant="outline" 
-                  onClick={handleRunPolicyCheck}
-                  disabled={runPolicyCheckMutation.isPending}
-                >
-                  {runPolicyCheckMutation.isPending ? "Running..." : "Run Check"}
-                </Button>
+                <Button size="sm" variant="outline" onClick={handleRunPolicyCheck} disabled={runPolicyCheckMutation.isPending}>{runPolicyCheckMutation.isPending ? "Running..." : "Run Check"}</Button>
               </div>
-              <CardDescription className="text-xs">Checks are limited to policy and access rules.</CardDescription>
+              <CardDescription className="text-xs">Manual policy checks are available for inspection, but normal autonomous workflows should advance themselves.</CardDescription>
             </CardHeader>
             <CardContent className="pt-4">
               {policyChecksLoading ? (
@@ -333,17 +305,12 @@ export default function OpportunityDetail() {
                 <div className="space-y-4">
                   {policyChecks.map((check) => (
                     <div key={check.id} className="text-sm border-b border-dashed last:border-0 pb-4 last:pb-0 space-y-2">
-                      <div className="flex items-center justify-between">
-                        {getPolicyBadge(check.status)}
-                        <span className="text-xs text-muted-foreground">{formatDateTime(check.checked_at)}</span>
-                      </div>
+                      <div className="flex items-center justify-between">{getPolicyBadge(check.status)}<span className="text-xs text-muted-foreground">{formatDateTime(check.checked_at)}</span></div>
                       {check.summary && <p className="text-xs leading-relaxed text-muted-foreground">{check.summary}</p>}
                       <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
                         <span className="bg-muted px-1.5 py-0.5 rounded font-mono">{check.retrieval_method}</span>
                         <span className="bg-muted px-1.5 py-0.5 rounded font-mono">Evidence: {check.evidence_created}</span>
-                        {check.external_cost_usd !== null && (
-                          <span className="bg-muted px-1.5 py-0.5 rounded font-mono">Cost: ${check.external_cost_usd.toFixed(4)}</span>
-                        )}
+                        {check.external_cost_usd !== null && <span className="bg-muted px-1.5 py-0.5 rounded font-mono">Cost: ${check.external_cost_usd.toFixed(4)}</span>}
                       </div>
                     </div>
                   ))}
@@ -354,10 +321,10 @@ export default function OpportunityDetail() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </details>
 
-      <EvidenceDialog 
-        open={evidenceDialogOpen} 
+      <EvidenceDialog
+        open={evidenceDialogOpen}
         onOpenChange={setEvidenceDialogOpen}
         opportunityId={id}
         evidenceId={evidenceToEdit}
