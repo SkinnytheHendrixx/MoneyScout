@@ -8,6 +8,7 @@ import {
   policyChecksTable,
   researchRunsTable,
 } from "@workspace/db";
+import { createAutonomousResolutionPlan } from "../lib/autonomous-resolution-engine";
 import {
   assessAllUnderwritingFactors,
   parsePersistedUnderwritingDimension,
@@ -55,6 +56,9 @@ const validationRunStatus = (notes: Partial<ValidationRunNote>): ValidationEvide
   return "FAILED";
 };
 
+const resolutionPlanFor = (plan: ValidationPlan) =>
+  plan.resolutionProblem ? createAutonomousResolutionPlan(plan.resolutionProblem) : null;
+
 function forwardedOrigin(req: Request): string {
   const forwardedProto = req.get("x-forwarded-proto")?.split(",")[0]?.trim();
   const protocol = forwardedProto || req.protocol;
@@ -67,8 +71,12 @@ function forwardedAuthHeaders(req: Request): Record<string, string> {
   const headers: Record<string, string> = {};
   const cookie = req.get("cookie");
   const authorization = req.get("authorization");
+  const pilotSpendApproval = req.get("x-money-scout-allow-pilot-spend");
+  const unverifiedProviderApproval = req.get("x-money-scout-allow-unverified-provider");
   if (cookie) headers.cookie = cookie;
   if (authorization) headers.authorization = authorization;
+  if (pilotSpendApproval) headers["x-money-scout-allow-pilot-spend"] = pilotSpendApproval;
+  if (unverifiedProviderApproval) headers["x-money-scout-allow-unverified-provider"] = unverifiedProviderApproval;
   return headers;
 }
 
@@ -127,7 +135,6 @@ async function latestValidationRun(opportunityId: number): Promise<{
     if (notes.opportunity_id === opportunityId) return { id: run.id, notes };
   }
 
-  // Compatibility with Task #47 records created before opportunity_id was added to run notes.
   const evidenceRows = await db
     .select({ researchRunId: evidenceTable.researchRunId })
     .from(evidenceTable)
@@ -311,6 +318,7 @@ router.get("/opportunities/:opportunityId/validation-plan", async (req, res): Pr
       evidence_run_status: state.evidenceRunStatus,
       assessments: state.assessments,
       ...state.plan,
+      autonomous_resolution_plan: resolutionPlanFor(state.plan),
     });
   } catch (error) {
     if (error instanceof Error && error.message === "Opportunity not found") {
@@ -375,11 +383,13 @@ router.post("/opportunities/:opportunityId/validation/advance", async (req, res)
       evidence_run_status: postCollectionState.evidenceRunStatus,
       assessments: postCollectionState.assessments,
       ...execution.finalPlan,
+      autonomous_resolution_plan: resolutionPlanFor(execution.finalPlan),
+      escalation_policy: "OWNER_ESCALATION_FOR_KNOWLEDGE_GAPS_FORBIDDEN_WITHOUT_EXHAUSTION_CERTIFICATE",
       experiment_planning: experimentPlanning,
       experiment_planning_error: experimentPlanningError,
       retry_policy:
-        execution.finalPlan.phase === "NEEDS_MORE_VALIDATION"
-          ? "NO_AUTOMATIC_PAID_RETRY"
+        execution.finalPlan.phase === "NEEDS_MORE_VALIDATION" || execution.finalPlan.phase === "AUTONOMOUS_RESOLUTION_REQUIRED"
+          ? "NO_BLIND_AUTOMATIC_PAID_RETRY"
           : "NOT_APPLICABLE",
     });
   } catch (error) {
