@@ -50,7 +50,8 @@ const base: ResearchPlanInput = {
     },
   });
   assert.deepEqual(calls, ["policy"]);
-  assert.equal(result.finalPlan.phase, "HUMAN_REVIEW_REQUIRED");
+  assert.equal(result.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(result.finalPlan.resolutionProblem, "POLICY_AMBIGUITY");
   assert.equal(result.finalPlan.automaticExternalCallsEnabled, false);
 }
 
@@ -71,11 +72,12 @@ const base: ResearchPlanInput = {
       state = { ...state, demandConclusion: "WEAK", externalCostUsd: 0.48 };
     },
     runKillRiskCheck: async () => {
-      throw new Error("kill risk should not run for weak demand");
+      throw new Error("kill risk should not run for unresolved demand");
     },
   });
   assert.equal(demandCalls, 1);
-  assert.equal(result.finalPlan.phase, "WATCH");
+  assert.equal(result.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(result.finalPlan.resolutionProblem, "DEMAND_UNCERTAINTY");
   assert.equal(result.finalPlan.automaticExternalCallsEnabled, false);
 }
 
@@ -101,7 +103,8 @@ const base: ResearchPlanInput = {
     },
   });
   assert.equal(killCalls, 1);
-  assert.equal(result.finalPlan.phase, "KILL_RISK_REVIEW_REQUIRED");
+  assert.equal(result.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(result.finalPlan.resolutionProblem, "KILL_RISK_INCOMPLETE");
   assert.equal(result.finalPlan.automaticExternalCallsEnabled, false);
 }
 
@@ -120,7 +123,8 @@ const base: ResearchPlanInput = {
     runKillRiskCheck: async () => { calls += 1; },
   });
   assert.equal(calls, 0);
-  assert.equal(result.finalPlan.phase, "BUDGET_EXHAUSTED");
+  assert.equal(result.finalPlan.phase, "AUTONOMOUS_RESOLUTION_REQUIRED");
+  assert.equal(result.finalPlan.resolutionProblem, "RESEARCH_BUDGET_EXHAUSTED");
 }
 
 console.log("PASS zero-cost autonomous research execution");
