@@ -1,4 +1,12 @@
+import { inArray } from "drizzle-orm";
 import { Router, type IRouter } from "express";
+import {
+  db,
+  humanActionsTable,
+  opportunitiesTable,
+  opportunityRuntimeStateTable,
+  watchRegistrationsTable,
+} from "@workspace/db";
 import {
   latestPortfolioHeartbeat,
   opportunityLifecycleSnapshot,
@@ -39,6 +47,23 @@ function activityProjection(runtime: NonNullable<Awaited<ReturnType<typeof oppor
   };
 }
 
+function operatorState(input: {
+  verdict: string;
+  activityStatus: string | null;
+  activityKey: string | null;
+  openHumanActions: number;
+  activeWatch: boolean;
+}): "RUNNING" | "QUEUED" | "WATCHING" | "HUMAN_BLOCKED" | "RECOVERING" | "COMPLETE" | "IDLE" {
+  const key = input.activityKey ?? "";
+  if (input.openHumanActions > 0 || (input.activityStatus === "BLOCKED" && key.startsWith("HUMAN_"))) return "HUMAN_BLOCKED";
+  if (input.activeWatch || input.verdict === "WATCH" || key.includes("WATCH")) return "WATCHING";
+  if (key.includes("RECOVER") || key.includes("INTERRUPT") || key.includes("RESUME_DISPATCH_FAILED")) return "RECOVERING";
+  if (input.activityStatus === "RUNNING") return "RUNNING";
+  if (input.activityStatus === "WAITING" || key.includes("QUEUED") || key.includes("PENDING")) return "QUEUED";
+  if (input.activityStatus === "COMPLETE" || input.verdict === "KILL") return "COMPLETE";
+  return "IDLE";
+}
+
 router.get("/portfolio/heartbeat", async (_req, res): Promise<void> => {
   const latest = await latestPortfolioHeartbeat();
   res.status(200).json({
@@ -49,6 +74,64 @@ router.get("/portfolio/heartbeat", async (_req, res): Promise<void> => {
           finishedAt: latest.finishedAt?.toISOString() ?? null,
         }
       : null,
+  });
+});
+
+router.get("/portfolio/control-center", async (_req, res): Promise<void> => {
+  const [opportunities, runtimes, humanActions, watches] = await Promise.all([
+    db.select().from(opportunitiesTable).orderBy(opportunitiesTable.id),
+    db.select().from(opportunityRuntimeStateTable).orderBy(opportunityRuntimeStateTable.opportunityId),
+    db.select().from(humanActionsTable)
+      .where(inArray(humanActionsTable.status, ["OPEN", "VERIFYING"]))
+      .orderBy(humanActionsTable.id),
+    db.select().from(watchRegistrationsTable).orderBy(watchRegistrationsTable.id),
+  ]);
+
+  const runtimeByOpportunity = new Map(runtimes.map((runtime) => [runtime.opportunityId, runtime]));
+  const humanActionCounts = new Map<number, number>();
+  for (const action of humanActions) {
+    humanActionCounts.set(action.opportunityId, (humanActionCounts.get(action.opportunityId) ?? 0) + 1);
+  }
+  const activeWatchIds = new Set(
+    watches.filter((watch) => watch.status === "ACTIVE").map((watch) => watch.opportunityId),
+  );
+
+  const items = opportunities.map((opportunity) => {
+    const runtime = runtimeByOpportunity.get(opportunity.id) ?? null;
+    const openHumanActions = humanActionCounts.get(opportunity.id) ?? 0;
+    const state = operatorState({
+      verdict: opportunity.verdict,
+      activityStatus: runtime?.activityStatus ?? null,
+      activityKey: runtime?.currentActivityKey ?? null,
+      openHumanActions,
+      activeWatch: activeWatchIds.has(opportunity.id),
+    });
+    return {
+      opportunity_id: opportunity.id,
+      name: opportunity.name,
+      verdict: opportunity.verdict,
+      operator_state: state,
+      current_activity: activityProjection(runtime),
+      open_human_action_count: openHumanActions,
+    };
+  });
+
+  const counts = {
+    RUNNING: 0,
+    QUEUED: 0,
+    WATCHING: 0,
+    HUMAN_BLOCKED: 0,
+    RECOVERING: 0,
+    COMPLETE: 0,
+    IDLE: 0,
+  };
+  for (const item of items) counts[item.operator_state] += 1;
+
+  res.status(200).json({
+    generated_at: new Date().toISOString(),
+    counts,
+    items,
+    note: "This is a read-only projection of persisted lifecycle/runtime state. It performs no external calls and does not advance workflows.",
   });
 });
 
