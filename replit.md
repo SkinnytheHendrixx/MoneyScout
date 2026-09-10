@@ -62,4 +62,4 @@ Use the scripts/workflows in the current branch as source of truth for exact com
 
 ## Current milestone pointer
 
-At the time this file was updated, `main` contains milestone #74 and #75 Commercial Activation & Revenue Execution is the active build milestone. See `docs/CURRENT_STATE.md` and `docs/ROADMAP.md` for the authoritative current status.
+At the time this file was updated, `main` contains milestone **#75 Commercial Activation & Revenue Execution** and **#76 Bet & Capital Allocation Kernel** is the active implementation milestone. The planned #77 Asset Factory & Real Builder Integration sits immediately after the Bet layer and in front of the existing Builder Workspace execution layer. See `docs/CURRENT_STATE.md` and `docs/ROADMAP.md` for the authoritative current status.
