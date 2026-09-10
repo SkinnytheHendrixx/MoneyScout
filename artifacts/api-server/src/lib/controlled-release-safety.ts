@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   db,
   humanActionsTable,
+  releaseEventsTable,
   releaseJobsTable,
   type PersistedReleasePlan,
 } from "@workspace/db";
@@ -37,6 +38,24 @@ function nextStatusAfterSpendUnlock(job: typeof releaseJobsTable.$inferSelect) {
   return job.previewHealthPassed === true
     ? "WAITING_FOR_PUBLIC_AUTHORITY" as const
     : "READY_FOR_PREVIEW" as const;
+}
+
+async function recordSafetyEvent(input: {
+  releaseJobId: number;
+  buildJobId: number;
+  opportunityId: number;
+  eventType: string;
+  summary: string;
+  metadata?: Record<string, unknown>;
+}) {
+  await db.insert(releaseEventsTable).values({
+    releaseJobId: input.releaseJobId,
+    buildJobId: input.buildJobId,
+    opportunityId: input.opportunityId,
+    eventType: input.eventType,
+    summary: input.summary.slice(0, 2_000),
+    metadata: input.metadata ?? {},
+  });
 }
 
 async function resolveScopedAction(input: {
@@ -106,6 +125,18 @@ export async function authorizePublicReleaseSafely(input: {
       scope: "PUBLIC_RELEASE_ONLY",
     },
   });
+  await recordSafetyEvent({
+    releaseJobId: job.id,
+    buildJobId: job.buildJobId,
+    opportunityId: job.opportunityId,
+    eventType: "PUBLIC_RELEASE_AUTHORIZED",
+    summary: "Explicit per-release public deployment authority recorded.",
+    metadata: {
+      authorized_by: input.authorizedBy ?? "HUMAN_ATTESTATION",
+      scope: "PUBLIC_RELEASE_ONLY",
+      preserved_block: preserveBlock ? job.blockedReason : null,
+    },
+  });
 
   return updated ?? job;
 }
@@ -169,6 +200,19 @@ export async function authorizeReleaseSpendSafely(input: {
       },
     });
   }
+  await recordSafetyEvent({
+    releaseJobId: job.id,
+    buildJobId: job.buildJobId,
+    opportunityId: job.opportunityId,
+    eventType: "RELEASE_SPEND_AUTHORIZED",
+    summary: `Bounded release budget set to ${input.ceilingCents} cents.`,
+    metadata: {
+      ceiling_cents: input.ceilingCents,
+      authorized_by: input.authorizedBy ?? "HUMAN_ATTESTATION",
+      cleared_spend_block: clearsSpendBlock,
+      preserved_block: clearsSpendBlock ? null : job.blockedReason,
+    },
+  });
 
   return updated ?? job;
 }
@@ -206,10 +250,47 @@ export async function enforceReleaseProviderContinuity(adapter: ReleaseAgentAdap
   for (const job of candidates) {
     const previewInFlight = !!job.previewProviderRunId && !job.previewFinishedAt;
     const productionInFlight = !!job.productionProviderRunId && !job.productionFinishedAt;
-    const genericAdapterBlock = job.status === "BLOCKED" && job.blockedReason === "DEPLOYMENT_AGENT_ACCESS_REQUIRED";
     if (!previewInFlight && !productionInFlight) continue;
-    if (job.releaseProvider === "UNCONFIGURED" || job.releaseProvider === adapter.provider) continue;
-    if (job.status !== "PREVIEW_DEPLOYING" && job.status !== "PRODUCTION_DEPLOYING" && !genericAdapterBlock) continue;
+    if (job.releaseProvider === "UNCONFIGURED") continue;
+
+    const continuityBlock = job.status === "BLOCKED" && job.blockedReason === "RELEASE_PROVIDER_CONTINUITY_REQUIRED";
+    if (job.releaseProvider === adapter.provider) {
+      if (!continuityBlock) continue;
+      const resumeStatus = productionInFlight ? "PRODUCTION_DEPLOYING" as const : "PREVIEW_DEPLOYING" as const;
+      await db
+        .update(releaseJobsTable)
+        .set({
+          status: resumeStatus,
+          blockedReason: null,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(releaseJobsTable.id, job.id));
+      await resolveScopedAction({
+        opportunityId: job.opportunityId,
+        actionType: "RESTORE_RELEASE_PROVIDER_ACCESS",
+        blockedStage: `CONTROLLED_RELEASE_PROVIDER_CONTINUITY:${job.id}`,
+        resolutionData: {
+          release_job_id: job.id,
+          restored_provider: adapter.provider,
+          resumed_status: resumeStatus,
+          detected_automatically: true,
+        },
+      });
+      await recordSafetyEvent({
+        releaseJobId: job.id,
+        buildJobId: job.buildJobId,
+        opportunityId: job.opportunityId,
+        eventType: "RELEASE_PROVIDER_CONTINUITY_RESTORED",
+        summary: "Original release provider access returned; Money Scout resumed polling the preserved in-flight run.",
+        metadata: { provider: adapter.provider, resumed_status: resumeStatus },
+      });
+      continue;
+    }
+
+    const genericAdapterBlock = job.status === "BLOCKED" && job.blockedReason === "DEPLOYMENT_AGENT_ACCESS_REQUIRED";
+    if (job.status !== "PREVIEW_DEPLOYING" && job.status !== "PRODUCTION_DEPLOYING" && !genericAdapterBlock && !continuityBlock) continue;
 
     await db
       .update(releaseJobsTable)
@@ -222,6 +303,14 @@ export async function enforceReleaseProviderContinuity(adapter: ReleaseAgentAdap
       })
       .where(eq(releaseJobsTable.id, job.id));
     await createProviderContinuityAction(job);
+    await recordSafetyEvent({
+      releaseJobId: job.id,
+      buildJobId: job.buildJobId,
+      opportunityId: job.opportunityId,
+      eventType: "RELEASE_PROVIDER_CONTINUITY_BLOCKED",
+      summary: "Configured release provider differs from the provider that owns an in-flight external run; replay was blocked.",
+      metadata: { expected_provider: job.releaseProvider, configured_provider: adapter.provider },
+    });
     blocked += 1;
   }
   return blocked;
