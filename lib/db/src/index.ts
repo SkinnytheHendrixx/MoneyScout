@@ -15,3 +15,4 @@ export const db = drizzle(pool, { schema });
 
 export * from "./schema";
 export * from "./runtime-migrations";
+export * from "./builder-runtime-migrations";

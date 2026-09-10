@@ -1,7 +1,8 @@
 import "./lib/anthropic-provider";
-import { pool, prepareRuntimeSchema } from "@workspace/db";
+import { pool, prepareBuilderWorkspaceSchema, prepareRuntimeSchema } from "@workspace/db";
 import app from "./app";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
+import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
 import { startExecutionKernel } from "./lib/execution-kernel";
 import { startExecutionReconciler } from "./lib/execution-reconciler";
 import { logger } from "./lib/logger";
@@ -24,10 +25,11 @@ if (Number.isNaN(port) || port <= 0) {
 
 async function startServer(): Promise<void> {
   const schema = await prepareRuntimeSchema(pool);
+  const builderSchema = await prepareBuilderWorkspaceSchema(pool);
   logger.info(
     {
-      appliedRuntimeMigrations: schema.appliedMigrationIds,
-      requiredRuntimeTables: schema.requiredTables,
+      appliedRuntimeMigrations: [...schema.appliedMigrationIds, ...builderSchema.appliedMigrationIds],
+      requiredRuntimeTables: [...schema.requiredTables, ...builderSchema.requiredTables],
     },
     "Runtime database schema ready",
   );
@@ -44,6 +46,7 @@ async function startServer(): Promise<void> {
     startExecutionReconciler(port);
     startExecutionKernel(port);
     startBuildOrchestratorWorker();
+    startBuilderWorkspaceWorker();
     startPortfolioHeartbeat(port);
   });
 }
