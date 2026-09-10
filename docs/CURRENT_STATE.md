@@ -8,8 +8,9 @@ This file is intentionally operational and should be updated whenever a mileston
 
 - Repository: `SkinnytheHendrixx/MoneyScout`
 - GitHub `main` is the source of truth.
-- Current `main` milestone: **#74 Monetization Instrumentation & Autonomous Asset Operations**.
-- Current `main` merge SHA: `f8fccea6d65e2f399cb47d234c72793542734395`.
+- Current functional milestone on `main`: **#74 Monetization Instrumentation & Autonomous Asset Operations**.
+- Last functional milestone merge SHA: `f8fccea6d65e2f399cb47d234c72793542734395`.
+- Documentation-only commits may advance `main` beyond that SHA without changing the functional milestone; inspect Git history/runtime health for the exact current deployment SHA.
 - #75 Commercial Activation & Revenue Execution is the active implementation milestone and is not yet merged at the time of this update.
 - GitHub Actions `Money Scout CI` is the merge/deployment acceptance gate.
 - Replit is the active runtime/database/preview environment, not the primary coding environment.
