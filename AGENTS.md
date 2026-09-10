@@ -21,7 +21,7 @@ Maximize return on deployed capital and autonomous operating capacity across the
 
 The intended closed loop is:
 
-Discovery -> Research -> Validation -> Underwriting -> Bet -> Build -> Independent QA -> Controlled Release -> Asset -> Commercial Activation -> Operations -> Measurement -> Improve / Scale / Pause / Kill -> Reinvest.
+Discovery -> Research -> Validation -> Underwriting -> Bet -> Asset Factory -> Build -> Independent QA -> Controlled Release -> Asset -> Commercial Activation -> Operations -> Measurement -> Improve / Scale / Pause / Kill -> Reinvest.
 
 ## Autonomy rule
 
@@ -89,11 +89,55 @@ Do not collapse these concepts:
 
 - **RevOpp / Opportunity**: an economic hypothesis worth evaluating.
 - **Bet**: explicit allocation of capital and autonomous capacity to an opportunity.
-- **Build**: implementation of the approved commercial contract.
+- **Product Definition**: the versioned, traceable statement of what a funded product must do for its buyer and business thesis.
+- **Architecture Plan**: the technical composition chosen to satisfy a frozen Product Definition within the Bet's Build Envelope.
+- **Build**: implementation of the approved product/architecture contract.
 - **Release**: controlled deployment of a verified build.
 - **Asset**: a launched operating business.
 
 The long-term portfolio layer should make explicit decisions about where the next dollar and agent-hour goes.
+
+## Product synthesis / Asset Factory rules
+
+The Asset Factory exists to turn an approved Bet into a buildable, auditable software business without turning product judgment into fabricated market evidence.
+
+### Competitive first release
+
+Do not optimize for the thinnest possible MVP merely because it is technically sufficient. AI-assisted development lowers marginal build cost, so the first release should ordinarily be **industry-standard and commercially competitive around the validated value proposition**.
+
+- Include category-standard functionality when evidence or strong category convention indicates that omitting it would materially reduce credibility, usability, purchaseability, customer success, or the paid promise.
+- Include the functionality required to make normal customer workflows feel complete rather than prototype-like.
+- Do not add speculative differentiation, enterprise complexity, or feature breadth with no commercial/product justification.
+- Optimize aggressively against **ongoing operational, maintenance, security, provider, and support complexity**, not against feature count by itself.
+- Prefer the least-complex architecture that can support the complete competitive product; do not reduce the product merely to obtain a simpler architecture.
+
+### Requirement provenance
+
+Material Product Definition requirements must be traceable to one of these sources:
+
+- **LOCKED_COMMERCIAL_TRUTH**: buyer, problem, promised outcome, monetization/distribution constraints, policy, Bet decision contract, or other upstream fact that may not be casually reinterpreted.
+- **EVIDENCE_BACKED_REQUIREMENT**: customer, competitor, marketplace, operational, or technical evidence justifies the requirement.
+- **FACTORY_STANDARD**: baseline quality/security/reliability/usability requirements that do not need market evidence, such as validation, failure visibility, loading/empty/error states, observability, accessibility where applicable, and safe secret handling.
+- **BOUNDED_PRODUCT_JUDGMENT**: a reversible product-design choice used to satisfy evidenced requirements efficiently. It must be labeled as judgment, not represented as observed buyer demand.
+- **BUILDER_DISCRETION**: low-level engineering detail intentionally delegated to the coding agent unless a proven reusable standard exists.
+
+Category convention is evidence, not a command. A common feature may be included when its omission would make the product materially weaker; it must not be labeled as buyer demand unless buyer evidence actually says so.
+
+### Product Definition freeze and changes
+
+Once a Product Definition is approved for Build, it is versioned and immutable as historical truth. New evidence or material scope changes create a new Product Definition version with changed requirements, rationale, evidence, Bet-envelope impact, and acceptance criteria. Do not silently mutate the product while a builder is executing.
+
+The desired traceability chain is:
+
+Evidence -> Requirement -> Product Definition -> Architecture component -> Build Contract criterion -> code -> independent QA -> released behavior -> customer/economic outcome.
+
+### Factory vs builder responsibilities
+
+The Asset Factory decides the product contract, required reusable capabilities, architecture constraints, repo identity, non-goals, and acceptance conditions. The coding agent retains discretion over ordinary local implementation details unless Money Scout has an approved reusable standard.
+
+The existing #69 Builder Workspace remains the execution layer: it receives the frozen Build Contract, creates/uses the isolated builder workspace, dispatches the coding provider, and hands builder completion to independent QA. The builder must not broaden product/commercial scope on its own.
+
+A shared portfolio visual/design system is desirable but is not a prerequisite for the core Asset Factory. Until one exists, customer-facing products should meet a competent neutral UI/UX quality floor. A future shared design system can be added as a reusable capability without changing the Factory's core contract.
 
 ## Build / QA / release rules
 
@@ -125,7 +169,7 @@ Capability existence and capability readiness are separate. Account existence al
 
 ## UX rule
 
-The frontend is an operator control center, not a research dump. A primary screen should make the current state understandable in seconds:
+The Money Scout frontend is an operator control center, not a research dump. A primary screen should make the current state understandable in seconds:
 
 - what this is;
 - why it may make money;
@@ -137,6 +181,8 @@ The frontend is an operator control center, not a research dump. A primary scree
 - what happens next.
 
 Detailed evidence, research, audit history, and diagnostics belong in drill-down views.
+
+This operator UX rule is separate from the customer-facing design language of generated portfolio Assets.
 
 ## Engineering workflow
 

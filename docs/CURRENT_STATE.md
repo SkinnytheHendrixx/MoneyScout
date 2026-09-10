@@ -1,58 +1,69 @@
 # Money Scout Current State
 
-_Last updated: 2026-09-09 (America/Los_Angeles)_
+_Last updated: 2026-09-10 (America/Los_Angeles)_
 
 This file is intentionally operational and should be updated whenever a milestone changes the live system materially. It is not a substitute for code inspection.
 
 ## Repository / deployment state
 
-- Repository: `SkinnytheHendrixx/MoneyScout`
+- Repository: `SkinnytheHendrixx/MoneyScout`.
 - GitHub `main` is the source of truth.
-- Current functional milestone on `main`: **#74 Monetization Instrumentation & Autonomous Asset Operations**.
-- Last functional milestone merge SHA: `f8fccea6d65e2f399cb47d234c72793542734395`.
-- Documentation-only commits may advance `main` beyond that SHA without changing the functional milestone; inspect Git history/runtime health for the exact current deployment SHA.
-- #75 Commercial Activation & Revenue Execution is the active implementation milestone and is not yet merged at the time of this update.
+- Current functional milestone on `main`: **#75 Commercial Activation & Revenue Execution**.
+- #75 merge SHA: `164fdb88e773040f09d85b1467ed07edaca705d9`.
+- Exact `main` push CI for that merge completed successfully in Money Scout CI run #581.
+- #76 Bet & Capital Allocation Kernel is the active implementation milestone and is not yet merged at the time of this update.
 - GitHub Actions `Money Scout CI` is the merge/deployment acceptance gate.
 - Replit is the active runtime/database/preview environment, not the primary coding environment.
 - Money Scout's self-deployment supervisor watches exact green `main` push SHAs and promotes them without requiring routine owner sync/reset actions.
 
 ## Current product capability
 
-Money Scout currently supports the pipeline through measured, self-remediating live Assets:
+Money Scout currently supports the pipeline through commercially activatable, measurable, self-remediating live Assets:
 
 1. **Discovery**: collect bounded external catalog/source signals and create Candidate/Opportunity state under strict coverage rules.
 2. **Research**: policy/access and demand analysis with durable evidence and bounded provider cost.
 3. **Validation**: kill-risk collection, evidence collection, 13-factor assessment, underwriting, adversarial challenge, experiments, WATCH, and autonomous resolution.
 4. **Commercial planning**: deterministic Commercial Build Brief and Monetization Execution Plan.
-5. **Build**: durable builder workspace/provider adapter contract.
+5. **Build**: durable Builder Workspace/provider adapter contract.
 6. **Independent QA**: acceptance criteria, baseline checks, defect persistence, bounded repair/retest loop.
 7. **Controlled Release**: preview-first deployment and explicit public release authority.
 8. **Self-deployment**: Money Scout can update its own Replit runtime from a green GitHub `main` SHA.
 9. **Asset activation**: verified public releases become durable Assets.
-10. **Asset operations**: health checks, incidents, recovery, telemetry ingestion, economic reviews, and bounded same-surface remediation.
+10. **Asset operations**: health checks, incidents, recovery, authoritative telemetry ingestion, economic reviews, and bounded same-surface remediation.
+11. **Commercial activation**: a live Asset can prepare a disabled checkout, require independent merchant/credential/charging gates, become transaction-ready after explicit authority, and ingest signed authoritative payment events into the existing Asset economic system.
+12. **Revenue adjustments**: refunds, partial refunds, chargebacks, and reversals append compensating `FACT` observations without mutating the original payment fact, so realized/net revenue remains auditable and correct.
 
-## What #74 added
+## What #75 added
 
-The live codebase now contains the first measured post-launch operations layer:
+The codebase now contains a durable Asset-level Commercial Activation lifecycle:
 
-- `asset_telemetry_syncs`;
-- `asset_economic_reviews`;
-- `asset_remediation_runs`;
-- `asset_remediation_events`;
-- cost instrumentation state;
-- telemetry scheduling;
-- explicit completeness windows;
-- contribution-margin state only when revenue and cost coverage are complete enough;
-- autonomous availability remediation through repair -> independent QA -> preview -> same-surface production -> live health verification;
-- zero-cash-only generic remediation until hard provider-side spend ceilings exist;
-- operator-facing economics/remediation state.
+- `commercial_activations`;
+- `commercial_activation_events`;
+- `payment_provider_events`;
+- stable Monetization Execution Plan snapshots/fingerprints;
+- provenance-backed numeric offer requirements;
+- verified merchant capability separate from mere account existence;
+- verified production-credential capability;
+- separate Asset-specific production-credential authorization;
+- separate explicit `CUSTOMER_CHARGING` authorization;
+- disabled-checkout preparation before charging authority;
+- zero-cash commercial payment-adapter contract;
+- signed provider-event ingestion;
+- stable provider transaction/event idempotency;
+- successful authoritative payment -> `FACT` revenue + transaction telemetry in the #74 observation ledger;
+- append-only compensating `FACT` observations for refunds/partial refunds/chargebacks/reversals;
+- provider ambiguity -> `UNCERTAIN` with no blind retry;
+- verified commercial activation -> Asset `operatingMode = OPERATING` without enabling unrelated outbound/ads/domain/spend authority;
+- stale Human Actions resolved when the corresponding authority/capability is satisfied.
 
 ## Current authority posture
 
 Assets default to narrow authority.
 
-Public release may be authorized while the following remain off unless explicitly granted:
+These domains remain independent:
 
+- capital allocation / Bet approval;
+- public release;
 - customer charging;
 - outbound outreach;
 - advertising / paid acquisition;
@@ -62,13 +73,29 @@ Public release may be authorized while the following remain off unless explicitl
 
 Money Scout must not infer one authority from another.
 
-## Current commercial limitation
+Commercial activation specifically preserves these separations:
 
-A live Asset can currently exist, remain healthy, ingest attributable telemetry, and repair availability incidents, but Money Scout does **not yet** have the complete commercial activation state machine required to safely turn an Asset into a real transaction-ready business.
+- public release != charging;
+- merchant account existence != merchant capability;
+- merchant capability != charging authority;
+- production credential capability != production credential authority;
+- production credential authority != charging authority;
+- charging != outbound/ads/domain/spend.
 
-That is milestone #75.
+## Current commercial operational gate
 
-The current deterministic Monetization Execution Plan intentionally allows `testPriceUsd` to remain null. It defines the commercial thesis and pricing confidence state but does not invent an exact price.
+#75 code completion does **not** mean Money Scout has already accepted a real customer payment.
+
+A real Asset still requires, where applicable:
+
+- completion/verification of merchant onboarding and KYC;
+- a supported secret bridge for production payment credentials;
+- verified production credential capability;
+- explicit Asset-specific production-credential authorization;
+- explicit `CUSTOMER_CHARGING` authorization after offer/provenance review;
+- a real bounded transaction whose authoritative provider event is observed exactly once.
+
+No raw credentials should be entered into Money Scout.
 
 ## Current provider / capability posture
 
@@ -83,7 +110,9 @@ The current deterministic Monetization Execution Plan intentionally allows `test
 
 - Generic Builder adapter architecture exists.
 - Durable builder workspaces support create/status/repair flow.
+- #69 remains an execution layer that accepts a persisted Build Contract and hands builder completion to independent QA.
 - No real production coding provider should be assumed connected merely because the adapter exists.
+- The planned Asset Factory milestone will sit in front of #69 to create a traceable Product Definition, Architecture Plan, isolated Asset repo, and Build Contract before dispatching a real coding backend.
 
 ### Independent QA
 
@@ -99,13 +128,15 @@ The current deterministic Monetization Execution Plan intentionally allows `test
 
 ### Payment / merchant
 
-- The durable commercial payment activation layer is the scope of #75.
+- The durable commercial activation/payment event architecture is implemented in #75.
 - Merchant account existence must not be treated as merchant capability.
-- No charging authority should be assumed.
+- No live charging authority or real merchant readiness should be assumed for a specific Asset until durable Capability/authority state proves it.
+- Commercial adapters remain zero-cash under the current #75 contract.
 
 ### Telemetry
 
 - #74 defines authoritative telemetry adapter behavior and idempotent Asset observations.
+- #75 payment events reuse that ledger rather than creating a competing revenue ledger.
 - Revenue/cost/usage/support remain uninstrumented/unknown for a specific Asset until attributable sources prove otherwise.
 
 ## Discovery live-history note
@@ -135,39 +166,59 @@ Normal feature delivery should not require the owner to manually sync GitHub int
 
 ## Current next milestone
 
-### #75 Commercial Activation & Revenue Execution
+### #76 Bet & Capital Allocation Kernel
 
 The intended boundary is:
 
-**Asset -> Offer/price provenance -> Merchant capability -> Production credential capability/authority -> Explicit customer charging authority -> Payment/checkout configuration -> Transaction-ready verification -> Authoritative payment event -> #74 FACT telemetry/economic review.**
+**Underwritten Opportunity -> explicit Bet -> bounded decision/resource contract -> machine-readable Build Envelope -> downstream Build attribution/accounting.**
 
-#75 must preserve these separations:
+#76 should establish the durable distinction between:
 
-- merchant capability != charging authority;
-- public release != charging authority;
-- production credentials != charging authority;
-- charging != outbound/ads/domain/spend;
-- payment attempt != revenue;
-- authoritative successful payment event = revenue FACT.
+- an Opportunity being viable;
+- Money Scout actually committing capital/capacity to pursue it; and
+- downstream authority to spend/publish/charge/outreach/etc.
 
-Codex is the preferred implementation environment for #75 onward, with GitHub Actions as the independent acceptance gate and this repository as the durable project brain.
+A Bet should track why resources are being committed, what is allocated/consumed/remaining, what proves success/failure/iteration, and what constraints the future Asset Factory must respect.
 
-## Next planned architecture after #75
+The Build Envelope should expose enough information for the future Asset Factory to design inside the investment mandate without dictating specific technical implementation.
 
-See `docs/ROADMAP.md` for canonical sequencing. The immediate planned priorities are:
+## Next planned architecture after #76
 
-- #76 durable Bet & Capital Allocation Kernel;
-- #77 Live Asset Decision Engine;
-- #78 Distribution & Growth Execution;
-- #79 Customer & Support Operations;
-- #80 Portfolio Reinvestment & Rebalancing;
-- #81 Learning & Signal Calibration;
-- #82 provider/credential/spend/recovery hardening;
-- #83 end-to-end closed-loop portfolio acceptance.
+### #77 Asset Factory & Real Builder Integration
 
-## Known documentation issue resolved by the canonical docs branch
+The Asset Factory is planned immediately after the Bet kernel and will sit in front of the existing #69 Builder Workspace.
 
-Before this documentation update, `replit.md` still described an obsolete early manual Phase 1 architecture. That description must not be treated as the current Money Scout product model. The canonical product definition now lives in:
+Its target flow is:
+
+**Approved Bet + Build Envelope -> upstream truth snapshot -> traceable Product Definition -> competitive-first-release review -> Architecture Composer -> reusable Software Capability Catalog -> isolated Asset repo -> Build Contract -> real coding-agent dispatch -> existing independent QA.**
+
+Key product-synthesis rules now considered canonical:
+
+- The first release should ordinarily be industry-standard and commercially competitive around the validated value proposition, not the thinnest technically working MVP.
+- Category-standard features generally belong when omitting them would materially reduce credibility, usability, purchaseability, customer success, or the paid promise.
+- Speculative differentiation and unsupported enterprise breadth remain deferrable.
+- Cheap AI-assisted development does not make ongoing maintenance/security/support complexity free.
+- Optimize the architecture against unnecessary ongoing complexity rather than minimizing feature count by itself.
+- Material requirements must preserve whether they came from locked commercial truth, evidence, Factory standards, bounded product judgment, or builder discretion.
+- Product judgment is allowed but must not be represented as observed market/buyer evidence.
+- Frozen Product Definitions are versioned; material scope changes create a new version rather than silently mutating an active build.
+- A shared portfolio visual design system is downstream and should not block the core Asset Factory. Until then, generated customer-facing products should meet a neutral professional quality floor.
+
+## Planned sequence after the Asset Factory
+
+See `docs/ROADMAP.md` for canonical sequencing. The planned priorities after #77 are:
+
+- #78 Live Asset Decision Engine;
+- #79 Distribution & Growth Execution;
+- #80 Customer & Support Operations;
+- #81 Portfolio Reinvestment & Rebalancing;
+- #82 Learning & Signal Calibration;
+- #83 provider/credential/spend/recovery hardening;
+- #84 end-to-end closed-loop portfolio acceptance.
+
+## Canonical documentation
+
+The canonical product definition lives in:
 
 - `/AGENTS.md`
 - `/docs/ARCHITECTURE.md`
