@@ -145,6 +145,13 @@ function parseResult(value: unknown): QaResult {
   };
 }
 
+function reconcileTerminalCost(result: QaResult): QaResult {
+  if (result.state === "QUEUED" || result.state === "RUNNING") {
+    return { ...result, externalCostCents: 0 };
+  }
+  return result;
+}
+
 export function configuredQaAdapter(): QaAgentAdapter | null {
   const baseUrl = process.env.MONEY_SCOUT_QA_ADAPTER_URL?.trim();
   if (!baseUrl) return null;
@@ -174,7 +181,7 @@ export function createHttpQaAdapter(config: QaAdapterConfig): QaAgentAdapter {
     } catch {
       throw new Error(`QA_ADAPTER_INVALID_RESPONSE: ${operation} response was not JSON`);
     }
-    return parseResult(parsed);
+    return reconcileTerminalCost(parseResult(parsed));
   };
 
   return {
