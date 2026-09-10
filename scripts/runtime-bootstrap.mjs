@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
 
+export function runtimeBootstrapRepoRoot(scriptUrl = import.meta.url) {
+  const scriptPath = fileURLToPath(scriptUrl);
+  return path.resolve(path.dirname(scriptPath), "..");
+}
+
 const role = process.argv[2] === "web" ? "web" : "api";
+const repoRoot = runtimeBootstrapRepoRoot();
 const childScript = role === "web"
-  ? "scripts/frontend-runtime-follower.mjs"
-  : "scripts/runtime-supervisor.mjs";
+  ? path.join(repoRoot, "scripts/frontend-runtime-follower.mjs")
+  : path.join(repoRoot, "scripts/runtime-supervisor.mjs");
 
 let stopping = false;
 let child = null;
@@ -33,10 +41,13 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
 }
 
 while (!stopping) {
-  log("controller_starting", { childScript });
+  log("controller_starting", { childScript, repoRoot });
   child = spawn(process.execPath, [childScript], {
-    cwd: process.cwd(),
-    env: process.env,
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      MONEY_SCOUT_REPO_ROOT: process.env.MONEY_SCOUT_REPO_ROOT || repoRoot,
+    },
     stdio: "inherit",
   });
 
