@@ -1,4 +1,7 @@
-import type { PersistedBuildContract } from "@workspace/db";
+import type {
+  PersistedBuildContract,
+  PersistedQaDefect,
+} from "@workspace/db";
 
 export type BuilderCostMode = "ZERO_CASH" | "METERED";
 export type BuilderRunState = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
@@ -20,6 +23,19 @@ export type BuilderDispatchInput = {
   contract: PersistedBuildContract;
 };
 
+export type BuilderRepairInput = {
+  workspaceKey: string;
+  buildJobId: number;
+  opportunityId: number;
+  providerRunId: string;
+  idempotencyKey: string;
+  repositoryUrl: string | null;
+  branchName: string | null;
+  defects: PersistedQaDefect[];
+  acceptanceCriteria: string[];
+  contract: PersistedBuildContract;
+};
+
 export type BuilderDispatchResult = {
   providerRunId: string;
   repositoryUrl: string | null;
@@ -28,6 +44,7 @@ export type BuilderDispatchResult = {
   state: BuilderRunState;
   progressPercent: number | null;
   summary: string | null;
+  externalCostCents: number;
 };
 
 export type BuilderStatusResult = BuilderDispatchResult;
@@ -37,6 +54,7 @@ export interface BuilderAgentAdapter {
   readonly costMode: BuilderCostMode;
   dispatch(input: BuilderDispatchInput): Promise<BuilderDispatchResult>;
   getStatus(providerRunId: string): Promise<BuilderStatusResult>;
+  repair?(input: BuilderRepairInput): Promise<BuilderDispatchResult>;
 }
 
 const cleanBaseUrl = (value: string): string => value.replace(/\/+$/, "");
@@ -53,6 +71,12 @@ const progress = (value: unknown): number | null => {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
   return Math.max(0, Math.min(100, Math.round(n)));
+};
+
+const nonNegativeInt = (value: unknown): number => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.max(0, Math.round(n));
 };
 
 const runState = (value: unknown): BuilderRunState => {
@@ -77,6 +101,7 @@ function parseResult(value: unknown): BuilderDispatchResult {
     state: runState(object.state ?? object.status),
     progressPercent: progress(object.progress_percent ?? object.progressPercent),
     summary: text(object.summary ?? object.message),
+    externalCostCents: nonNegativeInt(object.external_cost_cents ?? object.externalCostCents),
   };
 }
 
@@ -100,6 +125,20 @@ export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderA
     "content-type": "application/json",
     ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
   });
+
+  const parseHttpResult = async (response: Response, operation: string): Promise<BuilderDispatchResult> => {
+    const raw = await response.text();
+    if (!response.ok) {
+      throw new Error(`BUILDER_ADAPTER_HTTP_${response.status}: ${operation}: ${raw.slice(0, 1_000)}`);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(`BUILDER_ADAPTER_INVALID_RESPONSE: ${operation} response was not JSON`);
+    }
+    return parseResult(parsed);
+  };
 
   return {
     provider: config.provider,
@@ -126,17 +165,7 @@ export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderA
         }),
         signal: AbortSignal.timeout(30_000),
       });
-      const raw = await response.text();
-      if (!response.ok) {
-        throw new Error(`BUILDER_ADAPTER_HTTP_${response.status}: ${raw.slice(0, 1_000)}`);
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        throw new Error("BUILDER_ADAPTER_INVALID_RESPONSE: dispatch response was not JSON");
-      }
-      return parseResult(parsed);
+      return parseHttpResult(response, "dispatch");
     },
     async getStatus(providerRunId) {
       const response = await fetch(`${config.baseUrl}/v1/builds/${encodeURIComponent(providerRunId)}`, {
@@ -144,17 +173,34 @@ export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderA
         headers: headers(),
         signal: AbortSignal.timeout(20_000),
       });
-      const raw = await response.text();
-      if (!response.ok) {
-        throw new Error(`BUILDER_ADAPTER_HTTP_${response.status}: ${raw.slice(0, 1_000)}`);
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        throw new Error("BUILDER_ADAPTER_INVALID_RESPONSE: status response was not JSON");
-      }
-      return parseResult(parsed);
+      return parseHttpResult(response, "status");
+    },
+    async repair(input) {
+      const response = await fetch(`${config.baseUrl}/v1/builds/${encodeURIComponent(input.providerRunId)}/repairs`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({
+          workspace_key: input.workspaceKey,
+          build_job_id: input.buildJobId,
+          opportunity_id: input.opportunityId,
+          idempotency_key: input.idempotencyKey,
+          repository_url: input.repositoryUrl,
+          branch_name: input.branchName,
+          defects: input.defects,
+          acceptance_criteria: input.acceptanceCriteria,
+          build_contract: input.contract,
+          autonomy: {
+            external_publication_allowed: false,
+            customer_charging_allowed: false,
+            domain_purchase_allowed: false,
+            production_credentials_allowed: false,
+            outbound_allowed: false,
+            scope: "repair_only",
+          },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      return parseHttpResult(response, "repair");
     },
   };
 }
