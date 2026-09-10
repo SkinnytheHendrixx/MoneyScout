@@ -962,6 +962,11 @@ assert.equal(
   5,
 );
 
+// A provider exception thrown after the boundary was crossed but before
+// any authoritative terminal result is returned must never be treated as
+// TERMINAL_RECONCILED: Money Scout cannot prove the provider failed,
+// stopped, declined to charge, or declined to consume entitlement. It
+// becomes a durable, human-only uncertain/blocked state instead.
 let uncertainCalls = 0;
 const uncertainDriver: BuilderProviderDriver = {
   ...fixtureDriver,
@@ -975,26 +980,100 @@ const uncertain = await createOrReuseBuilderGatewayRun({
   idempotencyKey: `gateway-uncertain-${suffix}`,
 });
 await executeBuilderGatewayRun(uncertain.run.id, uncertainDriver);
-await executeBuilderGatewayRun(uncertain.run.id, uncertainDriver);
 const [uncertainResult] = await db
   .select()
   .from(builderGatewayRunsTable)
   .where(eq(builderGatewayRunsTable.id, uncertain.run.id));
-assert.equal(uncertainResult?.status, "FAILED");
+assert.equal(
+  uncertainResult?.status,
+  "BLOCKED",
+  "a provider exception after dispatch is never marked FAILED as if it were an authoritative terminal report",
+);
+assert.equal(uncertainResult?.terminalOutcome, "RESOURCE_BLOCKED");
+assert.equal(
+  uncertainResult?.executionPhase,
+  "PROVIDER_DISPATCH_ATTEMPTED",
+  "a bare exception is never marked TERMINAL_RECONCILED: no authoritative provider result was ever obtained",
+);
 assert.equal(
   uncertainResult?.actualExternalCashCostCents,
   null,
   "uncertain provider cost remains unknown rather than becoming zero",
 );
-assert.match(
-  uncertainResult?.costProvenance ?? "",
-  /UNKNOWN_PENDING_AUTHORITATIVE_REPORT/,
+assert.equal(
+  uncertainResult?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
 );
 assert.equal(
   uncertainCalls,
   1,
   "uncertain potentially charged execution is never retried blindly",
 );
+const [uncertainAction] = await db
+  .select()
+  .from(humanActionsTable)
+  .where(
+    and(
+      eq(humanActionsTable.opportunityId, opportunity.id),
+      eq(
+        humanActionsTable.actionType,
+        "VERIFY_UNCERTAIN_BUILDER_PROVIDER_EXECUTION",
+      ),
+    ),
+  );
+assert.equal(uncertainAction?.resumeAction, "NO_AUTOMATIC_RESUME");
+// A second explicit call and a full recovery tick must both be unable to
+// redispatch this logical run: it is BLOCKED (not QUEUED), and its lease
+// was cleared rather than left to look "expired and recoverable".
+await executeBuilderGatewayRun(uncertain.run.id, uncertainDriver);
+await runBuilderGatewayTick(uncertainDriver);
+assert.equal(
+  uncertainCalls,
+  1,
+  "neither a direct retry nor a Gateway tick can redispatch an uncertain run",
+);
+const [uncertainAfterTick] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, uncertain.run.id));
+assert.equal(uncertainAfterTick?.status, "BLOCKED");
+assert.equal(uncertainAfterTick?.leaseExpiresAt, null);
+
+// The same uncertainty applies even when the local AbortController fired:
+// cancellation intent/signal is not proof the provider actually stopped.
+const abortRaceUncertain = await createOrReuseBuilderGatewayRun({
+  buildJobId: factoryBuild!.id,
+  idempotencyKey: `gateway-abort-race-uncertain-${suffix}`,
+});
+const abortRaceDriver: BuilderProviderDriver = {
+  ...fixtureDriver,
+  async run() {
+    // Simulate a real cancellation race: an operator/system cancels this
+    // exact run while the provider call is genuinely in flight, and the
+    // in-flight call then fails locally with no authoritative result.
+    await cancelBuilderGatewayRun(
+      abortRaceUncertain.run.id,
+      "operator requested cancel mid-flight",
+    );
+    throw new Error("aborted while the provider call was in flight");
+  },
+};
+await executeBuilderGatewayRun(abortRaceUncertain.run.id, abortRaceDriver);
+const [abortRaceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, abortRaceUncertain.run.id));
+assert.equal(
+  abortRaceResult?.status,
+  "BLOCKED",
+  "an abort signal firing after dispatch does not convert uncertainty into a proven-safe cancellation",
+);
+assert.notEqual(abortRaceResult?.status, "CANCELLED");
+assert.equal(
+  abortRaceResult?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+);
+assert.equal(abortRaceResult?.executionPhase, "PROVIDER_DISPATCH_ATTEMPTED");
 
 const [costedBuild] = await db
   .select()
@@ -1149,7 +1228,7 @@ assert.equal(
   callsBeforeUncertain,
   "an uncertain, potentially-dispatched run is never blindly redispatched",
 );
-const [uncertainAction] = await db
+const [uncertainRecoveryAction] = await db
   .select()
   .from(humanActionsTable)
   .where(
@@ -1162,7 +1241,7 @@ const [uncertainAction] = await db
     ),
   );
 assert.equal(
-  uncertainAction?.resumeAction,
+  uncertainRecoveryAction?.resumeAction,
   "NO_AUTOMATIC_RESUME",
   "an uncertain provider execution is a genuine human-only boundary, never auto-resumed",
 );
@@ -1411,6 +1490,184 @@ assert.equal(
   "a genuinely pre-provider cancellation may still claim no provider side effect occurred",
 );
 assert.equal(safeCancelSource?.terminalOutcome, "CANCELLED");
+
+// ---------------------------------------------------------------------------
+// Concurrency: exactly one live lease owner may cross the provider boundary.
+// Lease recovery and provider dispatch use database compare-and-swap
+// predicates rather than a stale in-memory belief of ownership, so a worker
+// that has lost its lease cannot dispatch, and two racing recovery passes
+// cannot both claim the same expired lease.
+// ---------------------------------------------------------------------------
+
+// A worker that loses lease ownership between claiming the run and crossing
+// the provider boundary must never call the driver. This exercises the real
+// dispatch CAS under genuine async interleaving (not just sequential calls):
+// the row is hijacked by a raw concurrent write while the worker is still
+// legitimately mid-flight preparing its worktree.
+const [raceTargetRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-race-dispatch-${recoverySuffix}`,
+    provider: "ZERO_COST_RACE_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 507,
+    repairNumber: 0,
+    branchName: "money-scout/race-dispatch",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let raceDriverCalled = false;
+const raceDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RACE_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    raceDriverCalled = true;
+    throw new Error("must never be called once lease ownership is lost");
+  },
+};
+// Race the worker's own in-flight worktree preparation with an
+// unconditional, repeated hijack attempt on every event-loop turn (no
+// artificial delay -- an added sleep would only hand the worker a head
+// start and make the window harder to hit). The hijack write is idempotent
+// and safe to repeat: once the worker's dispatch CAS has already committed
+// past PRE_PROVIDER, later hijack writes targeting `executionPhase =
+// PRE_PROVIDER` simply stop matching and become no-ops.
+const raceExecution = executeBuilderGatewayRun(raceTargetRun!.id, raceDriver);
+let hijacked = false;
+for (let attempt = 0; attempt < 5_000 && !hijacked; attempt += 1) {
+  const hijackAttempt = await db
+    .update(builderGatewayRunsTable)
+    .set({ leaseOwner: "hijacked-by-another-worker", updatedAt: new Date() })
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, raceTargetRun!.id),
+        eq(builderGatewayRunsTable.status, "RUNNING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (hijackAttempt.length) {
+    hijacked = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  hijacked,
+  "test setup: expected to observe and hijack the RUNNING pre-provider window before dispatch",
+);
+await raceExecution;
+assert.equal(
+  raceDriverCalled,
+  false,
+  "a worker that lost lease ownership before the provider boundary must never call the driver",
+);
+const [raceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, raceTargetRun!.id));
+assert.equal(
+  raceResult?.executionPhase,
+  "PRE_PROVIDER",
+  "a failed dispatch CAS must not advance the execution phase",
+);
+assert.equal(
+  raceResult?.leaseOwner,
+  "hijacked-by-another-worker",
+  "the row is left exactly as the new owner set it; the stale worker never touches it",
+);
+
+// Two concurrent recovery ticks racing to reclaim and execute the same
+// expired pre-provider lease must never both succeed: the CAS predicate
+// (id + stale status + PRE_PROVIDER + stale lease owner/identity + stale
+// expiry + still-expired) lets only one requeue win, and the logical run is
+// dispatched to the provider at most once.
+const [concurrentRecoveryRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-race-recovery-${recoverySuffix}`,
+    provider: "ZERO_COST_RACE_RECOVERY_FIXTURE",
+    status: "PREPARING",
+    executionPhase: "PRE_PROVIDER",
+    attemptNumber: 508,
+    repairNumber: 0,
+    branchName: "money-scout/race-recovery",
+    leaseOwner: "stale-worker-concurrent",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let raceRecoveryDriverCalls = 0;
+const raceRecoveryDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RACE_RECOVERY_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    raceRecoveryDriverCalls += 1;
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "race-recovered.ts"),
+      "export const raceRecovered = true;\n",
+    );
+    return {
+      providerRunId: `race-recovery-${raceRecoveryDriverCalls}`,
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Race-recovered fixture implementation ready.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: null,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+await Promise.all([
+  runBuilderGatewayTick(raceRecoveryDriver),
+  runBuilderGatewayTick(raceRecoveryDriver),
+]);
+const [raceRecoveryResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, concurrentRecoveryRun!.id));
+assert.equal(
+  raceRecoveryResult?.status,
+  "SUCCEEDED",
+  "the row is safely recovered and executed exactly once despite two concurrent recovery ticks",
+);
+assert.equal(
+  raceRecoveryDriverCalls,
+  1,
+  "two concurrent recovery passes racing the same expired lease cannot dispatch the provider twice",
+);
+
+// Normal single-worker execution is unaffected by the CAS guards (already
+// exercised throughout this file by firstGateway/repairGateway/etc.; assert
+// once more explicitly here for a direct, colocated regression signal).
+const normalRun = await createOrReuseBuilderGatewayRun({
+  buildJobId: factoryBuild!.id,
+  idempotencyKey: `gateway-normal-after-concurrency-${recoverySuffix}`,
+});
+await executeBuilderGatewayRun(normalRun.run.id, fixtureDriver);
+const [normalResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, normalRun.run.id));
+assert.equal(normalResult?.status, "SUCCEEDED");
+assert.equal(normalResult?.executionPhase, "TERMINAL_RECONCILED");
 
 await db
   .delete(opportunitiesTable)
