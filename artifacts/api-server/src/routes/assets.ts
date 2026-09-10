@@ -10,6 +10,7 @@ import {
   assetRemediationRunsTable,
   assetTelemetrySyncsTable,
   assetsTable,
+  commercialActivationsTable,
   db,
   type AssetObservationProvenance,
   type AssetObservationType,
@@ -27,7 +28,9 @@ function positiveId(raw: string | undefined): number | null {
 
 router.get("/assets", async (_req, res): Promise<void> => {
   const assets = await db.select().from(assetsTable).orderBy(desc(assetsTable.activatedAt), desc(assetsTable.id));
-  res.json({ assets });
+  const activations = await db.select().from(commercialActivationsTable);
+  const byAsset = new Map(activations.map((item) => [item.assetId, item]));
+  res.json({ assets: assets.map((asset) => ({ ...asset, commercialActivation: byAsset.get(asset.id) ?? null })) });
 });
 
 router.get("/opportunities/:opportunityId/asset", async (req, res): Promise<void> => {

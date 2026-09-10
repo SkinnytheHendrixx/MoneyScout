@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 import { Activity, AlertTriangle, ExternalLink, Gauge, Radio, RefreshCw, WalletCards, Wrench } from "lucide-react"
 
 type Asset = {
@@ -36,6 +37,15 @@ type Asset = {
   lastEconomicReviewAt: string | null
   lastRemediationAt: string | null
   activatedAt: string
+  commercialActivation: {
+    id: number
+    status: string
+    provider: string
+    priceCents: number | null
+    transactionReady: boolean
+    checkoutReference: string | null
+    lastErrorCode: string | null
+  } | null
 }
 
 type AssetsResponse = { assets: Asset[] }
@@ -64,6 +74,55 @@ function Instrumentation({ label, value }: { label: string; value: string }) {
 
 function time(value: string | null) {
   return value ? new Date(value).toLocaleString() : "pending"
+}
+
+function CommercialControls({ asset }: { asset: Asset }) {
+  const client = useQueryClient()
+  const [provider, setProvider] = useState("STRIPE")
+  const [price, setPrice] = useState("")
+  const [source, setSource] = useState("")
+  const [evidence, setEvidence] = useState("")
+  const mutation = useMutation({
+    mutationFn: async (input: { path: string; body?: Record<string, unknown> }) => {
+      const response = await fetch(input.path, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(input.body ?? {}) })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(payload.error ?? `Request returned ${response.status}`)
+      return payload
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["assets"] }),
+  })
+  const activation = asset.commercialActivation
+  if (!activation) return (
+    <div className="mt-4 rounded-lg border p-3">
+      <div className="text-xs font-semibold">Commercial activation</div>
+      <p className="mt-1 text-[11px] text-muted-foreground">Creates a durable activation from the existing Monetization Execution Plan. A numeric offer requires source-backed evidence.</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <input className="h-8 rounded-md border bg-background px-2 text-xs" value={provider} onChange={(event) => setProvider(event.target.value.toUpperCase())} placeholder="Provider" />
+        <input className="h-8 rounded-md border bg-background px-2 text-xs" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="Offer price USD" inputMode="decimal" />
+        <input className="h-8 rounded-md border bg-background px-2 text-xs" value={source} onChange={(event) => setSource(event.target.value)} placeholder="Evidence source URL/reference" />
+        <input className="h-8 rounded-md border bg-background px-2 text-xs" value={evidence} onChange={(event) => setEvidence(event.target.value)} placeholder="Observed price evidence" />
+      </div>
+      <button className="mt-2 h-8 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground disabled:opacity-50" disabled={mutation.isPending || !provider || !price || !source || !evidence} onClick={() => mutation.mutate({ path: `/api/assets/${asset.id}/commercial-activation`, body: { provider, idempotency_key: `asset-${asset.id}-commercial-v1`, price_cents: Math.round(Number(price) * 100), price_provenance: { schemaVersion: 1, kind: "DIRECT_PROVIDER_PRICE", sourceReference: source, capturedAt: new Date().toISOString(), evidence: [evidence] } } })}>Prepare commercial path</button>
+      {mutation.error && <div className="mt-2 text-xs text-red-700">{mutation.error.message}</div>}
+    </div>
+  )
+  return (
+    <div className="mt-4 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-2 text-xs font-semibold"><span>Commercial activation</span><span className={activation.status === "ACTIVE" ? "text-emerald-700" : "text-amber-700"}>{activation.status.replaceAll("_", " ")}</span></div>
+      <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+        <div>Provider: {activation.provider}</div><div>Offer: {activation.priceCents == null ? "Blocked: no defensible price" : money(activation.priceCents)}</div>
+        <div>Transaction ready: {activation.transactionReady ? "verified" : "no"}</div><div>Checkout: {activation.checkoutReference ?? "not prepared"}</div>
+      </div>
+      {activation.lastErrorCode && <div className="mt-2 text-xs text-red-700">Stopped safely: {activation.lastErrorCode}</div>}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {!asset.authorities.productionCredentialsAuthorized && <button className="h-8 rounded-md border px-3 text-xs font-medium" disabled={mutation.isPending} onClick={() => mutation.mutate({ path: `/api/commercial-activations/${activation.id}/authorize`, body: { boundary: "PRODUCTION_CREDENTIAL_USE", attested: true, authorized_by: "MONEY_SCOUT_OPERATOR" } })}>Authorize credential use</button>}
+        {!asset.authorities.customerChargingAuthorized && <button className="h-8 rounded-md border border-amber-400 bg-amber-50 px-3 text-xs font-medium text-amber-900" disabled={mutation.isPending} onClick={() => mutation.mutate({ path: `/api/commercial-activations/${activation.id}/authorize`, body: { boundary: "CUSTOMER_CHARGING", attested: true, authorized_by: "MONEY_SCOUT_OPERATOR" } })}>Authorize customer charging</button>}
+        <button className="h-8 rounded-md border px-3 text-xs font-medium" disabled={mutation.isPending} onClick={() => mutation.mutate({ path: `/api/commercial-activations/${activation.id}/reconcile` })}>Recheck readiness</button>
+      </div>
+      <p className="mt-2 text-[11px] text-muted-foreground">Each button grants only its named boundary. Outbound, ads, domains, and spend remain unchanged.</p>
+      {mutation.error && <div className="mt-2 text-xs text-red-700">{mutation.error.message}</div>}
+    </div>
+  )
 }
 
 export default function AssetsPage() {
@@ -218,6 +277,8 @@ export default function AssetsPage() {
                     <div>Production credentials: {asset.authorities.productionCredentialsAuthorized ? "authorized" : "off"}</div>
                   </div>
                 </div>
+
+                <CommercialControls asset={asset} />
 
                 <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
                   <span>Activated {time(asset.activatedAt)}</span>

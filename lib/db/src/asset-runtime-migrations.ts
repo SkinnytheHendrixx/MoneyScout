@@ -10,10 +10,14 @@ export const REQUIRED_ASSET_RUNTIME_TABLES = [
   "asset_economic_reviews",
   "asset_remediation_runs",
   "asset_remediation_events",
+  "commercial_activations",
+  "commercial_activation_events",
+  "payment_provider_events",
 ] as const;
 
 const MIGRATION_V1 = "2026-09-10-asset-operations-v1";
 const MIGRATION_V2 = "2026-09-10-asset-monetization-remediation-v2";
+const MIGRATION_V3 = "2026-09-10-commercial-activation-v3";
 
 async function migrationApplied(client: PoolClient, id: string): Promise<boolean> {
   const existing = await client.query<{ id: string }>(
@@ -265,6 +269,77 @@ async function applyV2(client: PoolClient): Promise<void> {
   `);
 }
 
+async function applyV3(client: PoolClient): Promise<void> {
+  const prerequisite = await client.query<{ assets: string | null }>(
+    "SELECT to_regclass('public.assets')::text AS assets",
+  );
+  if (!prerequisite.rows[0]?.assets) throw new Error("Commercial activation migration requires Asset operations first.");
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS commercial_activations (
+      id SERIAL PRIMARY KEY,
+      asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
+      idempotency_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'DRAFT',
+      plan_snapshot JSONB NOT NULL,
+      plan_fingerprint TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD',
+      price_cents INTEGER,
+      price_provenance JSONB,
+      checkout_reference TEXT,
+      transaction_ready BOOLEAN NOT NULL DEFAULT false,
+      preparation_attempt_count INTEGER NOT NULL DEFAULT 0,
+      provider_operation_key TEXT NOT NULL,
+      charging_authorized_at TIMESTAMPTZ,
+      charging_authorized_by TEXT,
+      production_credentials_authorized_at TIMESTAMPTZ,
+      production_credentials_authorized_by TEXT,
+      activated_at TIMESTAMPTZ,
+      last_error_code TEXT,
+      last_error_message TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS commercial_activations_asset_unique ON commercial_activations(asset_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS commercial_activations_idempotency_unique ON commercial_activations(idempotency_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS commercial_activations_provider_operation_unique ON commercial_activations(provider_operation_key);
+    CREATE INDEX IF NOT EXISTS commercial_activations_status_idx ON commercial_activations(status, updated_at);
+
+    CREATE TABLE IF NOT EXISTS commercial_activation_events (
+      id SERIAL PRIMARY KEY,
+      activation_id INTEGER NOT NULL REFERENCES commercial_activations(id) ON DELETE CASCADE,
+      asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS commercial_activation_events_activation_idx ON commercial_activation_events(activation_id, occurred_at);
+
+    CREATE TABLE IF NOT EXISTS payment_provider_events (
+      id SERIAL PRIMARY KEY,
+      activation_id INTEGER NOT NULL REFERENCES commercial_activations(id) ON DELETE CASCADE,
+      asset_id INTEGER NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
+      provider_event_id TEXT NOT NULL,
+      provider_transaction_id TEXT,
+      event_type TEXT NOT NULL,
+      payment_status TEXT NOT NULL,
+      amount_cents INTEGER,
+      currency TEXT,
+      authoritative BOOLEAN NOT NULL DEFAULT false,
+      signature_verified BOOLEAN NOT NULL DEFAULT false,
+      processed BOOLEAN NOT NULL DEFAULT false,
+      metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+      occurred_at TIMESTAMPTZ NOT NULL,
+      received_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS payment_provider_events_provider_event_unique ON payment_provider_events(provider, provider_event_id);
+    CREATE INDEX IF NOT EXISTS payment_provider_events_asset_idx ON payment_provider_events(asset_id, occurred_at);
+  `);
+}
+
 export async function prepareAssetOperationsSchema(targetPool: Pool): Promise<{
   appliedMigrationIds: string[];
   requiredTables: readonly string[];
@@ -293,6 +368,12 @@ export async function prepareAssetOperationsSchema(targetPool: Pool): Promise<{
       await applyV2(client);
       await client.query("INSERT INTO runtime_schema_migrations (id) VALUES ($1)", [MIGRATION_V2]);
       appliedMigrationIds.push(MIGRATION_V2);
+    }
+
+    if (!(await migrationApplied(client, MIGRATION_V3))) {
+      await applyV3(client);
+      await client.query("INSERT INTO runtime_schema_migrations (id) VALUES ($1)", [MIGRATION_V3]);
+      appliedMigrationIds.push(MIGRATION_V3);
     }
 
     await client.query("COMMIT");
