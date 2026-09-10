@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -13,6 +14,58 @@ export function runtimeControllerScript(role, repoRoot) {
   return role === "web"
     ? path.join(repoRoot, "scripts/frontend-runtime-follower.mjs")
     : path.join(repoRoot, "scripts/runtime-supervisor.mjs");
+}
+
+async function bindProbe(port) {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.once("error", (error) => {
+      if (error?.code === "EADDRINUSE" || error?.code === "EACCES") {
+        resolve(null);
+        return;
+      }
+      reject(error);
+    });
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => {
+      const address = server.address();
+      const selectedPort = typeof address === "object" && address ? address.port : null;
+      server.close((error) => {
+        if (error) reject(error);
+        else resolve(selectedPort);
+      });
+    });
+  });
+}
+
+export async function selectRuntimePreflightPort(basePort, preferredPort = null) {
+  const parsedBase = Number(basePort);
+  if (!Number.isInteger(parsedBase) || parsedBase <= 0 || parsedBase > 65535) {
+    throw new Error(`Invalid runtime port: ${basePort}`);
+  }
+
+  const explicitPreferred = preferredPort == null || preferredPort === ""
+    ? null
+    : Number(preferredPort);
+  if (explicitPreferred !== null) {
+    if (!Number.isInteger(explicitPreferred) || explicitPreferred <= 0 || explicitPreferred > 65535 || explicitPreferred === parsedBase) {
+      throw new Error(`Invalid preflight port: ${preferredPort}`);
+    }
+    const available = await bindProbe(explicitPreferred);
+    if (available !== null) return available;
+  }
+
+  const deterministicPreferred = parsedBase <= 55535 ? parsedBase + 10_000 : null;
+  if (deterministicPreferred && deterministicPreferred !== explicitPreferred) {
+    const available = await bindProbe(deterministicPreferred);
+    if (available !== null) return available;
+  }
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const selected = await bindProbe(0);
+    if (selected !== null && selected !== parsedBase) return selected;
+  }
+  throw new Error("Unable to allocate a free runtime preflight port");
 }
 
 export async function runRuntimeBootstrap(roleInput = process.argv[2]) {
@@ -45,13 +98,24 @@ export async function runRuntimeBootstrap(roleInput = process.argv[2]) {
   }
 
   while (!stopping) {
+    const childEnv = {
+      ...process.env,
+      MONEY_SCOUT_REPO_ROOT: process.env.MONEY_SCOUT_REPO_ROOT || repoRoot,
+    };
+
+    if (role === "api") {
+      const selectedPreflightPort = await selectRuntimePreflightPort(
+        process.env.PORT || "8080",
+        process.env.MONEY_SCOUT_RUNTIME_PREFLIGHT_PORT,
+      );
+      childEnv.MONEY_SCOUT_RUNTIME_PREFLIGHT_PORT = String(selectedPreflightPort);
+      log("preflight_port_selected", { port: selectedPreflightPort });
+    }
+
     log("controller_starting", { controller: path.basename(childScript) });
     child = spawn(process.execPath, [childScript], {
       cwd: repoRoot,
-      env: {
-        ...process.env,
-        MONEY_SCOUT_REPO_ROOT: process.env.MONEY_SCOUT_REPO_ROOT || repoRoot,
-      },
+      env: childEnv,
       stdio: "inherit",
     });
 

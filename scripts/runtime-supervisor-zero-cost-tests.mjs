@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   runtimeBootstrapRepoRoot,
   runtimeControllerScript,
+  selectRuntimePreflightPort,
 } from "./runtime-bootstrap.mjs";
 import {
   candidatePortFor,
@@ -24,6 +26,21 @@ const apiArtifactConfig = await readFile(path.join(repoRoot, "artifacts/api-serv
 const webArtifactConfig = await readFile(path.join(repoRoot, "artifacts/money-scout/.replit-artifact/artifact.toml"), "utf8");
 assert.match(apiArtifactConfig, /run = "node \.\.\/\.\.\/scripts\/runtime-bootstrap\.mjs api"/);
 assert.match(webArtifactConfig, /run = "node \.\.\/\.\.\/scripts\/runtime-bootstrap\.mjs web"/);
+
+const occupiedServer = net.createServer();
+await new Promise((resolve, reject) => {
+  occupiedServer.once("error", reject);
+  occupiedServer.listen({ host: "127.0.0.1", port: 0, exclusive: true }, resolve);
+});
+const occupiedAddress = occupiedServer.address();
+assert.equal(typeof occupiedAddress, "object");
+const occupiedPort = occupiedAddress.port;
+assert.ok(occupiedPort > 10_000);
+const collisionBasePort = occupiedPort - 10_000;
+const selectedFallbackPort = await selectRuntimePreflightPort(collisionBasePort, occupiedPort);
+assert.notEqual(selectedFallbackPort, occupiedPort);
+assert.notEqual(selectedFallbackPort, collisionBasePort);
+await new Promise((resolve, reject) => occupiedServer.close((error) => error ? reject(error) : resolve()));
 
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
