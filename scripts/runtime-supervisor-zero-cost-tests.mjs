@@ -8,6 +8,7 @@ import {
   runtimeControllerScript,
   selectRuntimePreflightPort,
 } from "./runtime-bootstrap.mjs";
+import { portIsAvailable } from "./frontend-runtime-follower.mjs";
 import {
   candidatePortFor,
   normalizeSha,
@@ -36,11 +37,18 @@ const occupiedAddress = occupiedServer.address();
 assert.equal(typeof occupiedAddress, "object");
 const occupiedPort = occupiedAddress.port;
 assert.ok(occupiedPort > 10_000);
+assert.equal(await portIsAvailable(occupiedPort, "127.0.0.1"), false, "frontend follower must detect an occupied service port");
 const collisionBasePort = occupiedPort - 10_000;
 const selectedFallbackPort = await selectRuntimePreflightPort(collisionBasePort, occupiedPort);
 assert.notEqual(selectedFallbackPort, occupiedPort);
 assert.notEqual(selectedFallbackPort, collisionBasePort);
 await new Promise((resolve, reject) => occupiedServer.close((error) => error ? reject(error) : resolve()));
+assert.equal(await portIsAvailable(occupiedPort, "127.0.0.1"), true, "frontend follower must detect that its service port has drained before restart");
+
+const followerSource = await readFile(path.join(repoRoot, "scripts/frontend-runtime-follower.mjs"), "utf8");
+assert.match(followerSource, /detached: process\.platform !== "win32"/);
+assert.match(followerSource, /process\.kill\(-pid, signal\)/);
+assert.match(followerSource, /waitForPortFree\(servicePort/);
 
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
