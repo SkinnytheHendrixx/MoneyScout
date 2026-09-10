@@ -27,7 +27,7 @@ const baseBrief = createCommercialBuildBrief({
   assert.equal(plan.ventureBudget.totalExternalSpendCeilingUsd, 0);
   assert.equal(plan.ventureBudget.ownerConfiguredCeilingRequiredBeforeSpend, true);
   assert.equal(plan.pricing.testPriceUsd, null);
-  assert.equal(plan.pricing.confidenceState, "DIRECTLY_OBSERVED");
+  assert.equal(plan.pricing.confidenceState, "STRONGLY_INFERRED");
   assert.ok(plan.autonomy.approvalRequiredFor.includes("CUSTOMER_CHARGING"));
   assert.ok(plan.autonomy.approvalRequiredFor.includes("EXTERNAL_PUBLICATION"));
   assert.ok(plan.decisionContract.prohibitedInference.some((item) => item.includes("working product")));

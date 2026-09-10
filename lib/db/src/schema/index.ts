@@ -21,4 +21,5 @@ export * from "./discovery";
 export * from "./lifecycle";
 export * from "./human-actions";
 export * from "./execution";
+export * from "./build";
 export * from "./auth";
