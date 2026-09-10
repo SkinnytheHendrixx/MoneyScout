@@ -975,6 +975,7 @@ export async function reconcileFactoryExecutionStates(): Promise<void> {
       inArray(assetFactoryRunsTable.status, [
         "READY_FOR_BUILDER",
         "BUILDER_RUNNING",
+        "BUILDER_BLOCKED",
         "QA_PENDING",
       ]),
     );
