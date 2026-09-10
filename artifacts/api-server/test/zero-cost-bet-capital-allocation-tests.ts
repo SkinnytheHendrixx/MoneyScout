@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { Request } from "express";
 import type {
   BetBuildEnvelope,
   BetDecisionContract,
@@ -18,6 +19,30 @@ import {
 import { createBuildJobContract } from "../src/lib/build-orchestrator";
 import { createCommercialBuildBrief } from "../src/lib/commercial-build-brief";
 import { createMonetizationExecutionPlan } from "../src/lib/monetization-execution-plan";
+import { internalAutomationHeaders } from "../src/lib/internal-automation-auth";
+import { isVerifiedMoneyScoutOwnerRequest } from "../src/middlewares/authorizationMiddleware";
+
+const priorAllowedUserIds = process.env.MONEY_SCOUT_ALLOWED_USER_IDS;
+try {
+  process.env.MONEY_SCOUT_ALLOWED_USER_IDS = "verified-owner";
+  const internalHeaders = internalAutomationHeaders();
+  const internalAutomationRequest = {
+    get: (name: string) => internalHeaders[name.toLowerCase()],
+    isAuthenticated: () => true,
+    user: { id: "verified-owner" },
+  } as unknown as Request;
+  assert.equal(
+    isVerifiedMoneyScoutOwnerRequest(internalAutomationRequest),
+    false,
+    "an internal automation request must never qualify as verified owner attestation, even when it supplies owner-like identity data",
+  );
+} finally {
+  if (priorAllowedUserIds === undefined) {
+    delete process.env.MONEY_SCOUT_ALLOWED_USER_IDS;
+  } else {
+    process.env.MONEY_SCOUT_ALLOWED_USER_IDS = priorAllowedUserIds;
+  }
+}
 
 const bucket = (allocated: number | null, unit = "USD_CENTS") => ({
   allocated,

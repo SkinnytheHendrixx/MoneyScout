@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { count, eq } from "drizzle-orm";
+import express from "express";
 import {
   betCostAttributionsTable,
   betsTable,
@@ -9,11 +10,48 @@ import {
   opportunitiesTable,
 } from "@workspace/db";
 import { reconcileBet } from "../src/lib/bet-reconciliation-worker";
-import {
+import { internalAutomationHeaders } from "../src/lib/internal-automation-auth";
+import { requireMoneyScoutAccess } from "../src/middlewares/authorizationMiddleware";
+import betsRouter, {
   approveBet,
   createBetProposal,
   scopedBetCapitalCapabilityKey,
 } from "../src/routes/bets";
+
+async function attemptInternalAutomationApproval(
+  betId: number,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const app = express();
+  app.use(express.json());
+  app.use(requireMoneyScoutAccess);
+  app.use(betsRouter);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const response = await fetch(
+      `http://127.0.0.1:${port}/bets/${betId}/approve`,
+      {
+        method: "POST",
+        headers: {
+          ...internalAutomationHeaders(),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          authorized_by: "INTERNAL_AUTOMATION_SELF_ATTESTATION",
+        }),
+      },
+    );
+    return {
+      status: response.status,
+      body: (await response.json()) as Record<string, unknown>,
+    };
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}
 
 const [opportunity] = await db
   .insert(opportunitiesTable)
@@ -165,6 +203,23 @@ try {
       externalCash: makeBucket(100),
     },
   });
+  const forgedApproval = await attemptInternalAutomationApproval(
+    cashProposal.bet.id,
+  );
+  assert.equal(
+    forgedApproval.status,
+    409,
+    "internal automation must not approve positive owner capital by supplying arbitrary authorized_by text",
+  );
+  assert.equal(
+    forgedApproval.body.error,
+    "CAPITAL_ALLOCATION_AUTHORITY_REQUIRED",
+  );
+  const [stillProposedAfterForgery] = await db
+    .select()
+    .from(betsTable)
+    .where(eq(betsTable.id, cashProposal.bet.id));
+  assert.equal(stillProposedAfterForgery?.status, "PROPOSED");
   const gated = await approveBet({ betId: cashProposal.bet.id });
   assert.equal(gated.kind, "AUTHORITY_REQUIRED");
   if (gated.kind === "AUTHORITY_REQUIRED") {
@@ -172,6 +227,28 @@ try {
       gated.humanAction?.requiredCapabilityKey,
       scopedBetCapitalCapabilityKey(cashProposal.bet.id, 100),
       "capital authority Human Action must be scoped to this exact Bet and amount",
+    );
+  }
+  await db
+    .update(capabilitiesTable)
+    .set({
+      metadata: { maximum_external_cash_cents: 100 },
+      verifiedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
+  const boundedStandingApproval = await approveBet({
+    betId: cashProposal.bet.id,
+  });
+  assert.equal(
+    boundedStandingApproval.kind,
+    "APPROVED",
+    "a valid bounded standing CAPITAL_ALLOCATION_AUTHORITY must remain usable",
+  );
+  if (boundedStandingApproval.kind === "APPROVED") {
+    assert.equal(
+      boundedStandingApproval.bet.approvedBy,
+      "CAPITAL_ALLOCATION_AUTHORITY",
     );
   }
 

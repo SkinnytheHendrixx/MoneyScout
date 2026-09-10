@@ -24,8 +24,13 @@ import {
   setOpportunityActivity,
   startNewEvaluationCycle,
 } from "../lib/lifecycle-state";
+import { isVerifiedMoneyScoutOwnerRequest } from "../middlewares/authorizationMiddleware";
 
 const router: IRouter = Router();
+
+const isCapitalAllocationCapabilityKey = (key: string): boolean =>
+  key === "CAPITAL_ALLOCATION_AUTHORITY" ||
+  key.startsWith("CAPITAL_ALLOCATION_AUTHORITY:BET:");
 
 function jsonPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -229,6 +234,16 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     res.status(409).json({ error: "Cancelled human action cannot be resolved" });
     return;
   }
+  if (
+    action.actionType === "AUTHORIZE_BET_CAPITAL_ALLOCATION" &&
+    !isVerifiedMoneyScoutOwnerRequest(req)
+  ) {
+    res.status(403).json({
+      error:
+        "Bet capital authority requires explicit attestation from an authenticated, allowlisted owner. Internal automation cannot attest this action.",
+    });
+    return;
+  }
 
   if (action.verificationMode === "AUTOMATED_CHECK") {
     await markHumanActionVerifying(action.id);
@@ -260,6 +275,10 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
 
   await markHumanActionVerifying(action.id);
   const resolutionData = jsonPayload(req.body?.resolution_data);
+  const attestingOwnerUserId =
+    action.actionType === "AUTHORIZE_BET_CAPITAL_ALLOCATION"
+      ? req.user!.id
+      : null;
   if (action.requiredCapabilityKey) {
     await setCapabilityAvailable({
       key: action.requiredCapabilityKey,
@@ -269,6 +288,9 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
       metadata: {
         ...resolutionData,
         access_ready_for_money_scout: true,
+        ...(attestingOwnerUserId
+          ? { attested_by_user_id: attestingOwnerUserId }
+          : {}),
       },
     });
   }
@@ -277,6 +299,9 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
     resolutionData: {
       ...resolutionData,
       attested: true,
+      ...(attestingOwnerUserId
+        ? { attested_by_user_id: attestingOwnerUserId }
+        : {}),
       ...(action.requiredCapabilityKey ? { access_ready_for_money_scout: true } : {}),
     },
   });
@@ -298,6 +323,16 @@ router.post("/human-actions/:actionId/resolve", async (req, res): Promise<void> 
 router.post("/capabilities/:capabilityKey/confirm", async (req, res): Promise<void> => {
   const capabilityKey = String(req.params.capabilityKey ?? "").trim();
   if (
+    isCapitalAllocationCapabilityKey(capabilityKey) &&
+    !isVerifiedMoneyScoutOwnerRequest(req)
+  ) {
+    res.status(403).json({
+      error:
+        "Capital allocation authority requires explicit attestation from an authenticated, allowlisted owner. Internal automation cannot grant it.",
+    });
+    return;
+  }
+  if (
     !capabilityKey ||
     req.body?.attested !== true ||
     req.body?.access_ready_for_money_scout !== true ||
@@ -314,7 +349,13 @@ router.post("/capabilities/:capabilityKey/confirm", async (req, res): Promise<vo
     provider: req.body.provider,
     accessLevel: "AUTOMATION_READY",
     verificationMethod: "HUMAN_ATTESTATION_OF_CONNECTED_ACCESS",
-    metadata: { ...metadata, access_ready_for_money_scout: true },
+    metadata: {
+      ...metadata,
+      access_ready_for_money_scout: true,
+      ...(isCapitalAllocationCapabilityKey(capabilityKey)
+        ? { attested_by_user_id: req.user!.id }
+        : {}),
+    },
   });
   const resolvedActions = await resolveOpenActionsForCapability({
     capabilityKey,

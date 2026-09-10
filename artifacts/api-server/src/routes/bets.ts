@@ -234,10 +234,7 @@ async function capitalAuthorityCovers(
   );
 }
 
-export async function approveBet(input: {
-  betId: number;
-  authorizedBy?: string | null;
-}) {
+export async function approveBet(input: { betId: number }) {
   const [bet] = await db
     .select()
     .from(betsTable)
@@ -251,7 +248,6 @@ export async function approveBet(input: {
   );
   const covered =
     !humanAuthorityRequired ||
-    Boolean(input.authorizedBy?.trim()) ||
     (await capitalAuthorityCovers(bet));
   if (!covered) {
     await db
@@ -292,11 +288,9 @@ export async function approveBet(input: {
     };
   }
   const now = new Date();
-  const approvedBy =
-    input.authorizedBy?.trim() ||
-    (humanAuthorityRequired
-      ? "CAPITAL_ALLOCATION_AUTHORITY"
-      : "ZERO_CASH_POLICY");
+  const approvedBy = humanAuthorityRequired
+    ? "CAPITAL_ALLOCATION_AUTHORITY"
+    : "ZERO_CASH_POLICY";
   const [updated] = await db
     .update(betsTable)
     .set({
@@ -478,10 +472,6 @@ router.post(
 router.post("/bets/:betId/approve", async (req, res): Promise<void> => {
   const result = await approveBet({
     betId: Number(req.params.betId),
-    authorizedBy:
-      typeof req.body?.authorized_by === "string"
-        ? req.body.authorized_by
-        : null,
   });
   if (result.kind === "NOT_FOUND") {
     res.status(404).json({ error: "Bet not found" });
