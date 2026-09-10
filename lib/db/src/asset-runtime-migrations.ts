@@ -241,7 +241,7 @@ async function applyV2(client: PoolClient): Promise<void> {
     CREATE UNIQUE INDEX IF NOT EXISTS asset_remediation_runs_qa_key_unique ON asset_remediation_runs(qa_idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS asset_remediation_runs_preview_key_unique ON asset_remediation_runs(preview_idempotency_key);
     CREATE UNIQUE INDEX IF NOT EXISTS asset_remediation_runs_production_key_unique ON asset_remediation_runs(production_idempotency_key);
-    CREATE INDEX IF NOT EXISTS asset_remediation_runs_asset_idx ON asset_remediation_runs(asset_id, created_at);
+    CREATE INDEX IF NOT EXISTS asset_remediation_runs_asset_idx ON asset_remediation_runs(asset_id, started_at);
     CREATE INDEX IF NOT EXISTS asset_remediation_runs_status_idx ON asset_remediation_runs(status, updated_at);
 
     CREATE TABLE IF NOT EXISTS asset_remediation_events (
