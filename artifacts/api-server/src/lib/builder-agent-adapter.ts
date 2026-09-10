@@ -87,6 +87,9 @@ const runState = (value: unknown): BuilderRunState => {
   throw new Error(`BUILDER_ADAPTER_INVALID_RESPONSE: unsupported state ${String(value)}`);
 };
 
+const isTerminal = (value: BuilderRunState): boolean =>
+  value === "SUCCEEDED" || value === "FAILED" || value === "CANCELLED";
+
 function parseResult(value: unknown): BuilderDispatchResult {
   const object = asObject(value);
   const providerRunId = text(object.provider_run_id ?? object.providerRunId ?? object.id);
@@ -121,6 +124,7 @@ export function configuredBuilderAdapter(): BuilderAgentAdapter | null {
 }
 
 export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderAgentAdapter {
+  const pendingRepairCosts = new Map<string, number>();
   const headers = (): Record<string, string> => ({
     "content-type": "application/json",
     ...(config.token ? { authorization: `Bearer ${config.token}` } : {}),
@@ -173,7 +177,19 @@ export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderA
         headers: headers(),
         signal: AbortSignal.timeout(20_000),
       });
-      return parseHttpResult(response, "status");
+      const result = await parseHttpResult(response, "status");
+      const cachedRepairCost = pendingRepairCosts.get(providerRunId) ?? 0;
+      if (!isTerminal(result.state)) {
+        if (result.externalCostCents > cachedRepairCost) {
+          pendingRepairCosts.set(providerRunId, result.externalCostCents);
+        }
+        return { ...result, externalCostCents: 0 };
+      }
+      if (cachedRepairCost > 0) pendingRepairCosts.delete(providerRunId);
+      return {
+        ...result,
+        externalCostCents: Math.max(result.externalCostCents, cachedRepairCost),
+      };
     },
     async repair(input) {
       const response = await fetch(`${config.baseUrl}/v1/builds/${encodeURIComponent(input.providerRunId)}/repairs`, {
@@ -200,7 +216,22 @@ export function createHttpBuilderAdapter(config: BuilderAdapterConfig): BuilderA
         }),
         signal: AbortSignal.timeout(30_000),
       });
-      return parseHttpResult(response, "repair");
+      const result = await parseHttpResult(response, "repair");
+      if (result.externalCostCents > 0) {
+        pendingRepairCosts.set(result.providerRunId, result.externalCostCents);
+      }
+      if (isTerminal(result.state) && result.externalCostCents > 0) {
+        return {
+          ...result,
+          state: "RUNNING",
+          progressPercent: result.progressPercent ?? 99,
+          summary: result.summary
+            ? `${result.summary} Final provider cost will be reconciled from durable status before closing the repair.`
+            : "Repair completed; final provider cost will be reconciled from durable status before closing the repair.",
+          externalCostCents: 0,
+        };
+      }
+      return { ...result, externalCostCents: 0 };
     },
   };
 }
