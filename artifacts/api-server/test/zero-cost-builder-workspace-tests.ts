@@ -85,6 +85,7 @@ const fakeAdapter: BuilderAgentAdapter = {
       state: "SUCCEEDED",
       progressPercent: 100,
       summary: "Fixture builder completed.",
+      externalCostCents: 0,
     };
   },
   async getStatus(providerRunId) {
@@ -96,6 +97,7 @@ const fakeAdapter: BuilderAgentAdapter = {
       state: "SUCCEEDED",
       progressPercent: 100,
       summary: "Fixture builder completed.",
+      externalCostCents: 0,
     };
   },
 };

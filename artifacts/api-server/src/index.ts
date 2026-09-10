@@ -1,5 +1,10 @@
 import "./lib/anthropic-provider";
-import { pool, prepareBuilderWorkspaceSchema, prepareRuntimeSchema } from "@workspace/db";
+import {
+  pool,
+  prepareBuilderWorkspaceSchema,
+  prepareQaDebugSchema,
+  prepareRuntimeSchema,
+} from "@workspace/db";
 import app from "./app";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
@@ -7,6 +12,7 @@ import { startExecutionKernel } from "./lib/execution-kernel";
 import { startExecutionReconciler } from "./lib/execution-reconciler";
 import { logger } from "./lib/logger";
 import { startPortfolioHeartbeat } from "./lib/portfolio-heartbeat";
+import { startQaDebugWorker } from "./lib/qa-debug-worker";
 import { reconcileDiscoveryRunsOnStartup } from "./routes/discovery";
 
 const rawPort = process.env["PORT"];
@@ -26,10 +32,19 @@ if (Number.isNaN(port) || port <= 0) {
 async function startServer(): Promise<void> {
   const schema = await prepareRuntimeSchema(pool);
   const builderSchema = await prepareBuilderWorkspaceSchema(pool);
+  const qaSchema = await prepareQaDebugSchema(pool);
   logger.info(
     {
-      appliedRuntimeMigrations: [...schema.appliedMigrationIds, ...builderSchema.appliedMigrationIds],
-      requiredRuntimeTables: [...schema.requiredTables, ...builderSchema.requiredTables],
+      appliedRuntimeMigrations: [
+        ...schema.appliedMigrationIds,
+        ...builderSchema.appliedMigrationIds,
+        ...qaSchema.appliedMigrationIds,
+      ],
+      requiredRuntimeTables: [
+        ...schema.requiredTables,
+        ...builderSchema.requiredTables,
+        ...qaSchema.requiredTables,
+      ],
     },
     "Runtime database schema ready",
   );
@@ -47,6 +62,7 @@ async function startServer(): Promise<void> {
     startExecutionKernel(port);
     startBuildOrchestratorWorker();
     startBuilderWorkspaceWorker();
+    startQaDebugWorker();
     startPortfolioHeartbeat(port);
   });
 }

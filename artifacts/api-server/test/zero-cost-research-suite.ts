@@ -24,4 +24,6 @@ await import("./zero-cost-human-gate-tests");
 await import("./zero-cost-execution-kernel-tests");
 await import("./zero-cost-build-orchestrator-tests");
 await import("./zero-cost-builder-workspace-tests");
+await import("./zero-cost-qa-debug-tests");
+await import("./zero-cost-build-stage-cost-accounting-tests");
 await import("./zero-cost-runtime-migration-tests");
