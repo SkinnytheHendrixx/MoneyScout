@@ -6,12 +6,14 @@ import {
   betsTable,
   buildJobsTable,
   db,
+  evaluationCyclesTable,
   opportunitiesTable,
   type BetBuildEnvelope,
   type BetDecisionContract,
   type BetResourceEnvelope,
   type BetStatus,
 } from "@workspace/db";
+import { isDeepStrictEqual } from "node:util";
 import {
   approvalRequiresHumanCapitalAuthority,
   assertBetTransition,
@@ -52,6 +54,19 @@ function normalizeResources(input: BetResourceEnvelope): BetResourceEnvelope {
   return result;
 }
 
+function allocationContract(envelope: BetResourceEnvelope) {
+  return Object.fromEntries(
+    Object.entries(envelope)
+      .filter(([key]) => key !== "accountingAsOf")
+      .map(([key, value]) => [
+        key,
+        value && typeof value === "object" && "allocated" in value
+          ? { allocated: value.allocated, unit: value.unit }
+          : value,
+      ]),
+  );
+}
+
 export async function createBetProposal(input: {
   opportunityId: number;
   evaluationCycleId: number | null;
@@ -67,6 +82,33 @@ export async function createBetProposal(input: {
   ];
   const buildAllocation = input.resourceEnvelope?.build?.allocated;
   const cashAllocation = input.resourceEnvelope?.externalCash?.allocated;
+  const monetaryAllocations = [
+    input.resourceEnvelope?.providerServices?.allocated,
+    input.resourceEnvelope?.research?.allocated,
+    buildAllocation,
+    input.resourceEnvelope?.release?.allocated,
+    input.resourceEnvelope?.experiment?.allocated,
+    input.resourceEnvelope?.operations?.allocated,
+  ].filter((value): value is number => value != null);
+  if (monetaryAllocations.some((value) => value > 0) && cashAllocation == null)
+    errors.push(
+      "A positive monetary bucket requires an explicit external cash allocation",
+    );
+  if (
+    cashAllocation != null &&
+    monetaryAllocations.some((value) => value > cashAllocation)
+  )
+    errors.push(
+      "A monetary resource bucket cannot exceed the total external cash allocation",
+    );
+  const serviceAllocation = input.resourceEnvelope?.providerServices?.allocated;
+  if (
+    serviceAllocation != null &&
+    input.buildEnvelope?.allowedExternalServiceBudgetCents > serviceAllocation
+  )
+    errors.push(
+      "Build Envelope external-service budget exceeds the allocated provider-service budget",
+    );
   if (
     buildAllocation != null &&
     input.buildEnvelope?.maximumExternalBuildSpendCents > buildAllocation
@@ -94,6 +136,23 @@ export async function createBetProposal(input: {
   if (!opportunity) throw new Error("OPPORTUNITY_NOT_FOUND");
   if (opportunity.verdict !== "BUILD")
     throw new Error("BET_REQUIRES_BUILD_UNDERWRITING_VERDICT");
+  if (
+    input.decisionContract.underwritingReference.evaluationCycleId !==
+    input.evaluationCycleId
+  )
+    throw new Error("BET_UNDERWRITING_REFERENCE_MISMATCH");
+  if (input.evaluationCycleId != null) {
+    const [cycle] = await db
+      .select({ id: evaluationCyclesTable.id })
+      .from(evaluationCyclesTable)
+      .where(
+        and(
+          eq(evaluationCyclesTable.id, input.evaluationCycleId),
+          eq(evaluationCyclesTable.opportunityId, input.opportunityId),
+        ),
+      );
+    if (!cycle) throw new Error("BET_EVALUATION_CYCLE_MISMATCH");
+  }
   const resources = normalizeResources(input.resourceEnvelope);
   const now = new Date();
   const [created] = await db
@@ -127,6 +186,17 @@ export async function createBetProposal(input: {
         .where(eq(betsTable.idempotencyKey, input.idempotencyKey))
     )[0];
   if (!bet) throw new Error("BET_PROPOSAL_IDEMPOTENCY_RECOVERY_FAILED");
+  if (
+    !created &&
+    (bet.opportunityId !== input.opportunityId ||
+      !isDeepStrictEqual(bet.decisionContract, input.decisionContract) ||
+      !isDeepStrictEqual(bet.buildEnvelope, input.buildEnvelope) ||
+      !isDeepStrictEqual(
+        allocationContract(bet.resourceEnvelope),
+        allocationContract(resources),
+      ))
+  )
+    throw new Error("BET_IDEMPOTENCY_KEY_CONFLICT");
   if (created)
     await db.insert(betEventsTable).values({
       betId: bet.id,

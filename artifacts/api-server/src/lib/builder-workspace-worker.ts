@@ -121,6 +121,7 @@ async function betAllowsDispatch(job: typeof buildJobsTable.$inferSelect): Promi
   const [bet] = await db.select().from(betsTable).where(eq(betsTable.id, job.betId));
   if (!bet || !betCanInitiateBuild(bet.status)) return { allowed: false, reason: "BET_NOT_ACTIVE" };
   if (job.externalSpendCeilingCents > bet.buildEnvelope.maximumExternalBuildSpendCents) return { allowed: false, reason: "BET_BUILD_ENVELOPE_EXCEEDED" };
+  if (job.externalSpendUsedCents > bet.buildEnvelope.maximumExternalBuildSpendCents) return { allowed: false, reason: "BET_BUILD_ENVELOPE_EXCEEDED" };
   return { allowed: true, reason: null };
 }
 

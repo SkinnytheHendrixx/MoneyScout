@@ -145,6 +145,17 @@ try {
   const reusedProposal = await createBetProposal(proposalInput);
   assert.equal(reusedProposal.reused, true);
   assert.equal(reusedProposal.bet.id, proposed.bet.id);
+  await assert.rejects(
+    createBetProposal({
+      ...proposalInput,
+      decisionContract: {
+        ...proposalInput.decisionContract,
+        thesis: "A conflicting thesis.",
+      },
+    }),
+    /BET_IDEMPOTENCY_KEY_CONFLICT/,
+    "the same idempotency key must not silently accept a different Bet contract",
+  );
 
   const cashProposal = await createBetProposal({
     ...proposalInput,

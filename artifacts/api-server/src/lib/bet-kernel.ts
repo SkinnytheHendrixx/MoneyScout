@@ -152,10 +152,15 @@ export function validateBetBuildEnvelope(envelope: BetBuildEnvelope): string[] {
 export function approvalRequiresHumanCapitalAuthority(
   envelope: BetResourceEnvelope,
 ): boolean {
-  return (
-    (envelope.externalCash.allocated ?? 0) > 0 ||
-    (envelope.providerServices.allocated ?? 0) > 0
-  );
+  return [
+    envelope.externalCash,
+    envelope.providerServices,
+    envelope.research,
+    envelope.build,
+    envelope.release,
+    envelope.experiment,
+    envelope.operations,
+  ].some((bucket) => (bucket.allocated ?? 0) > 0);
 }
 
 function accountedBucket(

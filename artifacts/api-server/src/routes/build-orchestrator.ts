@@ -37,7 +37,8 @@ export async function orchestrateBuild(opportunityId: number, requestedBetId?: n
   if (!betCanInitiateBuild(bet.status)) return { kind: "BET_INACTIVE" as const, bet, monetizationPlan };
   const buildAllocation = bet.resourceEnvelope.build.allocated;
   if ((buildAllocation != null && bet.buildEnvelope.maximumExternalBuildSpendCents > buildAllocation) ||
-      (bet.allocatedExternalCashCents != null && bet.buildEnvelope.maximumExternalBuildSpendCents > bet.allocatedExternalCashCents)) {
+      (bet.allocatedExternalCashCents != null && bet.buildEnvelope.maximumExternalBuildSpendCents > bet.allocatedExternalCashCents) ||
+      !bet.buildEnvelope.permittedProductScope.includes(brief.buildContract.route.primaryShape)) {
     return { kind: "BET_ENVELOPE_INVALID" as const, bet, monetizationPlan };
   }
   const contract = createBuildJobContract({

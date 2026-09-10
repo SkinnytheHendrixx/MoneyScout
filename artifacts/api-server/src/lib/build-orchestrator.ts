@@ -180,6 +180,7 @@ export function createBuildJobContract(input: {
     acceptanceCriteria: unique([
       ...brief.buildContract.acceptanceCriteria,
       ...monetizationPlan.firstTransaction.fulfillmentPath,
+      ...(input.buildEnvelope?.requiredAcceptanceCriteria ?? []),
     ]),
     telemetryRequirements: [
       "Record representative workflow completion and failure events.",

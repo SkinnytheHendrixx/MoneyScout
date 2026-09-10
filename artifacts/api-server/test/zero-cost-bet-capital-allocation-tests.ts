@@ -270,6 +270,11 @@ const attributed = createBuildJobContract({
 });
 assert.equal(attributed.investment?.betId, 77);
 assert.equal(attributed.investment?.grantsDownstreamAuthority, false);
+assert.ok(
+  attributed.acceptanceCriteria.includes(
+    buildEnvelope.requiredAcceptanceCriteria[0]!,
+  ),
+);
 assert.equal(attributed.workspace.customerChargingAllowed, false);
 assert.equal(attributed.workspace.externalPublicationAllowed, false);
 assert.equal(attributed.workspace.productionCredentialsAllowed, false);
