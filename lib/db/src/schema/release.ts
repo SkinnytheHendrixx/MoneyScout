@@ -52,7 +52,7 @@ export type PersistedReleasePlan = {
   };
   production: {
     publicReleaseRequired: true;
-    explicitHumanAuthorityRequired: true;
+    explicitHumanAuthorityRequired: boolean;
     customDomainRequired: false;
     customerChargingAuthorized: false;
     productionCredentialsAuthorized: false;
@@ -61,7 +61,18 @@ export type PersistedReleasePlan = {
   economics: {
     externalSpendCeilingCents: number;
   };
-  nextGate: "ASSET_CREATION_AND_OPERATIONS";
+  maintenance?: {
+    assetId: number;
+    inheritedPublicAuthority: true;
+    samePublicSurfaceRequired: true;
+    surfaceExpansionAllowed: false;
+    customerChargingExpansionAllowed: false;
+    outboundExpansionAllowed: false;
+    advertisingExpansionAllowed: false;
+    customDomainExpansionAllowed: false;
+    productionCredentialExpansionAllowed: false;
+  };
+  nextGate: "ASSET_CREATION_AND_OPERATIONS" | "ASSET_OPERATIONS";
 };
 
 export const releaseJobsTable = pgTable(
