@@ -155,6 +155,7 @@ export async function recordAssetObservation(input: {
         updates.revenueInstrumentationStatus = "INSTRUMENTED";
       } else if (input.observationType === "COST") {
         updates.totalObservedCostCents = sql`${assetsTable.totalObservedCostCents} + ${input.amountCents ?? 0}`;
+        updates.costInstrumentationStatus = "INSTRUMENTED";
       } else if (input.observationType === "TRANSACTION") {
         updates.totalObservedTransactions = sql`${assetsTable.totalObservedTransactions} + ${input.quantity ?? 1}`;
       } else if (input.observationType === "USAGE") {
@@ -249,6 +250,7 @@ export async function activateAssetsFromCompletedReleases(): Promise<number> {
           healthStatus: targetSupportsHttpHealthProbe(release.targetKind) ? "UNKNOWN" : "NOT_APPLICABLE",
           consecutiveHealthFailures: 0,
           nextHealthCheckAt: targetSupportsHttpHealthProbe(release.targetKind) ? new Date() : null,
+          nextTelemetrySyncAt: new Date(),
           lastErrorCode: null,
           lastErrorMessage: null,
           updatedAt: new Date(),
@@ -292,6 +294,7 @@ export async function activateAssetsFromCompletedReleases(): Promise<number> {
       authorities: defaultAuthorities(),
       operationsPolicy: defaultOperationsPolicy(),
       nextHealthCheckAt: supportsProbe ? new Date() : null,
+      nextTelemetrySyncAt: new Date(),
     }).onConflictDoNothing({ target: assetsTable.opportunityId }).returning();
     if (!asset) continue;
 
@@ -324,7 +327,7 @@ export async function activateAssetsFromCompletedReleases(): Promise<number> {
       activityStatus: "RUNNING",
       activityStartedAt: new Date(),
       expectedDurationSeconds: null,
-      nextAction: "INSTRUMENT REVENUE, USAGE, SUPPORT, AND COMMERCIAL OPERATIONS",
+      nextAction: "INSTRUMENT REVENUE, COST, USAGE, SUPPORT, AND COMMERCIAL OPERATIONS",
       etaBasis: "CONTINUOUS_OPERATIONS",
       lifecycleTransition: true,
     });
@@ -410,7 +413,7 @@ async function openAvailabilityIncident(
     opportunityId: asset.opportunityId,
     evaluationCycleId: asset.evaluationCycleId,
     eventType: "ASSET_HEALTH_INCIDENT",
-    summary: "Asset is unhealthy after repeated read-only health checks; autonomous remediation is the next operations layer.",
+    summary: "Asset is unhealthy after repeated read-only health checks; bounded autonomous remediation is eligible when zero-cash repair/QA/release capabilities are available.",
     metadata: { asset_id: asset.id, incident_id: incident?.id, ...evidence },
   });
   await db.update(opportunitiesTable).set({ status: "ASSET_DEGRADED" }).where(eq(opportunitiesTable.id, asset.opportunityId));
@@ -418,11 +421,11 @@ async function openAvailabilityIncident(
     activeEvaluationCycleId: asset.evaluationCycleId,
     currentActivityKey: "ASSET_INCIDENT_OPEN",
     currentActivityLabel: "Asset availability incident detected",
-    activityStatus: "BLOCKED",
+    activityStatus: "RUNNING",
     activityStartedAt: now,
     expectedDurationSeconds: null,
-    nextAction: "DIAGNOSE AND REPAIR ASSET WITHOUT UNBOUNDED EXTERNAL SIDE EFFECTS",
-    etaBasis: "AUTONOMOUS_REMEDIATION_LAYER_PENDING",
+    nextAction: "RUN BOUNDED AUTONOMOUS REMEDIATION OR SURFACE THE EXACT MISSING CAPABILITY",
+    etaBasis: "AUTONOMOUS_REMEDIATION",
     lifecycleTransition: true,
   });
 }
