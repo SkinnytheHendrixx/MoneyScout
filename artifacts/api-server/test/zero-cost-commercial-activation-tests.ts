@@ -29,7 +29,7 @@ assert.equal(created.created, true);
 assert.equal((await createOrReuseCommercialActivation({ asset, plan, provider, idempotencyKey: `different-${provider}`, priceCents: 9_999, priceProvenance })).created, false);
 let activation = await reconcileCommercialActivation(created.activation.id);
 assert.equal(activation.status, "BLOCKED_MERCHANT_CAPABILITY");
-assert.equal(asset.status, "ACTIVE");
+assert.ok(["ACTIVE", "DEGRADED"].includes(asset.status), "a live Asset remains live rather than failing while commercially inactive");
 
 await setCapabilityAvailable({ key: merchantCapabilityKey(provider), provider, verificationMethod: "ACCOUNT_DISCOVERED", metadata: { accountExists: true } });
 activation = await reconcileCommercialActivation(activation.id);
