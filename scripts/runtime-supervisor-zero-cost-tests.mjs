@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   runtimeBootstrapRepoRoot,
   runtimeControllerScript,
   selectRuntimePreflightPort,
 } from "./runtime-bootstrap.mjs";
-import { portIsAvailable } from "./frontend-runtime-follower.mjs";
+import {
+  portIsAvailable,
+  takeoverVerifiedStaleMoneyScoutVite,
+} from "./frontend-runtime-follower.mjs";
 import {
   candidatePortFor,
   normalizeSha,
@@ -38,6 +44,15 @@ assert.equal(typeof occupiedAddress, "object");
 const occupiedPort = occupiedAddress.port;
 assert.ok(occupiedPort > 10_000);
 assert.equal(await portIsAvailable(occupiedPort, "127.0.0.1"), false, "frontend follower must detect an occupied service port");
+await assert.rejects(
+  takeoverVerifiedStaleMoneyScoutVite({
+    servicePort: occupiedPort,
+    repoRoot,
+    controllerStartTimeTicks: Number.MAX_SAFE_INTEGER,
+  }),
+  /unverified|could not be verified/,
+  "frontend takeover must refuse to kill an unknown listener",
+);
 const collisionBasePort = occupiedPort - 10_000;
 const selectedFallbackPort = await selectRuntimePreflightPort(collisionBasePort, occupiedPort);
 assert.notEqual(selectedFallbackPort, occupiedPort);
@@ -45,9 +60,53 @@ assert.notEqual(selectedFallbackPort, collisionBasePort);
 await new Promise((resolve, reject) => occupiedServer.close((error) => error ? reject(error) : resolve()));
 assert.equal(await portIsAvailable(occupiedPort, "127.0.0.1"), true, "frontend follower must detect that its service port has drained before restart");
 
+const fakeRepoRoot = await mkdtemp(path.join(os.tmpdir(), "money-scout-vite-takeover-"));
+const fakeMoneyScoutDir = path.join(fakeRepoRoot, "artifacts/money-scout");
+await mkdir(fakeMoneyScoutDir, { recursive: true });
+const reservation = net.createServer();
+await new Promise((resolve, reject) => {
+  reservation.once("error", reject);
+  reservation.listen({ host: "127.0.0.1", port: 0, exclusive: true }, resolve);
+});
+const reservationAddress = reservation.address();
+assert.equal(typeof reservationAddress, "object");
+const stalePort = reservationAddress.port;
+await new Promise((resolve, reject) => reservation.close((error) => error ? reject(error) : resolve()));
+
+const syntheticVitePath = path.join(fakeMoneyScoutDir, "node_modules/vite/bin/vite.js");
+const staleVite = spawn(process.execPath, [
+  "-e",
+  `const net=require('node:net');const s=net.createServer();s.listen(${stalePort},'0.0.0.0');setInterval(()=>{},1000);`,
+  syntheticVitePath,
+  "--config",
+  "vite.config.ts",
+], {
+  cwd: fakeMoneyScoutDir,
+  stdio: "ignore",
+});
+try {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline && await portIsAvailable(stalePort)) await sleep(50);
+  assert.equal(await portIsAvailable(stalePort), false, "synthetic stale Vite fixture must own its service port");
+  const takeover = await takeoverVerifiedStaleMoneyScoutVite({
+    servicePort: stalePort,
+    repoRoot: fakeRepoRoot,
+    controllerStartTimeTicks: Number.MAX_SAFE_INTEGER,
+  });
+  assert.equal(takeover.takenOver, true, "verified stale Money Scout Vite listener should be safely retired");
+  assert.ok(takeover.pids.includes(staleVite.pid), "takeover should target the socket-owning stale Vite PID");
+  assert.equal(await portIsAvailable(stalePort), true, "verified stale Vite takeover must release the frontend port");
+} finally {
+  try { staleVite.kill("SIGKILL"); } catch { /* already exited */ }
+  await rm(fakeRepoRoot, { recursive: true, force: true });
+}
+
 const followerSource = await readFile(path.join(repoRoot, "scripts/frontend-runtime-follower.mjs"), "utf8");
 assert.match(followerSource, /detached: process\.platform !== "win32"/);
 assert.match(followerSource, /process\.kill\(-pid, signal\)/);
+assert.match(followerSource, /signalExactProcess\(owner\.pid/);
+assert.match(followerSource, /isVerifiedMoneyScoutVite/);
+assert.match(followerSource, /owner\.startTimeTicks < controllerStartTimeTicks/);
 assert.match(followerSource, /waitForPortFree\(servicePort/);
 
 const sha = "a".repeat(40);
