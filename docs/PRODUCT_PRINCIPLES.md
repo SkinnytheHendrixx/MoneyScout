@@ -17,7 +17,7 @@ Optimize for economic return on deployed resources, not for:
 - number of workflows completed;
 - number of Assets launched;
 - model confidence alone; or
-- feature breadth.
+- feature breadth for its own sake.
 
 Cash, paid APIs, compute, agent time, build time, maintenance burden, support burden, and human approvals all consume capital.
 
@@ -163,7 +163,7 @@ Commercial activation is a separate lifecycle with separate authority.
 
 ## 17. Economic truth should remain append-only and auditable
 
-Authoritative provider events should be persisted idempotently. Later refunds, reversals, disputes, fees, or adjustments should create new factual observations rather than rewriting history to make prior events disappear.
+Authoritative provider events should be persisted idempotently. Later refunds, partial refunds, chargebacks, reversals, disputes, fees, or adjustments should create new factual observations rather than rewriting history to make prior events disappear.
 
 Derived aggregates may change as new facts arrive; source facts remain auditable.
 
@@ -181,7 +181,7 @@ Autonomous remediation of an existing Asset may repair the approved product with
 
 ## 19. The UI is a control center, not a data dump
 
-The default operator view should answer quickly:
+The default Money Scout operator view should answer quickly:
 
 - what is this;
 - why might it make money;
@@ -193,6 +193,8 @@ The default operator view should answer quickly:
 - what happens next.
 
 Deep research, evidence, audit history, and diagnostics belong behind drill-down.
+
+This principle governs Money Scout's operator UI and is separate from the customer-facing visual identity of portfolio Assets.
 
 ## 20. The portfolio eventually closes the learning loop
 
@@ -206,4 +208,79 @@ Real post-launch outcomes should eventually update:
 - which evidence signals are actually predictive; and
 - which build/distribution/monetization patterns work repeatedly.
 
-The end state is an autonomous capital-allocation system, not an autonomous app factory.
+The end state is an autonomous capital-allocation system, not merely an autonomous app factory.
+
+## 21. The first release should be commercially competitive, not artificially minimal
+
+Traditional MVP minimalism assumes development is expensive and scarce. AI-assisted development can materially lower marginal implementation cost, so Money Scout should not intentionally ship a thin or amateur-feeling product merely to minimize code.
+
+For a Bet that has already survived validation and underwriting, the default first-release target is an **industry-standard, commercially competitive product centered on the validated value proposition**.
+
+- Core value must work end to end.
+- Category-standard functionality should generally be included when its omission would materially reduce credibility, usability, purchaseability, customer success, or delivery of the paid promise.
+- Normal customer journeys should feel complete, including appropriate onboarding, configuration, loading, empty, error, account, and lifecycle states.
+- Speculative differentiation and unsupported enterprise breadth remain deferrable.
+
+Do not confuse "cheap to code" with "free to own."
+
+## 22. Optimize ongoing complexity, not feature count by itself
+
+The Asset Factory should eliminate accidental technical complexity while preserving customer value.
+
+The system should actively minimize unnecessary:
+
+- infrastructure components;
+- provider dependencies;
+- security surface;
+- operational burden;
+- maintenance burden;
+- support burden;
+- failure modes; and
+- irreversible architecture choices.
+
+The preferred architecture is the least-complex architecture that supports the complete competitive product. Architecture simplicity must not be achieved by stripping away commercially important functionality.
+
+## 23. Product judgment is allowed, but it must not masquerade as evidence
+
+Money Scout needs product-design judgment to turn evidence into coherent software. That judgment is legitimate when it is bounded, reversible, and clearly labeled.
+
+A material Product Definition requirement should be attributable to one of these sources:
+
+- locked upstream commercial truth;
+- evidence-backed product requirement;
+- Factory quality/operations standard;
+- bounded product judgment; or
+- builder discretion for ordinary low-level engineering detail.
+
+Do not say "customers need this" when the system merely decided it is a sensible design choice.
+
+Category convention may support inclusion, but commonality alone is not proof of buyer demand. Conversely, category-standard functionality should not be excluded merely because it is common when omission would make the product materially deficient.
+
+## 24. Product definitions are versioned, traceable contracts
+
+Once a Product Definition enters Build, preserve it as historical truth. New evidence or material scope changes should create a new version rather than silently rewriting the original product contract.
+
+The desired traceability chain is:
+
+Evidence -> Requirement -> Product Definition -> Architecture -> Build Contract -> Code -> Independent QA -> Released behavior -> Customer/economic outcome.
+
+This lineage is required so future learning can distinguish which product and architecture decisions actually contributed to portfolio results.
+
+## 25. Reuse should compound, not become a prison
+
+The Asset Factory should maintain reusable software capabilities, templates, operational contracts, and quality standards so later Assets become cheaper and more reliable to manufacture.
+
+However:
+
+- reuse is preferred only when the capability actually satisfies the Product Definition;
+- a missing reusable module may legitimately result in a custom build;
+- the coding agent should retain discretion over ordinary local implementation details when no approved standard exists;
+- a successful custom component may later be promoted into the reusable catalog only after sufficient verification.
+
+Standardize the boring, dangerous, and operationally important parts. Preserve flexibility for differentiated product logic.
+
+## 26. Portfolio visual design is reusable but not a blocker for the core Factory
+
+A shared portfolio design system can improve consistency, quality, and build speed and should eventually be designed deliberately with the owner.
+
+It is downstream from the core software-manufacturing architecture. The Asset Factory must be able to build and operate competent customer-facing products before the shared visual language is complete. Until then, customer-facing Assets should meet a neutral professional quality floor rather than require per-Asset founder design approval.

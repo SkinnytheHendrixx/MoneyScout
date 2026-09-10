@@ -1,6 +1,6 @@
 # Task #69 — Builder Workspace + Coding-Agent Adapter
 
-Status: implementation branch
+Status: COMPLETE — historical subsystem contract. The Builder Workspace is the coding execution layer; the planned Asset Factory sits in front of it and creates the Product Definition, Architecture Plan, isolated Asset repo, and Build Contract that this subsystem executes.
 
 ## Goal
 Turn a durable `build_jobs.status = READY_FOR_BUILDER` record into an isolated, durable builder workspace and dispatch the exact persisted Build Contract to an interchangeable coding-agent backend without requiring the owner to press “next.”
@@ -14,14 +14,14 @@ Turn a durable `build_jobs.status = READY_FOR_BUILDER` record into an isolated, 
 - A builder with nonzero external cash cost may not be dispatched while the Build Job external-spend ceiling is zero.
 - Missing builder infrastructure becomes a structured company capability blocker, not an ambiguous dead end.
 - External publishing, customer charging, domains, production credentials, ads, outreach, and other launch-side effects remain forbidden.
-- The adapter reports progress/status back into Money Scout. Builder completion is not product acceptance; it hands into the future QA/debug gate.
+- The adapter reports progress/status back into Money Scout. Builder completion is not product acceptance; it hands into the independent QA/debug gate.
 
 ## Adapter protocol
 
 Configured by environment. Money Scout sends a normalized `POST /v1/builds` request containing the workspace identity, idempotency key, builder profile, product shape, persisted Build Contract, and autonomy restrictions. The adapter returns a provider run ID and optional repository/workspace metadata. Money Scout polls `GET /v1/builds/{providerRunId}` for progress.
 
-This protocol is intentionally generic so a self-hosted OpenHands bridge, Codex bridge, Replit bridge, or another coding backend can be substituted without changing the Build Orchestrator.
+This protocol is intentionally generic so a self-hosted OpenHands bridge, Codex bridge, Replit bridge, or another coding backend can be substituted without changing Build Orchestrator.
 
 ## Task boundary
 
-Task #69 provisions/dispatches and monitors the coding run. It does not decide that generated software is acceptable, publish externally, or run customer-facing launch actions. A successful builder run ends at `QA_PENDING`, which Task #70 will consume.
+Task #69 provisions/dispatches and monitors the coding run. It does not decide the product definition or architecture, decide that generated software is acceptable, publish externally, or run customer-facing launch actions. A successful builder run ends at `QA_PENDING`, which Task #70 consumes.
