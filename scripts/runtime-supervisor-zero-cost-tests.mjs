@@ -1,10 +1,29 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  runtimeBootstrapRepoRoot,
+  runtimeControllerScript,
+} from "./runtime-bootstrap.mjs";
 import {
   candidatePortFor,
   normalizeSha,
   parseGithubActionsRuns,
   publicRuntimeState,
 } from "./runtime-supervisor.mjs";
+
+const testsDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(testsDir, "..");
+const syntheticBootstrapUrl = pathToFileURL(path.join(repoRoot, "scripts/runtime-bootstrap.mjs")).href;
+assert.equal(runtimeBootstrapRepoRoot(syntheticBootstrapUrl), repoRoot);
+assert.equal(runtimeControllerScript("api", repoRoot), path.join(repoRoot, "scripts/runtime-supervisor.mjs"));
+assert.equal(runtimeControllerScript("web", repoRoot), path.join(repoRoot, "scripts/frontend-runtime-follower.mjs"));
+
+const apiArtifactConfig = await readFile(path.join(repoRoot, "artifacts/api-server/.replit-artifact/artifact.toml"), "utf8");
+const webArtifactConfig = await readFile(path.join(repoRoot, "artifacts/money-scout/.replit-artifact/artifact.toml"), "utf8");
+assert.match(apiArtifactConfig, /run = "node \.\.\/\.\.\/scripts\/runtime-bootstrap\.mjs api"/);
+assert.match(webArtifactConfig, /run = "node \.\.\/\.\.\/scripts\/runtime-bootstrap\.mjs web"/);
 
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
