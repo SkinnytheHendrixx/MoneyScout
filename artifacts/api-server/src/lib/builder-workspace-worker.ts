@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   buildJobsTable,
+  betsTable,
   builderWorkspaceEventsTable,
   builderWorkspacesTable,
   db,
@@ -18,6 +19,7 @@ import {
 } from "./human-gates";
 import { recordLifecycleEvent, setOpportunityActivity } from "./lifecycle-state";
 import { logger } from "./logger";
+import { betCanInitiateBuild } from "./bet-kernel";
 
 const DEFAULT_INTERVAL_MS = 3_000;
 const MIN_INTERVAL_MS = 1_000;
@@ -114,6 +116,20 @@ async function blockForSpendAuthority(job: typeof buildJobsTable.$inferSelect, w
   await db.update(buildJobsTable).set({ status: "BLOCKED", blockedReason: "BUILDER_SPEND_AUTHORITY_REQUIRED", updatedAt: new Date() }).where(eq(buildJobsTable.id, job.id));
 }
 
+async function betAllowsDispatch(job: typeof buildJobsTable.$inferSelect): Promise<{ allowed: boolean; reason: string | null }> {
+  if (job.betId == null) return { allowed: true, reason: null }; // Legacy pre-#76 Build.
+  const [bet] = await db.select().from(betsTable).where(eq(betsTable.id, job.betId));
+  if (!bet || !betCanInitiateBuild(bet.status)) return { allowed: false, reason: "BET_NOT_ACTIVE" };
+  if (job.externalSpendCeilingCents > bet.buildEnvelope.maximumExternalBuildSpendCents) return { allowed: false, reason: "BET_BUILD_ENVELOPE_EXCEEDED" };
+  if (job.externalSpendUsedCents > bet.buildEnvelope.maximumExternalBuildSpendCents) return { allowed: false, reason: "BET_BUILD_ENVELOPE_EXCEEDED" };
+  return { allowed: true, reason: null };
+}
+
+async function blockForBet(job: typeof buildJobsTable.$inferSelect, workspace: typeof builderWorkspacesTable.$inferSelect, reason: string) {
+  await db.update(builderWorkspacesTable).set({ status: "READY", statusSummary: "Build dispatch stopped at its Bet resource/state boundary.", updatedAt: new Date() }).where(eq(builderWorkspacesTable.id, workspace.id));
+  await db.update(buildJobsTable).set({ status: "BLOCKED", blockedReason: reason, updatedAt: new Date() }).where(eq(buildJobsTable.id, job.id));
+}
+
 async function markQaPending(job: typeof buildJobsTable.$inferSelect, workspaceId: number, result: BuilderStatusResult, failed = false) {
   const now = new Date();
   await setOpportunityActivity(job.opportunityId, {
@@ -192,15 +208,27 @@ async function unblockAuthorizedSpend(adapter: BuilderAgentAdapter): Promise<voi
   }
 }
 
+async function unblockEligibleBets(): Promise<void> {
+  const blocked = await db.select().from(buildJobsTable).where(and(eq(buildJobsTable.status, "BLOCKED"), inArray(buildJobsTable.blockedReason, ["BET_NOT_ACTIVE", "BET_BUILD_ENVELOPE_EXCEEDED"])));
+  for (const job of blocked) {
+    const gate = await betAllowsDispatch(job);
+    if (!gate.allowed) continue;
+    await db.update(buildJobsTable).set({ status: "READY_FOR_BUILDER", blockedReason: null, updatedAt: new Date() }).where(eq(buildJobsTable.id, job.id));
+  }
+}
+
 export async function runBuilderWorkspaceTick(adapterOverride?: BuilderAgentAdapter | null): Promise<void> {
   const adapter = adapterOverride === undefined ? configuredBuilderAdapter() : adapterOverride;
   if (adapter) {
     await unblockConfiguredBuilder(adapter);
     await unblockAuthorizedSpend(adapter);
   }
+  await unblockEligibleBets();
   const readyJobs = await db.select().from(buildJobsTable).where(eq(buildJobsTable.status, "READY_FOR_BUILDER")).orderBy(asc(buildJobsTable.id)).limit(5);
   for (const job of readyJobs) {
     const workspace = await createOrReuseWorkspace(job, adapter);
+    const betGate = await betAllowsDispatch(job);
+    if (!betGate.allowed) { await blockForBet(job, workspace, betGate.reason ?? "BET_NOT_ACTIVE"); continue; }
     if (!adapter) { await blockForBuilderCapability(job, workspace); continue; }
     if (adapter.costMode === "METERED" && job.externalSpendCeilingCents <= job.externalSpendUsedCents) { await blockForSpendAuthority(job, workspace); continue; }
     if (!workspace.providerRunId && workspace.status !== "QA_PENDING") {

@@ -12,6 +12,14 @@ export const getAllowedUserIds = (): Set<string> =>
 export const isMoneyScoutUserAllowed = (userId: string): boolean =>
   getAllowedUserIds().has(userId);
 
+export function isVerifiedMoneyScoutOwnerRequest(req: Request): boolean {
+  return (
+    !isInternalAutomationRequest(req) &&
+    req.isAuthenticated() &&
+    isMoneyScoutUserAllowed(req.user.id)
+  );
+}
+
 export function requireMoneyScoutAccess(req: Request, res: Response, next: NextFunction) {
   if (isInternalAutomationRequest(req)) {
     next();

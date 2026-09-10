@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { opportunitiesTable } from "./money-scout";
 import { evaluationCyclesTable } from "./lifecycle";
+import { betsTable, type BetBuildEnvelope } from "./bet";
 
 export const buildJobStatusEnum = pgEnum("build_job_status", [
   "ORCHESTRATING",
@@ -46,6 +47,7 @@ export type PersistedBuildContract = {
   acceptanceCriteria: string[];
   autonomy: Record<string, unknown>;
   nextGate: string;
+  investment?: { betId: number; buildEnvelope: BetBuildEnvelope; grantsDownstreamAuthority: false };
 };
 
 export type PersistedQaAcceptanceResult = {
@@ -88,6 +90,7 @@ export const buildJobsTable = pgTable(
       () => evaluationCyclesTable.id,
       { onDelete: "set null" },
     ),
+    betId: integer("bet_id").references(() => betsTable.id, { onDelete: "restrict" }),
     idempotencyKey: text("idempotency_key").notNull(),
     status: buildJobStatusEnum("status").notNull().default("ORCHESTRATING"),
     productShape: text("product_shape").notNull(),
@@ -107,6 +110,7 @@ export const buildJobsTable = pgTable(
     uniqueIndex("build_jobs_idempotency_unique").on(table.idempotencyKey),
     index("build_jobs_opportunity_idx").on(table.opportunityId, table.createdAt),
     index("build_jobs_cycle_idx").on(table.evaluationCycleId, table.createdAt),
+    index("build_jobs_bet_idx").on(table.betId, table.createdAt),
     index("build_jobs_status_idx").on(table.status, table.updatedAt),
   ],
 );

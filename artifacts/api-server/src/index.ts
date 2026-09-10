@@ -1,6 +1,7 @@
 import "./lib/anthropic-provider";
 import {
   pool,
+  prepareBetCapitalAllocationSchema,
   prepareAssetOperationsSchema,
   prepareBuilderWorkspaceSchema,
   prepareControlledReleaseSchema,
@@ -9,6 +10,7 @@ import {
 } from "@workspace/db";
 import app from "./app";
 import { startAssetEconomicsWorker } from "./lib/asset-economics-worker";
+import { startBetReconciliationWorker } from "./lib/bet-reconciliation-worker";
 import { startAssetOperationsWorker } from "./lib/asset-operations-worker";
 import { startAssetRemediationWorker } from "./lib/asset-remediation-worker";
 import { startCommercialActivationWorker } from "./lib/commercial-activation-worker";
@@ -46,6 +48,7 @@ async function startServer(): Promise<void> {
   const qaSchema = await prepareQaDebugSchema(pool);
   const releaseSchema = await prepareControlledReleaseSchema(pool);
   const assetSchema = await prepareAssetOperationsSchema(pool);
+  const betSchema = await prepareBetCapitalAllocationSchema(pool);
   logger.info(
     {
       appliedRuntimeMigrations: [
@@ -54,6 +57,7 @@ async function startServer(): Promise<void> {
         ...qaSchema.appliedMigrationIds,
         ...releaseSchema.appliedMigrationIds,
         ...assetSchema.appliedMigrationIds,
+        ...betSchema.appliedMigrationIds,
       ],
       requiredRuntimeTables: [
         ...schema.requiredTables,
@@ -61,6 +65,7 @@ async function startServer(): Promise<void> {
         ...qaSchema.requiredTables,
         ...releaseSchema.requiredTables,
         ...assetSchema.requiredTables,
+        ...betSchema.requiredTables,
       ],
       runtimePreflight,
     },
@@ -93,6 +98,7 @@ async function startServer(): Promise<void> {
     startAssetEconomicsWorker();
     startAssetRemediationWorker();
     startCommercialActivationWorker();
+    startBetReconciliationWorker();
     startPortfolioHeartbeat(port);
   });
 }

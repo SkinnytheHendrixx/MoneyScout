@@ -2,6 +2,7 @@ import type {
   BuildProductShape,
   CommercialBuildBrief,
 } from "./commercial-build-brief";
+import type { BetBuildEnvelope } from "@workspace/db";
 import type { MonetizationExecutionPlan } from "./monetization-execution-plan";
 
 export type BuilderProfile =
@@ -75,6 +76,11 @@ export type BuildJobContract = {
     allowedWithoutApproval: string[];
     approvalRequiredFor: string[];
   };
+  investment?: {
+    betId: number;
+    buildEnvelope: BetBuildEnvelope;
+    grantsDownstreamAuthority: false;
+  };
   nextGate: "BUILDER_WORKSPACE" | "STOP";
 };
 
@@ -105,6 +111,8 @@ export function createBuildJobContract(input: {
   brief: CommercialBuildBrief;
   monetizationPlan: MonetizationExecutionPlan;
   evaluationCycleId: number | null;
+  betId?: number;
+  buildEnvelope?: BetBuildEnvelope;
 }): BuildJobContract {
   const { brief, monetizationPlan } = input;
   const blockers = [...brief.eligibility.blockers, ...monetizationPlan.blockers];
@@ -172,6 +180,7 @@ export function createBuildJobContract(input: {
     acceptanceCriteria: unique([
       ...brief.buildContract.acceptanceCriteria,
       ...monetizationPlan.firstTransaction.fulfillmentPath,
+      ...(input.buildEnvelope?.requiredAcceptanceCriteria ?? []),
     ]),
     telemetryRequirements: [
       "Record representative workflow completion and failure events.",
@@ -189,6 +198,7 @@ export function createBuildJobContract(input: {
       allowedWithoutApproval: monetizationPlan.autonomy.allowedWithoutApproval,
       approvalRequiredFor: monetizationPlan.autonomy.approvalRequiredFor,
     },
+    ...(input.betId && input.buildEnvelope ? { investment: { betId: input.betId, buildEnvelope: input.buildEnvelope, grantsDownstreamAuthority: false as const } } : {}),
     nextGate: status === "READY_FOR_BUILDER" ? "BUILDER_WORKSPACE" : "STOP",
   };
 }

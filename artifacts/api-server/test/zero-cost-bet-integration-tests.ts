@@ -1,0 +1,343 @@
+import assert from "node:assert/strict";
+import { count, eq } from "drizzle-orm";
+import express from "express";
+import {
+  betCostAttributionsTable,
+  betsTable,
+  buildJobsTable,
+  capabilitiesTable,
+  db,
+  opportunitiesTable,
+} from "@workspace/db";
+import { reconcileBet } from "../src/lib/bet-reconciliation-worker";
+import { internalAutomationHeaders } from "../src/lib/internal-automation-auth";
+import { requireMoneyScoutAccess } from "../src/middlewares/authorizationMiddleware";
+import betsRouter, {
+  approveBet,
+  createBetProposal,
+  scopedBetCapitalCapabilityKey,
+} from "../src/routes/bets";
+
+async function attemptInternalAutomationApproval(
+  betId: number,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const app = express();
+  app.use(express.json());
+  app.use(requireMoneyScoutAccess);
+  app.use(betsRouter);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const response = await fetch(
+      `http://127.0.0.1:${port}/bets/${betId}/approve`,
+      {
+        method: "POST",
+        headers: {
+          ...internalAutomationHeaders(),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          authorized_by: "INTERNAL_AUTOMATION_SELF_ATTESTATION",
+        }),
+      },
+    );
+    return {
+      status: response.status,
+      body: (await response.json()) as Record<string, unknown>,
+    };
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}
+
+const [opportunity] = await db
+  .insert(opportunitiesTable)
+  .values({
+    name: "Bet integration fixture",
+    sourcePlatform: "FIXTURE",
+    sourceUrl: "https://example.test/bet-fixture",
+    opportunityType: "api",
+    thesis: "A bounded fixture thesis.",
+    firstSeen: "2026-09-10",
+    lastResearched: "2026-09-10",
+    status: "Active",
+    overallScore: "80",
+    policyStatus: "GREEN",
+    verdict: "BUILD",
+    engineFamily: "TEST",
+  })
+  .returning();
+if (!opportunity) throw new Error("fixture opportunity missing");
+assert.equal(
+  scopedBetCapitalCapabilityKey(42, 1_500),
+  "CAPITAL_ALLOCATION_AUTHORITY:BET:42:1500",
+);
+
+const estimate = {
+  status: "UNKNOWN" as const,
+  lower: null,
+  upper: null,
+  unit: null,
+  evidenceRefs: [],
+  rationale: "Unknown remains unknown.",
+};
+const makeBucket = (allocated: number | null, unit = "USD_CENTS") => ({
+  allocated,
+  committed: 0,
+  consumed: 0,
+  remaining: allocated,
+  unit,
+});
+const proposalInput = {
+  opportunityId: opportunity.id,
+  evaluationCycleId: null,
+  idempotencyKey: `bet-integration:${opportunity.id}`,
+  decisionContract: {
+    schemaVersion: 1 as const,
+    thesis: opportunity.thesis,
+    rationale:
+      "Fixture verifies durable zero-cash allocation without external side effects.",
+    underwritingReference: {
+      evaluationCycleId: null,
+      snapshotRef: "fixture:underwriting",
+    },
+    upside: estimate,
+    keyRisks: ["Economics remain unknown."],
+    unknowns: ["No observed revenue."],
+    reversibility: {
+      level: "HIGH" as const,
+      downsideExposure: estimate,
+      notes: [],
+    },
+    successCriteria: ["The bounded Build passes independent QA."],
+    failureCriteria: ["The resource envelope is exceeded."],
+    iterateCriteria: [
+      "Scope can shrink without changing the commercial thesis.",
+    ],
+    decisionHorizon: {
+      status: "UNKNOWN" as const,
+      earliestAt: null,
+      latestAt: null,
+      evidenceRefs: [],
+    },
+    humanCapabilityDependencies: [],
+    expectedMaintenanceBurden: estimate,
+    expectedSupportBurden: estimate,
+    expectedOperationalComplexity: {
+      status: "UNKNOWN" as const,
+      level: null,
+      evidenceRefs: [],
+      notes: [],
+    },
+  },
+  resourceEnvelope: {
+    schemaVersion: 1 as const,
+    externalCash: makeBucket(0),
+    providerServices: makeBucket(0),
+    research: makeBucket(null),
+    build: makeBucket(0),
+    release: makeBucket(0),
+    experiment: makeBucket(null),
+    operations: makeBucket(0),
+    autonomousCapacity: makeBucket(8, "AGENT_HOURS"),
+    humanDependencyBurden: makeBucket(null, "HUMAN_ACTIONS"),
+    accountingAsOf: null,
+  },
+  buildEnvelope: {
+    schemaVersion: 1 as const,
+    maximumExternalBuildSpendCents: 0,
+    allowedExternalServiceBudgetCents: 0,
+    acceptableBuildComplexity: "LOW" as const,
+    acceptableMaintenanceBurden: "LOW" as const,
+    acceptableOperatingCost: estimate,
+    requiredReversibility: "HIGH" as const,
+    permittedProductScope: ["API"],
+    requiredAcceptanceCriteria: ["Representative workflow passes."],
+    onlyExistingZeroCashCapabilities: true,
+    hardConstraints: ["No paid provider calls."],
+  },
+};
+
+try {
+  await db
+    .delete(capabilitiesTable)
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
+  await db.insert(capabilitiesTable).values({
+    key: "CAPITAL_ALLOCATION_AUTHORITY",
+    provider: "TEST_OWNER_POLICY",
+    status: "AVAILABLE",
+    accessLevel: "AUTOMATION_READY",
+    verificationMethod: "ZERO_COST_TEST",
+    metadata: { maximum_external_cash_cents: 50 },
+    verifiedAt: new Date(),
+  });
+  const proposed = await createBetProposal(proposalInput);
+  assert.equal(
+    proposed.bet.status,
+    "PROPOSED",
+    "a BUILD Opportunity must not automatically imply allocated capital",
+  );
+  const reusedProposal = await createBetProposal(proposalInput);
+  assert.equal(reusedProposal.reused, true);
+  assert.equal(reusedProposal.bet.id, proposed.bet.id);
+  await assert.rejects(
+    createBetProposal({
+      ...proposalInput,
+      decisionContract: {
+        ...proposalInput.decisionContract,
+        thesis: "A conflicting thesis.",
+      },
+    }),
+    /BET_IDEMPOTENCY_KEY_CONFLICT/,
+    "the same idempotency key must not silently accept a different Bet contract",
+  );
+
+  const cashProposal = await createBetProposal({
+    ...proposalInput,
+    idempotencyKey: `bet-integration-cash:${opportunity.id}`,
+    resourceEnvelope: {
+      ...proposalInput.resourceEnvelope,
+      externalCash: makeBucket(100),
+    },
+  });
+  const forgedApproval = await attemptInternalAutomationApproval(
+    cashProposal.bet.id,
+  );
+  assert.equal(
+    forgedApproval.status,
+    409,
+    "internal automation must not approve positive owner capital by supplying arbitrary authorized_by text",
+  );
+  assert.equal(
+    forgedApproval.body.error,
+    "CAPITAL_ALLOCATION_AUTHORITY_REQUIRED",
+  );
+  const [stillProposedAfterForgery] = await db
+    .select()
+    .from(betsTable)
+    .where(eq(betsTable.id, cashProposal.bet.id));
+  assert.equal(stillProposedAfterForgery?.status, "PROPOSED");
+  const gated = await approveBet({ betId: cashProposal.bet.id });
+  assert.equal(gated.kind, "AUTHORITY_REQUIRED");
+  if (gated.kind === "AUTHORITY_REQUIRED") {
+    assert.equal(
+      gated.humanAction?.requiredCapabilityKey,
+      scopedBetCapitalCapabilityKey(cashProposal.bet.id, 100),
+      "capital authority Human Action must be scoped to this exact Bet and amount",
+    );
+  }
+  await db
+    .update(capabilitiesTable)
+    .set({
+      metadata: { maximum_external_cash_cents: 100 },
+      verifiedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
+  const boundedStandingApproval = await approveBet({
+    betId: cashProposal.bet.id,
+  });
+  assert.equal(
+    boundedStandingApproval.kind,
+    "APPROVED",
+    "a valid bounded standing CAPITAL_ALLOCATION_AUTHORITY must remain usable",
+  );
+  if (boundedStandingApproval.kind === "APPROVED") {
+    assert.equal(
+      boundedStandingApproval.bet.approvedBy,
+      "CAPITAL_ALLOCATION_AUTHORITY",
+    );
+  }
+
+  const approved = await approveBet({ betId: proposed.bet.id });
+  assert.equal(approved.kind, "APPROVED");
+  if (approved.kind !== "APPROVED")
+    throw new Error("fixture Bet was not approved");
+  assert.equal(approved.bet.approvedBy, "ZERO_CASH_POLICY");
+  const repeatedApproval = await approveBet({ betId: proposed.bet.id });
+  assert.equal(repeatedApproval.kind, "APPROVED");
+  if (repeatedApproval.kind === "APPROVED")
+    assert.equal(repeatedApproval.reused, true);
+
+  const [build] = await db
+    .insert(buildJobsTable)
+    .values({
+      opportunityId: opportunity.id,
+      betId: proposed.bet.id,
+      idempotencyKey: `bet-integration-build:${proposed.bet.id}`,
+      status: "READY_FOR_BUILDER",
+      productShape: "API",
+      supportingShapes: [],
+      builderProfile: "BACKEND_API",
+      contract: {
+        schemaVersion: 1,
+        opportunityId: opportunity.id,
+        evaluationCycleId: null,
+        product: {},
+        firstTransaction: {},
+        scope: {},
+        workspace: {},
+        acceptanceCriteria: [],
+        autonomy: {},
+        nextGate: "BUILDER_WORKSPACE",
+        investment: {
+          betId: proposed.bet.id,
+          buildEnvelope: proposalInput.buildEnvelope,
+          grantsDownstreamAuthority: false,
+        },
+      },
+      externalSpendCeilingCents: 0,
+      externalSpendUsedCents: 0,
+    })
+    .returning();
+  if (!build) throw new Error("fixture build missing");
+
+  await reconcileBet(proposed.bet.id);
+  await reconcileBet(proposed.bet.id);
+  const [attributionCount] = await db
+    .select({ value: count() })
+    .from(betCostAttributionsTable)
+    .where(eq(betCostAttributionsTable.betId, proposed.bet.id));
+  assert.equal(
+    attributionCount?.value,
+    1,
+    "repeated reconciliation must upsert one attribution per existing cost source",
+  );
+  let [reconciled] = await db
+    .select()
+    .from(betsTable)
+    .where(eq(betsTable.id, proposed.bet.id));
+  assert.equal(reconciled?.consumedExternalCashCents, 0);
+
+  await db
+    .update(buildJobsTable)
+    .set({ externalSpendUsedCents: 1, updatedAt: new Date() })
+    .where(eq(buildJobsTable.id, build.id));
+  await reconcileBet(proposed.bet.id);
+  [reconciled] = await db
+    .select()
+    .from(betsTable)
+    .where(eq(betsTable.id, proposed.bet.id));
+  assert.equal(
+    reconciled?.status,
+    "EXHAUSTED",
+    "unexpected spend beyond a zero-cash envelope must stop the Bet safely",
+  );
+  assert.equal(reconciled?.consumedExternalCashCents, 1);
+} finally {
+  await db
+    .delete(buildJobsTable)
+    .where(eq(buildJobsTable.opportunityId, opportunity.id));
+  await db.delete(betsTable).where(eq(betsTable.opportunityId, opportunity.id));
+  await db
+    .delete(opportunitiesTable)
+    .where(eq(opportunitiesTable.id, opportunity.id));
+  await db
+    .delete(capabilitiesTable)
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
+}
+
+console.log("PASS zero-cost durable Bet integration and reconciliation");

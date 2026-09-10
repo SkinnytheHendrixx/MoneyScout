@@ -1,6 +1,7 @@
 await import("./zero-cost-anthropic-provider-tests");
 await import("./zero-cost-runtime-safety-tests");
 await import("./zero-cost-startup-readiness-tests");
+await import("./zero-cost-bet-capital-allocation-tests");
 await import("./zero-cost-demand-tests");
 await import("./zero-cost-research-orchestrator-tests");
 await import("./zero-cost-research-execution-tests");
@@ -33,4 +34,5 @@ await import("./zero-cost-release-incident-recovery-tests");
 await import("./zero-cost-asset-operations-tests");
 await import("./zero-cost-asset-autonomous-operations-tests");
 await import("./zero-cost-commercial-activation-tests");
+await import("./zero-cost-bet-integration-tests");
 await import("./zero-cost-runtime-migration-tests");
