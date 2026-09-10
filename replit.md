@@ -1,58 +1,65 @@
-# Money Scout
+# Money Scout Runtime Notes
 
-A private internal tool for evidence-driven opportunity tracking and human review.
+Money Scout is a private internal autonomous operating system for discovering, underwriting, building, launching, operating, measuring, and reallocating capital across small digital businesses.
 
-## Run & Operate
+This file is intentionally concise. It is **not** the canonical product/architecture specification.
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+## Read first
+
+- `/AGENTS.md` — agent operating instructions and invariants
+- `docs/CURRENT_STATE.md` — current live/system state
+- `docs/ROADMAP.md` — canonical forward build sequence
+- `docs/ARCHITECTURE.md` — system/domain architecture
+- `docs/PRODUCT_PRINCIPLES.md` — non-negotiable product rules
+- `docs/engineering-workflow.md` — implementation/CI/deployment workflow
+- `.agents/memory/MEMORY.md` — narrow durable implementation lessons
+
+If this file conflicts with those documents or the actual code, inspect the repository and treat GitHub `main` as authoritative.
+
+## Runtime role of Replit
+
+Replit is used as Money Scout's active Project runtime, PostgreSQL environment, and preview surface. It is not the primary source editor or primary coding agent.
+
+The normal code path is:
+
+**Codex/repo-native engineering -> GitHub branch/PR -> GitHub Actions -> merge to `main` -> Money Scout self-deployment supervisor -> Replit Project runtime.**
+
+Do not require routine owner-driven Git/Replit sync or reset after merges.
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- pnpm workspaces
+- TypeScript
+- Express API
+- PostgreSQL + Drizzle ORM
+- React/Vite frontend
+- GitHub Actions CI
+- runtime bootstrap/supervisor/follower for autonomous Replit Project promotion
 
-## Where things live
+Check package manifests and CI for the exact currently supported Node/pnpm versions rather than relying on stale prose here.
 
-- `lib/api-spec/openapi.yaml` — opportunities and evidence API contract
-- `lib/db/src/schema/money-scout.ts` — PostgreSQL schema for all six Phase 1 tables
-- `artifacts/api-server/src/routes/` — opportunities and evidence CRUD routes
-- `artifacts/money-scout/src/` — dashboard, detail views, and forms
+## Common repository commands
 
-## Architecture decisions
+- `pnpm run typecheck` — full workspace typecheck
+- `pnpm run build` — workspace build surface as currently configured
+- `pnpm --filter @workspace/api-server run build` — API build
+- `pnpm --filter @workspace/money-scout run build` — frontend build
+- `pnpm --filter @workspace/api-server run test:zero-cost` — canonical zero-cost subsystem regression suite
+- `pnpm --filter @workspace/db run push-force` — CI/dev schema push path where explicitly appropriate
 
-- Phase 1 is deliberately manual: no AI, research automation, scraping, scheduling, or scoring logic.
-- Phase 2 adds only a user-triggered policy review. It performs bounded direct HTTP retrieval first, then permits one domain-restricted Anthropic web search inside the single Claude Sonnet call only when direct evidence is insufficient.
-- Policy checks are capped at four fetched documents, 32,000 excerpt characters, and a conservative $0.50 estimated external-service ceiling.
-- Calendar dates use PostgreSQL `date` columns; research run timestamps use timezone-aware timestamps.
-- Deleting an opportunity cascades to its linked evidence, evaluations, snapshots, and experiments.
+Use the scripts/workflows in the current branch as source of truth for exact commands.
 
-## Product
+## Critical runtime rules
 
-- Sort and search the opportunity review queue.
-- Create, inspect, edit, and delete opportunities.
-- Add, edit, inspect, and remove evidence linked to an opportunity.
-- Manually run a bounded policy/access check and review its status, summary, cost estimate, and source-backed evidence.
-- Preserve all records in PostgreSQL across refreshes and restarts.
+- GitHub `main` is source of truth.
+- Exact `main` push CI must be green before self-promotion.
+- Candidate/preflight failure must preserve the current healthy runtime.
+- Runtime migrations must be additive/safe under the existing migration contracts.
+- Preflight must not start autonomous business workers that could create side effects.
+- Frontend process takeover may terminate only a positively identified stale Money Scout listener; unknown port owners fail closed.
+- Published/external Asset releases remain governed by Controlled Release and are distinct from Money Scout's own Replit self-deployment.
+- Never infer commercial/spend authority from runtime access.
 
-## User preferences
+## Current milestone pointer
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-- Update `lib/api-spec/openapi.yaml` before API/client behavior, then run codegen.
-- Keep future phases out of the Phase 1 review surface unless the user explicitly expands scope.
-- Never automatically retry policy retrieval or Claude calls; a user must explicitly run another check.
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+At the time this file was updated, `main` contains milestone #74 and #75 Commercial Activation & Revenue Execution is the active build milestone. See `docs/CURRENT_STATE.md` and `docs/ROADMAP.md` for the authoritative current status.
