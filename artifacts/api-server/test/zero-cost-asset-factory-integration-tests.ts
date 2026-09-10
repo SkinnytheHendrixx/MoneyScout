@@ -52,7 +52,7 @@ const [opportunity] = await db
   .insert(opportunitiesTable)
   .values({
     name: `[TEST] Factory ${suffix}`,
-    sourcePlatform: "TEST_MARKETPLACE",
+    sourcePlatform: "TEST",
     sourceUrl: `https://example.test/factory/${suffix}`,
     opportunityType: "monitor alert automation dashboard",
     thesis: "Teams need recurring monitoring with visible change alerts.",
