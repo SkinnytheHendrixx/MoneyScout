@@ -7,12 +7,13 @@ import {
   commercialActivationEventsTable,
   commercialActivationsTable,
   db,
+  humanActionsTable,
   paymentProviderEventsTable,
   type CommercialActivationStatus,
   type CommercialPriceProvenance,
 } from "@workspace/db";
 import type { MonetizationExecutionPlan } from "./monetization-execution-plan";
-import { capabilityIsUsable, createOrReuseHumanAction } from "./human-gates";
+import { capabilityIsUsable, createOrReuseHumanAction, markHumanActionResolved, resolveOpenActionsForCapability, setCapabilityAvailable } from "./human-gates";
 import { getCommercialPaymentAdapter } from "./commercial-payment-adapter";
 import { recordAssetObservation } from "./asset-operations-worker";
 import { logger } from "./logger";
@@ -94,6 +95,16 @@ export async function createOrReuseCommercialActivation(input: {
   return { activation: row, created: Boolean(activation) };
 }
 
+export async function updateCommercialOffer(input: { activationId: number; priceCents: number; priceProvenance: CommercialPriceProvenance }) {
+  const [activation] = await db.select().from(commercialActivationsTable).where(eq(commercialActivationsTable.id, input.activationId));
+  if (!activation) throw new Error("COMMERCIAL_ACTIVATION_NOT_FOUND");
+  if (!["DRAFT", "BLOCKED_PRICE"].includes(activation.status)) throw new Error("COMMERCIAL_OFFER_LOCKED_AFTER_PREPARATION");
+  if (!priceProvenanceIsDefensible(input.priceCents, input.priceProvenance)) throw new Error("DEFENSIBLE_PRICE_PROVENANCE_REQUIRED");
+  const [updated] = await db.update(commercialActivationsTable).set({ priceCents: input.priceCents, priceProvenance: input.priceProvenance, status: "DRAFT", updatedAt: new Date() }).where(eq(commercialActivationsTable.id, activation.id)).returning();
+  await recordEvent(updated!, "COMMERCIAL_OFFER_PROVENANCE_RECORDED", "Numeric offer and its defensible provenance were recorded without changing the Monetization Execution Plan.", { price_cents: input.priceCents, provenance_kind: input.priceProvenance.kind, source_reference: input.priceProvenance.sourceReference });
+  return updated!;
+}
+
 async function humanAction(activation: typeof commercialActivationsTable.$inferSelect, input: { actionType: string; title: string; whyNeeded: string; instructions: string; capabilityKey: string | null; verificationMode?: "AUTOMATED_CHECK" | "HUMAN_ATTESTATION" }) {
   return createOrReuseHumanAction({
     opportunityId: activation.opportunityId,
@@ -143,6 +154,12 @@ export async function reconcileCommercialActivation(activationId: number) {
     await humanAction(activation, { actionType: "CONNECT_PAYMENT_PROVIDER_ADAPTER", title: "Connect payment-provider runtime", whyNeeded: "Verified capabilities exist but no zero-cash commercial adapter is available to Money Scout.", instructions: "Connect the supported payment-provider bridge. This does not grant charging authority.", capabilityKey: `PAYMENT_PROVIDER_RUNTIME:${activation.provider}` });
     return transition(activation, "BLOCKED_PRODUCTION_CREDENTIALS", "COMMERCIAL_PROVIDER_RUNTIME_BLOCKED", "Commercial activation is waiting for its payment-provider runtime.");
   }
+  const runtimeKey = `PAYMENT_PROVIDER_RUNTIME:${activation.provider}`;
+  const runtime = await capability(runtimeKey);
+  if (!runtime || !capabilityIsUsable(runtime)) {
+    await setCapabilityAvailable({ key: runtimeKey, provider: activation.provider, verificationMethod: "COMMERCIAL_ADAPTER_CONFIGURED", metadata: { cost_mode: adapter.costMode, charging_authority_granted: false } });
+    await resolveOpenActionsForCapability({ capabilityKey: runtimeKey, resolutionData: { detected_automatically: true, provider: activation.provider } });
+  }
 
   const plan = activation.planSnapshot as unknown as MonetizationExecutionPlan;
   const input = { assetId: asset.id, opportunityId: asset.opportunityId, providerOperationKey: activation.providerOperationKey, currency: "USD" as const, priceCents: activation.priceCents!, productionUrl: asset.productionUrl, promisedOutcome: plan.firstTransaction.promisedOutcome };
@@ -187,6 +204,9 @@ export async function authorizeCommercialBoundary(input: { activationId: number;
     : { productionCredentialsAuthorizedAt: now, productionCredentialsAuthorizedBy: input.authorizedBy };
   const [updated] = await db.update(commercialActivationsTable).set({ ...fields, updatedAt: now }).where(eq(commercialActivationsTable.id, activation.id)).returning();
   await recordEvent(updated!, `COMMERCIAL_${input.boundary}_AUTHORIZED`, `${input.boundary} authority granted only for this commercial activation.`, { authorized_by: input.authorizedBy, unrelated_authorities_unchanged: true });
+  const actionType = input.boundary === "CUSTOMER_CHARGING" ? "AUTHORIZE_CUSTOMER_CHARGING" : "AUTHORIZE_COMMERCIAL_PRODUCTION_CREDENTIAL_USE";
+  const actions = await db.select().from(humanActionsTable).where(and(eq(humanActionsTable.opportunityId, activation.opportunityId), eq(humanActionsTable.actionType, actionType), eq(humanActionsTable.blockedStage, `COMMERCIAL_ACTIVATION:${activation.id}`), inArray(humanActionsTable.status, ["OPEN", "VERIFYING"])));
+  for (const action of actions) await markHumanActionResolved({ actionId: action.id, resolutionData: { authorized_by: input.authorizedBy, authority_scope: input.boundary, commercial_activation_id: activation.id } });
   return updated!;
 }
 
@@ -210,8 +230,9 @@ export async function ingestAuthoritativePaymentEvent(input: { activationId: num
     await recordEvent(activation, "PAYMENT_EVENT_RECORDED_NON_REVENUE", `Authoritative ${input.paymentStatus.toUpperCase()} payment event recorded without revenue recognition.`, { provider_event_id: input.providerEventId });
     return { created: true, countedAsRevenue: false };
   }
-  await recordAssetObservation({ assetId: activation.assetId, observationType: "REVENUE", source: `PAYMENT_PROVIDER:${input.provider}`, idempotencyKey: `payment:${input.provider}:${input.providerEventId}:revenue`, provenance: "FACT", amountCents: input.amountCents!, unit: input.currency!.toUpperCase(), externalReference: input.providerTransactionId ?? input.providerEventId, metadata: { provider_event_id: input.providerEventId, commercial_activation_id: activation.id }, observedAt: input.occurredAt });
-  await recordAssetObservation({ assetId: activation.assetId, observationType: "TRANSACTION", source: `PAYMENT_PROVIDER:${input.provider}`, idempotencyKey: `payment:${input.provider}:${input.providerEventId}:transaction`, provenance: "FACT", quantity: 1, unit: "TRANSACTIONS", externalReference: input.providerTransactionId ?? input.providerEventId, metadata: { provider_event_id: input.providerEventId, commercial_activation_id: activation.id }, observedAt: input.occurredAt });
+  const transactionKey = input.providerTransactionId?.trim() || input.providerEventId;
+  await recordAssetObservation({ assetId: activation.assetId, observationType: "REVENUE", source: `PAYMENT_PROVIDER:${input.provider}`, idempotencyKey: `payment:${input.provider}:${transactionKey}:revenue`, provenance: "FACT", amountCents: input.amountCents!, unit: input.currency!.toUpperCase(), externalReference: transactionKey, metadata: { provider_event_id: input.providerEventId, commercial_activation_id: activation.id }, observedAt: input.occurredAt });
+  await recordAssetObservation({ assetId: activation.assetId, observationType: "TRANSACTION", source: `PAYMENT_PROVIDER:${input.provider}`, idempotencyKey: `payment:${input.provider}:${transactionKey}:transaction`, provenance: "FACT", quantity: 1, unit: "TRANSACTIONS", externalReference: transactionKey, metadata: { provider_event_id: input.providerEventId, commercial_activation_id: activation.id }, observedAt: input.occurredAt });
   await db.update(paymentProviderEventsTable).set({ processed: true }).where(eq(paymentProviderEventsTable.id, event.id));
   await recordEvent(activation, "AUTHORITATIVE_REVENUE_RECORDED", "Authoritative successful provider payment recorded as FACT telemetry.", { provider_event_id: input.providerEventId, amount_cents: input.amountCents, currency: input.currency });
   return { created: true, countedAsRevenue: true };

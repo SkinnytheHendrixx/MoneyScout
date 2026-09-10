@@ -16,6 +16,7 @@ import {
   createOrReuseCommercialActivation,
   ingestAuthoritativePaymentEvent,
   reconcileCommercialActivation,
+  updateCommercialOffer,
 } from "../lib/commercial-activation-worker";
 
 const router: IRouter = Router();
@@ -73,6 +74,16 @@ router.post("/commercial-activations/:activationId/authorize", async (req, res) 
     const activation = await reconcileCommercialActivation(activationId);
     res.json({ activation, authority_scope: boundary, unrelated_authorities_granted: [] });
   } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to authorize boundary" }); }
+});
+
+router.post("/commercial-activations/:activationId/offer", async (req, res) => {
+  const activationId = id(req.params.activationId);
+  const priceProvenance = provenance(req.body?.price_provenance);
+  if (!activationId || !priceProvenance) { res.status(400).json({ error: "activation id and price_provenance are required" }); return; }
+  try {
+    await updateCommercialOffer({ activationId, priceCents: Number(req.body?.price_cents), priceProvenance });
+    res.json({ activation: await reconcileCommercialActivation(activationId) });
+  } catch (error) { res.status(409).json({ error: error instanceof Error ? error.message : "Unable to update commercial offer" }); }
 });
 
 router.post("/commercial-activations/:activationId/reconcile", async (req, res) => {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { desc, eq } from "drizzle-orm";
 import { assetObservationsTable, assetsTable, commercialActivationsTable, db, humanActionsTable, paymentProviderEventsTable, prepareAssetOperationsSchema, pool } from "@workspace/db";
-import { authorizeCommercialBoundary, createOrReuseCommercialActivation, credentialCapabilityKey, ingestAuthoritativePaymentEvent, merchantCapabilityKey, priceProvenanceIsDefensible, reconcileCommercialActivation } from "../src/lib/commercial-activation-worker";
+import { authorizeCommercialBoundary, createOrReuseCommercialActivation, credentialCapabilityKey, ingestAuthoritativePaymentEvent, merchantCapabilityKey, priceProvenanceIsDefensible, reconcileCommercialActivation, updateCommercialOffer } from "../src/lib/commercial-activation-worker";
 import { clearCommercialPaymentAdapters, createZeroCostCommercialFixtureAdapter, registerCommercialPaymentAdapter } from "../src/lib/commercial-payment-adapter";
 import { setCapabilityAvailable } from "../src/lib/human-gates";
 import type { MonetizationExecutionPlan } from "../src/lib/monetization-execution-plan";
@@ -24,8 +24,10 @@ assert.equal(priceProvenanceIsDefensible(2_500, priceProvenance), true);
 assert.equal(priceProvenanceIsDefensible(2_500, { ...priceProvenance, evidence: [] }), false);
 assert.equal(priceProvenanceIsDefensible(2_500, { ...priceProvenance, kind: "BOUNDED_HYPOTHESIS", rationale: "" }), false);
 
-const created = await createOrReuseCommercialActivation({ asset, plan, provider, idempotencyKey: `commercial-${asset.id}-${provider}`, priceCents: 2_500, priceProvenance });
+const created = await createOrReuseCommercialActivation({ asset, plan, provider, idempotencyKey: `commercial-${asset.id}-${provider}`, priceCents: null, priceProvenance: null });
 assert.equal(created.created, true);
+assert.equal(created.activation.status, "BLOCKED_PRICE");
+await updateCommercialOffer({ activationId: created.activation.id, priceCents: 2_500, priceProvenance });
 assert.equal((await createOrReuseCommercialActivation({ asset, plan, provider, idempotencyKey: `different-${provider}`, priceCents: 9_999, priceProvenance })).created, false);
 let activation = await reconcileCommercialActivation(created.activation.id);
 assert.equal(activation.status, "BLOCKED_MERCHANT_CAPABILITY");
@@ -41,6 +43,7 @@ const actions = await db.select().from(humanActionsTable).where(eq(humanActionsT
 assert.ok(actions.some((item) => item.actionType === "AUTHORIZE_COMMERCIAL_PRODUCTION_CREDENTIAL_USE"));
 
 activation = await authorizeCommercialBoundary({ activationId: activation.id, boundary: "PRODUCTION_CREDENTIAL_USE", authorizedBy: "ZERO_COST_TEST" });
+assert.equal((await db.select().from(humanActionsTable).where(eq(humanActionsTable.actionType, "AUTHORIZE_COMMERCIAL_PRODUCTION_CREDENTIAL_USE"))).at(-1)?.status, "RESOLVED");
 let [updatedAsset] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id));
 assert.equal(updatedAsset!.authorities.productionCredentialsAuthorized, true);
 assert.equal(updatedAsset!.authorities.customerChargingAuthorized, false);
@@ -68,7 +71,7 @@ for (const status of ["FAILED", "CANCELLED", "REFUNDED"]) assert.equal((await in
 assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerEventId: "evt_paid", paymentStatus: "PAID" })).countedAsRevenue, true);
 assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerEventId: "evt_paid", paymentStatus: "PAID" })).created, false);
 const observations = await db.select().from(assetObservationsTable).where(eq(assetObservationsTable.assetId, asset.id));
-assert.equal(observations.filter((item) => item.idempotencyKey === `payment:${provider}:evt_paid:revenue` && item.provenance === "FACT").length, 1);
+assert.equal(observations.filter((item) => item.idempotencyKey === `payment:${provider}:txn_fixture_1:revenue` && item.provenance === "FACT").length, 1);
 assert.equal((await db.select().from(paymentProviderEventsTable).where(eq(paymentProviderEventsTable.activationId, activation.id))).length, 4);
 
 registerCommercialPaymentAdapter({ provider, costMode: "ZERO_CASH", async prepare() { throw new Error("timeout after dispatch"); }, async activateAndVerify() { throw new Error("must not be called"); } });
