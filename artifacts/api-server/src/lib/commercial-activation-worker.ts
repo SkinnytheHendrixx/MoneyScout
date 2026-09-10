@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   assetEventsTable,
+  assetObservationsTable,
   assetsTable,
   capabilitiesTable,
   commercialActivationEventsTable,
@@ -46,6 +47,19 @@ async function transition(activation: typeof commercialActivationsTable.$inferSe
   const [updated] = await db.update(commercialActivationsTable).set({ status, updatedAt: new Date(), ...extra }).where(eq(commercialActivationsTable.id, activation.id)).returning();
   if (!updated) throw new Error("COMMERCIAL_ACTIVATION_NOT_FOUND");
   if (activation.status !== status || eventType.endsWith("FAILED")) await recordEvent(updated, eventType, summary);
+  return updated;
+}
+
+async function completeVerifiedActivation(activation: typeof commercialActivationsTable.$inferSelect, checkoutReference: string) {
+  const now = new Date();
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx.update(commercialActivationsTable).set({ status: "ACTIVE", checkoutReference, transactionReady: true, activatedAt: now, lastErrorCode: null, lastErrorMessage: null, updatedAt: now }).where(eq(commercialActivationsTable.id, activation.id)).returning();
+    if (!row) throw new Error("COMMERCIAL_ACTIVATION_NOT_FOUND");
+    await tx.update(assetsTable).set({ operatingMode: "OPERATING", updatedAt: now }).where(eq(assetsTable.id, activation.assetId));
+    await tx.insert(commercialActivationEventsTable).values({ activationId: row.id, assetId: row.assetId, eventType: "COMMERCIAL_ACTIVATION_VERIFIED", summary: "Commercial path is transaction-ready and the Asset is operating.", metadata: { unrelated_authorities_unchanged: true }, occurredAt: now });
+    await tx.insert(assetEventsTable).values({ assetId: row.assetId, opportunityId: row.opportunityId, eventType: "COMMERCIAL_ACTIVATION_VERIFIED", summary: "Commercial path is transaction-ready and the Asset is operating.", metadata: { commercial_activation_id: row.id, operating_mode: "OPERATING", unrelated_authorities_unchanged: true }, occurredAt: now });
+    return row;
+  });
   return updated;
 }
 
@@ -183,7 +197,7 @@ export async function reconcileCommercialActivation(activationId: number) {
   try {
     const result = await adapter.activateAndVerify({ ...input, checkoutReference: activation.checkoutReference! });
     if (!result.transactionReady || !result.chargingEnabled) throw new Error("PROVIDER_DID_NOT_VERIFY_TRANSACTION_READY");
-    return transition(activation, "ACTIVE", "COMMERCIAL_ACTIVATION_VERIFIED", "Commercial path is transaction-ready.", { checkoutReference: result.checkoutReference, transactionReady: true, activatedAt: new Date(), lastErrorCode: null, lastErrorMessage: null });
+    return completeVerifiedActivation(activation, result.checkoutReference);
   } catch (error) {
     return transition(activation, "UNCERTAIN", "COMMERCIAL_ACTIVATION_UNCERTAIN", "Provider activation outcome is uncertain; Money Scout stopped without retrying.", { transactionReady: false, lastErrorCode: "PROVIDER_ACTIVATION_UNCERTAIN", lastErrorMessage: error instanceof Error ? error.message.slice(0, 2_000) : "Unknown provider failure" });
   }
@@ -211,6 +225,7 @@ export async function authorizeCommercialBoundary(input: { activationId: number;
 }
 
 const SUCCESS = new Set(["PAID", "SUCCEEDED", "CAPTURED", "SETTLED"]);
+const REVERSAL = new Set(["REFUNDED", "PARTIALLY_REFUNDED", "CHARGEBACK", "REVERSED"]);
 export async function ingestAuthoritativePaymentEvent(input: { activationId: number; provider: string; providerEventId: string; providerTransactionId?: string | null; eventType: string; paymentStatus: string; amountCents?: number | null; currency?: string | null; occurredAt: Date; signatureVerified: boolean; metadata?: Record<string, unknown> }) {
   const [activation] = await db.select().from(commercialActivationsTable).where(eq(commercialActivationsTable.id, input.activationId));
   if (!activation || activation.provider !== input.provider) throw new Error("COMMERCIAL_ACTIVATION_PROVIDER_MISMATCH");
@@ -225,6 +240,25 @@ export async function ingestAuthoritativePaymentEvent(input: { activationId: num
     processed: false, metadata: input.metadata ?? {}, occurredAt: input.occurredAt,
   }).onConflictDoNothing().returning();
   if (!event) return { created: false, countedAsRevenue: false };
+  const reversed = REVERSAL.has(input.paymentStatus.toUpperCase());
+  if (reversed && input.providerTransactionId?.trim()) {
+    const transactionKey = input.providerTransactionId.trim();
+    const originalKey = `payment:${input.provider}:${transactionKey}:revenue`;
+    const [original] = await db.select().from(assetObservationsTable).where(and(eq(assetObservationsTable.assetId, activation.assetId), eq(assetObservationsTable.idempotencyKey, originalKey), eq(assetObservationsTable.provenance, "FACT")));
+    if (original && Number(original.amountCents) > 0) {
+      const related = await db.select().from(assetObservationsTable).where(and(eq(assetObservationsTable.assetId, activation.assetId), eq(assetObservationsTable.observationType, "REVENUE"), eq(assetObservationsTable.source, `PAYMENT_PROVIDER:${input.provider}`), eq(assetObservationsTable.externalReference, transactionKey), eq(assetObservationsTable.provenance, "FACT")));
+      const alreadyAdjustedCents = related.filter((item) => Number(item.amountCents) < 0).reduce((sum, item) => sum + Math.abs(Number(item.amountCents ?? 0)), 0);
+      const remainingCents = Math.max(0, Number(original.amountCents) - alreadyAdjustedCents);
+      const requestedCents = Number.isInteger(input.amountCents) && Number(input.amountCents) > 0 ? Number(input.amountCents) : remainingCents;
+      const adjustmentCents = Math.min(remainingCents, requestedCents);
+      if (adjustmentCents > 0) {
+        await recordAssetObservation({ assetId: activation.assetId, observationType: "REVENUE", source: `PAYMENT_PROVIDER:${input.provider}`, idempotencyKey: `payment:${input.provider}:${transactionKey}:reversal:${input.providerEventId}`, provenance: "FACT", amountCents: -adjustmentCents, unit: activation.currency, externalReference: transactionKey, metadata: { provider_event_id: input.providerEventId, commercial_activation_id: activation.id, revenue_adjustment: true, adjustment_kind: input.paymentStatus.toUpperCase(), reverses_observation_id: original.id, original_revenue_idempotency_key: original.idempotencyKey }, observedAt: input.occurredAt, allowNegativeRevenueAdjustment: true });
+      }
+      await db.update(paymentProviderEventsTable).set({ processed: true }).where(eq(paymentProviderEventsTable.id, event.id));
+      await recordEvent(activation, "AUTHORITATIVE_REVENUE_ADJUSTMENT_RECORDED", `Authoritative ${input.paymentStatus.toUpperCase()} recorded as an immutable compensating revenue FACT.`, { provider_event_id: input.providerEventId, provider_transaction_id: transactionKey, adjustment_cents: adjustmentCents, remaining_realized_revenue_cents: remainingCents - adjustmentCents, original_observation_id: original.id });
+      return { created: true, countedAsRevenue: false, revenueAdjusted: adjustmentCents > 0, adjustmentCents };
+    }
+  }
   if (!successful) {
     await db.update(paymentProviderEventsTable).set({ processed: true }).where(eq(paymentProviderEventsTable.id, event.id));
     await recordEvent(activation, "PAYMENT_EVENT_RECORDED_NON_REVENUE", `Authoritative ${input.paymentStatus.toUpperCase()} payment event recorded without revenue recognition.`, { provider_event_id: input.providerEventId });

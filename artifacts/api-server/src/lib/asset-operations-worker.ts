@@ -106,11 +106,13 @@ export async function recordAssetObservation(input: {
   externalReference?: string | null;
   metadata?: Record<string, unknown>;
   observedAt: Date;
+  allowNegativeRevenueAdjustment?: boolean;
 }) {
   if (!Number.isInteger(input.assetId) || input.assetId <= 0) throw new Error("INVALID_ASSET_ID");
   if (!input.idempotencyKey.trim()) throw new Error("OBSERVATION_IDEMPOTENCY_KEY_REQUIRED");
+  const negativeRevenueAdjustment = input.observationType === "REVENUE" && Number(input.amountCents) < 0;
   if ((input.observationType === "REVENUE" || input.observationType === "COST") &&
-      (!Number.isInteger(input.amountCents) || Number(input.amountCents) < 0)) {
+      (!Number.isInteger(input.amountCents) || (Number(input.amountCents) < 0 && !(negativeRevenueAdjustment && input.allowNegativeRevenueAdjustment === true && input.provenance === "FACT")))) {
     throw new Error("NONNEGATIVE_AMOUNT_CENTS_REQUIRED");
   }
   if (input.observationType === "TRANSACTION" && input.quantity != null &&

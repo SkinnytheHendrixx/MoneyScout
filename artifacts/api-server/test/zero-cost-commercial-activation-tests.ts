@@ -65,14 +65,48 @@ activation = await reconcileCommercialActivation(activation.id);
 assert.equal(activation.status, "ACTIVE");
 assert.equal(activation.transactionReady, true);
 assert.equal((await reconcileCommercialActivation(activation.id)).status, "ACTIVE");
+[updatedAsset] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id));
+assert.equal(updatedAsset!.operatingMode, "OPERATING", "transaction-ready commercial activation must make the Asset operational");
+assert.equal(updatedAsset!.authorities.outboundAuthorized, false);
+assert.equal(updatedAsset!.authorities.advertisingAuthorized, false);
+assert.equal(updatedAsset!.authorities.customDomainAuthorized, false);
+assert.equal(updatedAsset!.authorities.externalSpendCeilingCents, 0);
 
-const event = { activationId: activation.id, provider, providerTransactionId: "txn_fixture_1", eventType: "payment.updated", amountCents: 2_500, currency: "USD", occurredAt: new Date(), signatureVerified: true };
-for (const status of ["FAILED", "CANCELLED", "REFUNDED"]) assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerEventId: `evt_${status}`, paymentStatus: status })).countedAsRevenue, false);
-assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerEventId: "evt_paid", paymentStatus: "PAID" })).countedAsRevenue, true);
-assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerEventId: "evt_paid", paymentStatus: "PAID" })).created, false);
+const realizedRevenueBeforePayments = updatedAsset!.totalObservedRevenueCents;
+const event = { activationId: activation.id, provider, eventType: "payment.updated", currency: "USD", occurredAt: new Date(), signatureVerified: true };
+for (const status of ["FAILED", "CANCELLED"]) assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: `txn_${status}`, providerEventId: `evt_${status}`, paymentStatus: status, amountCents: 2_500 })).countedAsRevenue, false);
+
+// Chronological full refund: preserve the original successful-payment FACT and add an immutable compensating FACT.
+const fullPayment = { ...event, providerTransactionId: "txn_full_refund", providerEventId: "evt_full_paid", paymentStatus: "PAID", amountCents: 2_500 };
+assert.equal((await ingestAuthoritativePaymentEvent(fullPayment)).countedAsRevenue, true);
+let [originalPayment] = await db.select().from(assetObservationsTable).where(eq(assetObservationsTable.idempotencyKey, `payment:${provider}:txn_full_refund:revenue`));
+assert.ok(originalPayment);
+const immutableOriginal = { id: originalPayment.id, amountCents: originalPayment.amountCents, provenance: originalPayment.provenance, observedAt: originalPayment.observedAt.getTime() };
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_full_refund", providerEventId: "evt_full_refund", paymentStatus: "REFUNDED", amountCents: 2_500 })).revenueAdjusted, true);
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_full_refund", providerEventId: "evt_full_refund", paymentStatus: "REFUNDED", amountCents: 2_500 })).created, false, "duplicate refund event must be idempotent");
+[originalPayment] = await db.select().from(assetObservationsTable).where(eq(assetObservationsTable.id, immutableOriginal.id));
+assert.deepEqual({ id: originalPayment!.id, amountCents: originalPayment!.amountCents, provenance: originalPayment!.provenance, observedAt: originalPayment!.observedAt.getTime() }, immutableOriginal, "original successful payment FACT must remain immutable");
+
+// Multiple partial refunds use distinct provider events, while a duplicate event cannot double-adjust.
+await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_partial", providerEventId: "evt_partial_paid", paymentStatus: "PAID", amountCents: 3_000 });
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_partial", providerEventId: "evt_partial_1", paymentStatus: "PARTIALLY_REFUNDED", amountCents: 1_000 })).adjustmentCents, 1_000);
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_partial", providerEventId: "evt_partial_1", paymentStatus: "PARTIALLY_REFUNDED", amountCents: 1_000 })).created, false);
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_partial", providerEventId: "evt_partial_2", paymentStatus: "PARTIALLY_REFUNDED", amountCents: 750 })).adjustmentCents, 750);
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_partial", providerEventId: "evt_partial_final", paymentStatus: "REFUNDED", amountCents: null })).adjustmentCents, 1_250);
+
+// Chargeback/reversal events fully offset their own transactions and cannot push realized revenue below zero.
+await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_chargeback", providerEventId: "evt_chargeback_paid", paymentStatus: "PAID", amountCents: 4_000 });
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_chargeback", providerEventId: "evt_chargeback", paymentStatus: "CHARGEBACK", amountCents: null })).adjustmentCents, 4_000);
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_chargeback", providerEventId: "evt_reversal_after_chargeback", paymentStatus: "REVERSED", amountCents: null })).adjustmentCents, 0, "later reversal must not double-adjust a fully reversed transaction");
+await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_reversed", providerEventId: "evt_reversed_paid", paymentStatus: "PAID", amountCents: 1_200 });
+assert.equal((await ingestAuthoritativePaymentEvent({ ...event, providerTransactionId: "txn_reversed", providerEventId: "evt_reversed", paymentStatus: "REVERSED", amountCents: null })).adjustmentCents, 1_200);
+
+[updatedAsset] = await db.select().from(assetsTable).where(eq(assetsTable.id, asset.id));
+assert.equal(updatedAsset!.totalObservedRevenueCents, realizedRevenueBeforePayments, "realized/net Asset revenue must reflect all authoritative refunds and reversals");
 const observations = await db.select().from(assetObservationsTable).where(eq(assetObservationsTable.assetId, asset.id));
-assert.equal(observations.filter((item) => item.idempotencyKey === `payment:${provider}:txn_fixture_1:revenue` && item.provenance === "FACT").length, 1);
-assert.equal((await db.select().from(paymentProviderEventsTable).where(eq(paymentProviderEventsTable.activationId, activation.id))).length, 4);
+assert.equal(observations.filter((item) => item.idempotencyKey === `payment:${provider}:txn_full_refund:revenue` && item.provenance === "FACT" && item.amountCents === 2_500).length, 1);
+assert.ok(observations.some((item) => item.idempotencyKey === `payment:${provider}:txn_full_refund:reversal:evt_full_refund` && item.provenance === "FACT" && item.amountCents === -2_500));
+assert.ok((await db.select().from(paymentProviderEventsTable).where(eq(paymentProviderEventsTable.activationId, activation.id))).length >= 13);
 
 registerCommercialPaymentAdapter({ provider, costMode: "ZERO_CASH", async prepare() { throw new Error("timeout after dispatch"); }, async activateAndVerify() { throw new Error("must not be called"); } });
 await db.update(commercialActivationsTable).set({ status: "DRAFT", checkoutReference: null, transactionReady: false }).where(eq(commercialActivationsTable.id, activation.id));
