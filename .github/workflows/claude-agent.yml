@@ -32,6 +32,11 @@ jobs:
       group: claude-agent-${{ github.event.issue.number || github.run_id }}
       cancel-in-progress: false
     steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
       - name: Run Claude Code
         uses: anthropics/claude-code-action@19dda84776b3518d98b8798e591daee763049ed3 # v1.0.220
         env:
