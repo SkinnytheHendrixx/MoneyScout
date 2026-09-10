@@ -4,6 +4,8 @@ import { db, releaseEventsTable, releaseJobsTable } from "@workspace/db";
 import {
   authorizePublicReleaseSafely,
   authorizeReleaseSpendSafely,
+  recheckProductionReleaseSafely,
+  retryPrivatePreviewAfterSafetyCorrection,
 } from "../lib/controlled-release-safety";
 
 const router: IRouter = Router();
@@ -57,17 +59,13 @@ router.post("/release-jobs/:releaseJobId/authorize-public", async (req, res): Pr
     return;
   }
   if (req.body?.attested !== true) {
-    res.status(400).json({
-      error: "Explicit attested: true is required to authorize a public release.",
-    });
+    res.status(400).json({ error: "Explicit attested: true is required to authorize a public release." });
     return;
   }
   try {
     const release = await authorizePublicReleaseSafely({
       releaseJobId,
-      authorizedBy: typeof req.body?.authorized_by === "string"
-        ? req.body.authorized_by.slice(0, 200)
-        : "HUMAN_ATTESTATION",
+      authorizedBy: typeof req.body?.authorized_by === "string" ? req.body.authorized_by.slice(0, 200) : "HUMAN_ATTESTATION",
     });
     res.json({
       release,
@@ -97,22 +95,70 @@ router.post("/release-jobs/:releaseJobId/authorize-spend", async (req, res): Pro
     return;
   }
   if (req.body?.attested !== true || !Number.isInteger(ceilingCents) || ceilingCents <= 0) {
-    res.status(400).json({
-      error: "attested: true and a positive integer ceiling_cents are required.",
-    });
+    res.status(400).json({ error: "attested: true and a positive integer ceiling_cents are required." });
     return;
   }
   try {
     const release = await authorizeReleaseSpendSafely({
       releaseJobId,
       ceilingCents,
-      authorizedBy: typeof req.body?.authorized_by === "string"
-        ? req.body.authorized_by.slice(0, 200)
-        : "HUMAN_ATTESTATION",
+      authorizedBy: typeof req.body?.authorized_by === "string" ? req.body.authorized_by.slice(0, 200) : "HUMAN_ATTESTATION",
     });
     res.json({ release, authorized_ceiling_cents: ceilingCents });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to authorize release spend";
+    if (message === "RELEASE_JOB_NOT_FOUND") {
+      res.status(404).json({ error: message });
+      return;
+    }
+    res.status(409).json({ error: message });
+  }
+});
+
+router.post("/release-jobs/:releaseJobId/retry-private-preview", async (req, res): Promise<void> => {
+  const releaseJobId = Number(req.params.releaseJobId);
+  if (!Number.isInteger(releaseJobId) || releaseJobId <= 0) {
+    res.status(400).json({ error: "Invalid release job id" });
+    return;
+  }
+  if (req.body?.attested !== true) {
+    res.status(400).json({ error: "Explicit attested: true is required after correcting the public preview exposure." });
+    return;
+  }
+  try {
+    const release = await retryPrivatePreviewAfterSafetyCorrection({
+      releaseJobId,
+      attestedBy: typeof req.body?.attested_by === "string" ? req.body.attested_by.slice(0, 200) : "HUMAN_ATTESTATION",
+    });
+    res.json({ release, next_action: "FRESH_PRIVATE_PREVIEW" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to retry private preview";
+    if (message === "RELEASE_JOB_NOT_FOUND") {
+      res.status(404).json({ error: message });
+      return;
+    }
+    res.status(409).json({ error: message });
+  }
+});
+
+router.post("/release-jobs/:releaseJobId/recheck-production", async (req, res): Promise<void> => {
+  const releaseJobId = Number(req.params.releaseJobId);
+  if (!Number.isInteger(releaseJobId) || releaseJobId <= 0) {
+    res.status(400).json({ error: "Invalid release job id" });
+    return;
+  }
+  if (req.body?.attested !== true) {
+    res.status(400).json({ error: "Explicit attested: true is required after correcting the production-side issue." });
+    return;
+  }
+  try {
+    const release = await recheckProductionReleaseSafely({
+      releaseJobId,
+      attestedBy: typeof req.body?.attested_by === "string" ? req.body.attested_by.slice(0, 200) : "HUMAN_ATTESTATION",
+    });
+    res.json({ release, next_action: "RECHECK_EXISTING_PRODUCTION_RUN" });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to recheck production release";
     if (message === "RELEASE_JOB_NOT_FOUND") {
       res.status(404).json({ error: message });
       return;
