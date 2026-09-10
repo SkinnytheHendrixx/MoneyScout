@@ -15,6 +15,7 @@ import {
   db,
   type BuilderTerminalOutcome,
   type BuilderUsage,
+  type GatewayExecutionPhase,
   type PersistedQaDefect,
 } from "@workspace/db";
 import { validateBuilderRepositoryOutput } from "./asset-repo-contract";
@@ -227,6 +228,207 @@ async function blockRunForMissingMoneySafety(input: {
         updatedAt: now,
       })
       .where(eq(assetFactoryRunsTable.id, input.job.factoryRunId));
+  }
+}
+
+/**
+ * Case B: the provider boundary may have been crossed (durable
+ * `executionPhase` is no longer PRE_PROVIDER) but no authoritative provider
+ * execution identity/outcome is available. An expired local lease proves
+ * only that Money Scout lost local worker ownership; it does not prove the
+ * external provider did nothing. This must never be resolved by requeuing.
+ */
+async function blockRunForUncertainProviderOutcome(input: {
+  run: typeof builderGatewayRunsTable.$inferSelect;
+}): Promise<void> {
+  const now = new Date();
+  await db
+    .update(builderGatewayRunsTable)
+    .set({
+      status: "BLOCKED",
+      terminalOutcome: "RESOURCE_BLOCKED",
+      // executionPhase is deliberately left untouched here: it stays
+      // PROVIDER_DISPATCH_ATTEMPTED/PROVIDER_RUN_CONFIRMED rather than being
+      // reset to PRE_PROVIDER or advanced to TERMINAL_RECONCILED, because the
+      // provider outcome was never actually reconciled.
+      actualExternalCashCostCents: null,
+      costProvenance: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+      resultSummary: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+      challenge: {
+        kind: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+        reason:
+          "A local Builder Gateway worker lease expired or was lost after the external provider boundary was crossed. The external outcome and cost cannot be proven zero, and no authoritative provider-side recovery is available for this execution.",
+        retryable_by_automation: false,
+        human_attestation_cannot_satisfy: true,
+      },
+      isolatedWorkspacePath: null,
+      finishedAt: now,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: now,
+    })
+    .where(eq(builderGatewayRunsTable.id, input.run.id));
+  const [job] = await db
+    .select()
+    .from(buildJobsTable)
+    .where(eq(buildJobsTable.id, input.run.buildJobId));
+  if (!job) return;
+  await db
+    .update(buildJobsTable)
+    .set({
+      status: "BLOCKED",
+      blockedReason: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+      updatedAt: now,
+    })
+    .where(eq(buildJobsTable.id, job.id));
+  if (job.factoryRunId) {
+    await db
+      .update(assetFactoryRunsTable)
+      .set({
+        status: "BUILDER_BLOCKED",
+        blockerCode: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+        nextAction:
+          "A prior Builder Gateway run's external provider outcome is uncertain after local worker/process loss. A human must verify the exact provider-side execution before any further automated action; do not redispatch this logical run.",
+        updatedAt: now,
+      })
+      .where(eq(assetFactoryRunsTable.id, job.factoryRunId));
+  }
+  await createOrReuseHumanAction({
+    opportunityId: job.opportunityId,
+    actionType: "VERIFY_UNCERTAIN_BUILDER_PROVIDER_EXECUTION",
+    title: "Verify an uncertain Builder Gateway provider execution",
+    whyNeeded:
+      "Money Scout lost local ownership of a Builder Gateway run after it may have crossed the external provider boundary. Automation cannot prove whether the provider executed, and therefore cannot prove the cost or entitlement consumption is zero.",
+    instructions:
+      "Check the coding provider's own dashboard/billing/run history for this exact run before taking any action. Do not resume this run automatically.",
+    blockedStage: `BUILDER_GATEWAY:${input.run.id}`,
+    requiredCapabilityKey: "BUILDER_GATEWAY_UNCERTAIN_EXECUTION_REVIEW",
+    provider: input.run.provider,
+    verificationMode: "HUMAN_ATTESTATION",
+    urgency: "HIGH",
+    resumeAction: "NO_AUTOMATIC_RESUME",
+    resumePayload: {
+      builder_gateway_run_id: input.run.id,
+      build_job_id: input.run.buildJobId,
+      provider_run_id: input.run.providerRunId,
+      provider_thread_id: input.run.providerThreadId,
+    },
+    inherentlyHumanAuthority: true,
+  });
+}
+
+/**
+ * Case C: a durable provider execution identity is known. If the driver
+ * exposes authoritative reconciliation for that exact execution, use it
+ * instead of ever dispatching a replacement run. A reconciled
+ * IMPLEMENTATION_READY claim is only trusted once the exact branch is
+ * verified as actually pushed to the durable Asset repository; provider
+ * self-report alone can never complete a Build.
+ */
+async function reconcileKnownProviderRun(input: {
+  run: typeof builderGatewayRunsTable.$inferSelect;
+  repository: typeof assetRepositoriesTable.$inferSelect;
+  driver: BuilderProviderDriver;
+}): Promise<boolean> {
+  if (!input.driver.reconcile || !input.run.providerRunId) return false;
+  const [job] = await db
+    .select()
+    .from(buildJobsTable)
+    .where(eq(buildJobsTable.id, input.run.buildJobId));
+  if (!job) return false;
+  const controller = new AbortController();
+  activeAbortControllers.set(input.run.id, controller);
+  try {
+    const result = await input.driver.reconcile({
+      providerRunId: input.run.providerRunId,
+      providerThreadId: input.run.providerThreadId,
+      signal: controller.signal,
+    });
+    let resultCommitSha: string | null = null;
+    if (result.terminalOutcome === "IMPLEMENTATION_READY") {
+      if (!input.repository.repositoryUrl) return false;
+      const token = await repositoryCredentialAvailable(
+        input.repository.repositoryUrl,
+      );
+      if (!token) return false;
+      try {
+        const remote = await git(
+          tmpdir(),
+          ["ls-remote", input.repository.repositoryUrl, `refs/heads/${input.run.branchName}`],
+          gatewayGitEnvironment(token),
+        );
+        resultCommitSha = remote.stdout.trim().split(/\s+/)[0] || null;
+      } catch {
+        resultCommitSha = null;
+      }
+      if (!resultCommitSha || !/^[0-9a-f]{40,64}$/i.test(resultCommitSha))
+        return false;
+    }
+    const now = new Date();
+    const gatewayStatus =
+      result.terminalOutcome === "IMPLEMENTATION_READY"
+        ? "SUCCEEDED"
+        : gatewayStatusForOutcome(result.terminalOutcome);
+    await db
+      .update(builderGatewayRunsTable)
+      .set({
+        status: gatewayStatus,
+        terminalOutcome: result.terminalOutcome,
+        executionPhase: "TERMINAL_RECONCILED",
+        providerRunId: result.providerRunId,
+        resultCommitSha: resultCommitSha ?? undefined,
+        usage: result.usage,
+        actualExternalCashCostCents: result.actualExternalCashCostCents,
+        costProvenance: result.costProvenance,
+        entitlementConsumption: result.entitlementConsumption,
+        resultSummary: `Reconciled after worker/process loss: ${result.summary}`.slice(
+          0,
+          4_000,
+        ),
+        challenge:
+          result.terminalOutcome === "IMPLEMENTATION_READY"
+            ? null
+            : result.challenge,
+        isolatedWorkspacePath: null,
+        finishedAt: now,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(eq(builderGatewayRunsTable.id, input.run.id));
+    if (resultCommitSha)
+      await db
+        .update(buildJobsTable)
+        .set({ resultCommitSha, updatedAt: now })
+        .where(eq(buildJobsTable.id, job.id));
+    else if (job.factoryRunId) {
+      const factoryStatus = factoryStatusForOutcome(result.terminalOutcome);
+      await db
+        .update(assetFactoryRunsTable)
+        .set({
+          status: factoryStatus,
+          blockerCode: result.terminalOutcome,
+          nextAction:
+            "Reconciled the exact prior provider execution after worker/process loss; no replacement run was dispatched.",
+          finishedAt: factoryStatus === "BUILDER_BLOCKED" ? null : now,
+          updatedAt: now,
+        })
+        .where(eq(assetFactoryRunsTable.id, job.factoryRunId));
+    }
+    await reconcileObservedCashCost(
+      job,
+      input.run.id,
+      result.actualExternalCashCostCents,
+    );
+    return true;
+  } catch (error) {
+    logger.warn(
+      { err: error, gatewayRunId: input.run.id },
+      "Builder Gateway reconciliation attempt failed; leaving execution durably uncertain",
+    );
+    return false;
+  } finally {
+    activeAbortControllers.delete(input.run.id);
   }
 }
 
@@ -656,6 +858,15 @@ export async function executeBuilderGatewayRun(
         .where(eq(builderGatewayRunsTable.id, run.id));
       return;
     }
+    // Durably record that the external provider boundary is about to be
+    // crossed before making the call. A crash at any point from here
+    // onward, including mid-flight inside driver.run(), must never be
+    // recoverable by blind requeue: the local process cannot prove the
+    // provider did nothing.
+    await db
+      .update(builderGatewayRunsTable)
+      .set({ executionPhase: "PROVIDER_DISPATCH_ATTEMPTED", updatedAt: new Date() })
+      .where(eq(builderGatewayRunsTable.id, run.id));
     const result = await driver.run({
       workingDirectory: worktree.repositoryPath,
       buildContract: job.contract,
@@ -671,6 +882,7 @@ export async function executeBuilderGatewayRun(
         .set({
           status: gatewayStatus,
           terminalOutcome: result.terminalOutcome,
+          executionPhase: "TERMINAL_RECONCILED",
           providerRunId: result.providerRunId,
           baseCommitSha: attemptBaseCommitSha,
           usage: result.usage,
@@ -766,6 +978,7 @@ export async function executeBuilderGatewayRun(
       .set({
         status: "SUCCEEDED",
         terminalOutcome: "IMPLEMENTATION_READY",
+        executionPhase: "TERMINAL_RECONCILED",
         providerRunId: result.providerRunId,
         baseCommitSha: attemptBaseCommitSha,
         resultCommitSha,
@@ -802,6 +1015,7 @@ export async function executeBuilderGatewayRun(
       .set({
         status: cancelled ? "CANCELLED" : "FAILED",
         terminalOutcome: cancelled ? "CANCELLED" : "PROVIDER_FAILURE",
+        executionPhase: "TERMINAL_RECONCILED",
         providerRunId: observedProviderResult?.providerRunId,
         usage: observedProviderResult?.usage ?? run.usage,
         actualExternalCashCostCents:
@@ -868,23 +1082,170 @@ export async function cancelBuilderGatewayRun(runId: number, reason: string) {
       )[0] ?? null
     );
   if (!activeAbortControllers.has(runId)) {
-    const [cancelled] = await db
-      .update(builderGatewayRunsTable)
-      .set({
-        status: "CANCELLED",
-        terminalOutcome: "CANCELLED",
-        actualExternalCashCostCents: null,
-        costProvenance: "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
-        finishedAt: new Date(),
-        leaseOwner: null,
-        leaseExpiresAt: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(builderGatewayRunsTable.id, runId))
-      .returning();
-    return cancelled ?? updated;
+    // The local controller is gone: this run may belong to a different
+    // worker/process, or that worker crashed. Cancellation intent alone is
+    // never proof that cancellation succeeded or that no provider side
+    // effect occurred.
+    if (updated.executionPhase === "PRE_PROVIDER") {
+      const [cancelled] = await db
+        .update(builderGatewayRunsTable)
+        .set({
+          status: "CANCELLED",
+          terminalOutcome: "CANCELLED",
+          executionPhase: "TERMINAL_RECONCILED",
+          actualExternalCashCostCents: null,
+          costProvenance: "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
+          finishedAt: new Date(),
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(builderGatewayRunsTable.id, runId))
+        .returning();
+      return cancelled ?? updated;
+    }
+    // The provider boundary may already have been crossed with no local
+    // controller left to confirm or deny it. Do not claim
+    // BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT; transition durably to an honest
+    // uncertain/blocked state instead.
+    await blockRunForUncertainProviderOutcome({ run: updated });
+    return (
+      (
+        await db
+          .select()
+          .from(builderGatewayRunsTable)
+          .where(eq(builderGatewayRunsTable.id, runId))
+      )[0] ?? updated
+    );
   }
   return updated;
+}
+
+/**
+ * Phase-aware recovery for expired local worker leases. An expired lease
+ * proves only that Money Scout lost local worker ownership; it never
+ * proves the external provider did nothing. Recovery must therefore branch
+ * on the durable execution phase rather than blindly requeuing every
+ * expired PREPARING/RUNNING/CANCELLING run.
+ */
+async function recoverExpiredGatewayLeases(
+  driver: BuilderProviderDriver | null,
+): Promise<void> {
+  const expired = await db
+    .select()
+    .from(builderGatewayRunsTable)
+    .where(
+      and(
+        inArray(builderGatewayRunsTable.status, [
+          "PREPARING",
+          "RUNNING",
+          "CANCELLING",
+        ]),
+        lt(builderGatewayRunsTable.leaseExpiresAt, new Date()),
+      ),
+    );
+  for (const staleRun of expired) {
+    // Re-read immediately before acting: another tick or worker may already
+    // have claimed or resolved this run since the query above.
+    const [run] = await db
+      .select()
+      .from(builderGatewayRunsTable)
+      .where(
+        and(
+          eq(builderGatewayRunsTable.id, staleRun.id),
+          inArray(builderGatewayRunsTable.status, [
+            "PREPARING",
+            "RUNNING",
+            "CANCELLING",
+          ]),
+          lt(builderGatewayRunsTable.leaseExpiresAt, new Date()),
+        ),
+      );
+    if (!run) continue;
+    if (run.status === "CANCELLING") {
+      if (run.executionPhase === "PRE_PROVIDER") {
+        // A cancellation was requested and durable state proves the
+        // external provider boundary was never crossed: finalize as
+        // cancelled rather than resurrecting a run the operator asked to
+        // stop.
+        await db
+          .update(builderGatewayRunsTable)
+          .set({
+            status: "CANCELLED",
+            terminalOutcome: "CANCELLED",
+            executionPhase: "TERMINAL_RECONCILED",
+            actualExternalCashCostCents: null,
+            costProvenance: "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
+            finishedAt: new Date(),
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(builderGatewayRunsTable.id, run.id),
+              eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+            ),
+          );
+        continue;
+      }
+      // Cancellation was requested but the provider boundary may already
+      // have been crossed with no worker left to confirm or deny it.
+      let reconciled = false;
+      if (driver && run.providerRunId) {
+        const [repository] = await db
+          .select()
+          .from(assetRepositoriesTable)
+          .where(eq(assetRepositoriesTable.id, run.assetRepositoryId));
+        if (repository)
+          reconciled = await reconcileKnownProviderRun({
+            run,
+            repository,
+            driver,
+          });
+      }
+      if (!reconciled) await blockRunForUncertainProviderOutcome({ run });
+      continue;
+    }
+    if (run.executionPhase === "PRE_PROVIDER") {
+      // Case A: durable state proves the external provider boundary was
+      // never crossed. Safe to requeue.
+      await db
+        .update(builderGatewayRunsTable)
+        .set({
+          status: "QUEUED",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          resultSummary:
+            "Recovered an expired local execution lease before the external provider boundary was crossed; retrying reproducibly from repository state.",
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(builderGatewayRunsTable.id, run.id),
+            eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+          ),
+        );
+      continue;
+    }
+    // The provider boundary may already have been crossed. Never requeue
+    // blindly. Case C: reconcile the exact known execution when the driver
+    // supports it. Case B otherwise: remain durably uncertain/blocked.
+    let reconciled = false;
+    if (driver && run.providerRunId) {
+      const [repository] = await db
+        .select()
+        .from(assetRepositoriesTable)
+        .where(eq(assetRepositoriesTable.id, run.assetRepositoryId));
+      if (repository)
+        reconciled = await reconcileKnownProviderRun({
+          run,
+          repository,
+          driver,
+        });
+    }
+    if (!reconciled) await blockRunForUncertainProviderOutcome({ run });
+  }
 }
 
 export async function runBuilderGatewayTick(
@@ -951,22 +1312,7 @@ export async function runBuilderGatewayTick(
         .where(eq(builderWorkspacesTable.gatewayRunId, blocked.id));
     }
   }
-  await db
-    .update(builderGatewayRunsTable)
-    .set({
-      status: "QUEUED",
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      resultSummary:
-        "Recovered an expired local execution lease; retrying reproducibly from repository state.",
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        inArray(builderGatewayRunsTable.status, ["PREPARING", "RUNNING"]),
-        lt(builderGatewayRunsTable.leaseExpiresAt, new Date()),
-      ),
-    );
+  await recoverExpiredGatewayLeases(driver);
   const queued = await db
     .select({ id: builderGatewayRunsTable.id })
     .from(builderGatewayRunsTable)

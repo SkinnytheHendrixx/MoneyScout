@@ -1016,6 +1016,402 @@ assert.equal(
   18,
 );
 
+// ---------------------------------------------------------------------------
+// Blocker 1: durable Builder Gateway execution-phase recovery. An expired
+// local worker lease proves only that Money Scout lost local ownership; it
+// never proves the external provider did nothing. Every scenario below
+// discovers its run purely through directly-written database state (never
+// by continuing an in-memory call on the same driver instance), the same
+// way a real process restart would surface it.
+// ---------------------------------------------------------------------------
+const recoverySuffix = `${suffix}-recovery`;
+
+let recoveryDriverCalls = 0;
+const recoveryFixtureDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RECOVERY_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    recoveryDriverCalls += 1;
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "recovered.ts"),
+      "export const recovered = true;\n",
+    );
+    return {
+      providerRunId: `recovery-${recoveryDriverCalls}`,
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Recovered fixture implementation ready.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: null,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+
+// Case A: a lease that expired before the provider boundary was ever
+// crossed is provably safe to requeue, and recovers to a full successful
+// re-execution from durable repository state.
+const [preProviderRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-recover-pre-provider-${recoverySuffix}`,
+    provider: "ZERO_COST_RECOVERY_FIXTURE",
+    status: "PREPARING",
+    executionPhase: "PRE_PROVIDER",
+    attemptNumber: 500,
+    repairNumber: 0,
+    branchName: "money-scout/recovery-pre-provider",
+    leaseOwner: "stale-worker-a",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+await runBuilderGatewayTick(recoveryFixtureDriver);
+const [recoveredPreProvider] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, preProviderRun!.id));
+assert.equal(
+  recoveredPreProvider?.status,
+  "SUCCEEDED",
+  "a provably pre-provider expired lease safely recovers and re-executes",
+);
+assert.equal(recoveredPreProvider?.executionPhase, "TERMINAL_RECONCILED");
+assert.equal(
+  recoveryDriverCalls,
+  1,
+  "recovery dispatches exactly one fresh provider execution when none had occurred",
+);
+
+// Case B: a lease that expired after the provider boundary was crossed,
+// with no durable provider identity, must never be requeued. It becomes a
+// durable, explicit, human-only uncertain/blocked condition instead.
+const [dispatchedNoIdentity] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-recover-uncertain-${recoverySuffix}`,
+    provider: "ZERO_COST_RECOVERY_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_DISPATCH_ATTEMPTED",
+    attemptNumber: 501,
+    repairNumber: 0,
+    branchName: "money-scout/recovery-uncertain",
+    leaseOwner: "stale-worker-b",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const callsBeforeUncertain = recoveryDriverCalls;
+await runBuilderGatewayTick(recoveryFixtureDriver);
+const [uncertainRecovered] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, dispatchedNoIdentity!.id));
+assert.equal(
+  uncertainRecovered?.status,
+  "BLOCKED",
+  "a lease lost after the provider boundary was crossed never resolves back to queued",
+);
+assert.equal(uncertainRecovered?.terminalOutcome, "RESOURCE_BLOCKED");
+assert.equal(
+  uncertainRecovered?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+);
+assert.equal(
+  uncertainRecovered?.actualExternalCashCostCents,
+  null,
+  "unknown cost after an uncertain provider boundary crossing never becomes zero",
+);
+assert.equal(
+  uncertainRecovered?.executionPhase,
+  "PROVIDER_DISPATCH_ATTEMPTED",
+  "the durable phase is never silently advanced past what is actually known",
+);
+assert.equal(
+  recoveryDriverCalls,
+  callsBeforeUncertain,
+  "an uncertain, potentially-dispatched run is never blindly redispatched",
+);
+const [uncertainAction] = await db
+  .select()
+  .from(humanActionsTable)
+  .where(
+    and(
+      eq(humanActionsTable.opportunityId, opportunity.id),
+      eq(
+        humanActionsTable.actionType,
+        "VERIFY_UNCERTAIN_BUILDER_PROVIDER_EXECUTION",
+      ),
+    ),
+  );
+assert.equal(
+  uncertainAction?.resumeAction,
+  "NO_AUTOMATIC_RESUME",
+  "an uncertain provider execution is a genuine human-only boundary, never auto-resumed",
+);
+
+// Case C: a durable provider execution identity is known and the driver
+// supports authoritative reconciliation. The exact execution is reconciled;
+// it is never replaced with a fresh dispatch.
+let reconcileCalls = 0;
+let reconcileRunAttempts = 0;
+const reconcilingDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RECONCILING_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    reconcileRunAttempts += 1;
+    throw new Error(
+      "A known provider execution must be reconciled, never redispatched.",
+    );
+  },
+  async reconcile(input) {
+    reconcileCalls += 1;
+    return {
+      providerRunId: input.providerRunId,
+      terminalOutcome: "PROVIDER_FAILURE",
+      summary: "Reconciled: the provider reports this execution failed.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 7,
+      costProvenance: "AUTHORITATIVE_RECONCILED_FIXTURE_REPORT",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+const [knownIdentityRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-recover-known-identity-${recoverySuffix}`,
+    provider: "ZERO_COST_RECONCILING_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_RUN_CONFIRMED",
+    providerRunId: "known-provider-run-123",
+    attemptNumber: 502,
+    repairNumber: 0,
+    branchName: "money-scout/recovery-known-identity",
+    leaseOwner: "stale-worker-c",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+await runBuilderGatewayTick(reconcilingDriver);
+const [reconciledRun] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, knownIdentityRun!.id));
+assert.equal(reconciledRun?.status, "FAILED");
+assert.equal(reconciledRun?.terminalOutcome, "PROVIDER_FAILURE");
+assert.equal(reconciledRun?.executionPhase, "TERMINAL_RECONCILED");
+assert.equal(
+  reconciledRun?.providerRunId,
+  "known-provider-run-123",
+  "a known provider execution identity is reconciled, never replaced with a new one",
+);
+assert.equal(reconciledRun?.actualExternalCashCostCents, 7);
+assert.equal(
+  reconcileCalls,
+  1,
+  "the exact known execution is reconciled exactly once",
+);
+assert.equal(
+  reconcileRunAttempts,
+  0,
+  "a known provider execution is never redispatched through a fresh run()",
+);
+
+// Case D: a durable provider execution identity is known, but the driver
+// does not support reconciliation (the honest state for the real Codex SDK
+// driver today). Money Scout must not fabricate recovery: the run remains
+// uncertain/blocked and the known identity is preserved rather than
+// discarded or replaced by a fresh dispatch.
+const [orphanedIdentityRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-recover-orphaned-identity-${recoverySuffix}`,
+    provider: "ZERO_COST_RECOVERY_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_RUN_CONFIRMED",
+    providerRunId: "orphaned-provider-run-456",
+    attemptNumber: 503,
+    repairNumber: 0,
+    branchName: "money-scout/recovery-orphaned-identity",
+    leaseOwner: "stale-worker-d",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const callsBeforeOrphan = recoveryDriverCalls;
+await runBuilderGatewayTick(recoveryFixtureDriver);
+const [orphanRecovered] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, orphanedIdentityRun!.id));
+assert.equal(orphanRecovered?.status, "BLOCKED");
+assert.equal(
+  orphanRecovered?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+);
+assert.equal(
+  orphanRecovered?.providerRunId,
+  "orphaned-provider-run-456",
+  "a known identity is preserved, not discarded, even when reconciliation is unsupported",
+);
+assert.equal(
+  recoveryDriverCalls,
+  callsBeforeOrphan,
+  "an unsupported reconciliation path never falls back to a fresh dispatch",
+);
+
+// Case D2 (fail-closed even without a driver at all): the same orphaned
+// identity, recovered with no driver configured, must still refuse to
+// fabricate a resolution.
+const [orphanedNoDriverRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-recover-orphaned-no-driver-${recoverySuffix}`,
+    provider: "ZERO_COST_RECOVERY_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_DISPATCH_ATTEMPTED",
+    attemptNumber: 504,
+    repairNumber: 0,
+    branchName: "money-scout/recovery-orphaned-no-driver",
+    leaseOwner: "stale-worker-e",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+await runBuilderGatewayTick(null);
+const [orphanNoDriverRecovered] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, orphanedNoDriverRun!.id));
+assert.equal(orphanNoDriverRecovered?.status, "BLOCKED");
+assert.equal(
+  orphanNoDriverRecovered?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+);
+
+// Terminal runs are never replayed, even if a lease field looks stale
+// (defense in depth beyond the status filter alone).
+await db
+  .update(builderGatewayRunsTable)
+  .set({ leaseExpiresAt: new Date(Date.now() - 60_000) })
+  .where(eq(builderGatewayRunsTable.id, gatewayResult!.id));
+await runBuilderGatewayTick(recoveryFixtureDriver);
+const [stillTerminal] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, gatewayResult!.id));
+assert.equal(
+  stillTerminal?.status,
+  "SUCCEEDED",
+  "a terminal run is never reopened by recovery even if its lease field looks stale",
+);
+assert.equal(stillTerminal?.terminalOutcome, gatewayResult?.terminalOutcome);
+assert.equal(stillTerminal?.resultCommitSha, gatewayResult?.resultCommitSha);
+
+// Cancellation after local process/controller loss must never claim
+// BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT once the provider boundary may have
+// been crossed. Cancellation intent alone is not proof of a safe outcome.
+const [cancelUncertainTarget] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-cancel-uncertain-${recoverySuffix}`,
+    provider: "ZERO_COST_RECOVERY_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_DISPATCH_ATTEMPTED",
+    attemptNumber: 505,
+    repairNumber: 0,
+    branchName: "money-scout/cancel-uncertain",
+    leaseOwner: "stale-worker-f",
+    // The lease is still technically live; only the local controller for
+    // this specific run id is absent, exactly as it would be after this
+    // process restarted while a different process (or none) held the run.
+    leaseExpiresAt: new Date(Date.now() + 10 * 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+await cancelBuilderGatewayRun(
+  cancelUncertainTarget!.id,
+  "Operator requested stop after apparent process loss",
+);
+const [cancelledUncertain] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, cancelUncertainTarget!.id));
+assert.notEqual(
+  cancelledUncertain?.costProvenance,
+  "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
+  "cancellation intent alone can never prove no provider side effect occurred",
+);
+assert.equal(cancelledUncertain?.status, "BLOCKED");
+assert.equal(
+  cancelledUncertain?.costProvenance,
+  "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+);
+assert.equal(cancelledUncertain?.actualExternalCashCostCents, null);
+
+// Cancellation before the provider boundary was ever crossed remains safe
+// and immediate (regression: the earlier `cancelRun` scenario above already
+// exercises this through the public API; this asserts the phase directly).
+const [safeCancelSource] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, cancelRun.run.id));
+assert.equal(
+  safeCancelSource?.executionPhase,
+  "TERMINAL_RECONCILED",
+  "a pre-provider cancellation finalizes cleanly to a terminal phase",
+);
+assert.equal(
+  safeCancelSource?.costProvenance,
+  "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
+  "a genuinely pre-provider cancellation may still claim no provider side effect occurred",
+);
+assert.equal(safeCancelSource?.terminalOutcome, "CANCELLED");
+
 await db
   .delete(opportunitiesTable)
   .where(eq(opportunitiesTable.id, opportunity.id));

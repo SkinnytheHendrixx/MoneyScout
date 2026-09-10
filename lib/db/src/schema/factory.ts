@@ -180,6 +180,34 @@ export type SoftwareCapabilityLifecycle =
   | "DEPRECATED"
   | "RETIRED";
 
+/**
+ * Durable Builder Gateway execution phase. An expired local worker lease
+ * proves only that Money Scout lost local ownership of a run; it proves
+ * nothing about whether the external provider was ever invoked. This phase
+ * is the only thing recovery may use to decide whether a blind requeue is
+ * safe.
+ *
+ * PRE_PROVIDER: no external provider invocation has been attempted yet.
+ * Safe to requeue on lease expiry.
+ *
+ * PROVIDER_DISPATCH_ATTEMPTED: Money Scout has crossed (or is about to
+ * cross) the external provider boundary. If the process dies here, the
+ * external outcome is uncertain. Never requeue automatically.
+ *
+ * PROVIDER_RUN_CONFIRMED: a durable provider-side run/thread identity is
+ * known (providerRunId/providerThreadId). Recovery may reconcile that exact
+ * execution if the provider driver supports it; it must never dispatch a
+ * replacement run.
+ *
+ * TERMINAL_RECONCILED: terminal outcome, cost, and usage are durably
+ * recorded. The run is never replayed.
+ */
+export type GatewayExecutionPhase =
+  | "PRE_PROVIDER"
+  | "PROVIDER_DISPATCH_ATTEMPTED"
+  | "PROVIDER_RUN_CONFIRMED"
+  | "TERMINAL_RECONCILED";
+
 export type BuilderTerminalOutcome =
   | "IMPLEMENTATION_READY"
   | "ARCHITECTURE_CHALLENGE"
@@ -541,6 +569,10 @@ export const builderGatewayRunsTable = pgTable(
     providerThreadId: text("provider_thread_id"),
     status: text("status").notNull(),
     terminalOutcome: text("terminal_outcome").$type<BuilderTerminalOutcome>(),
+    executionPhase: text("execution_phase")
+      .$type<GatewayExecutionPhase>()
+      .notNull()
+      .default("PRE_PROVIDER"),
     attemptNumber: integer("attempt_number").notNull().default(1),
     repairNumber: integer("repair_number").notNull().default(0),
     branchName: text("branch_name").notNull(),

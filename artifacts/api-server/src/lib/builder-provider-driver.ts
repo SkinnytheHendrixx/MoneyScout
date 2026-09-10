@@ -33,6 +33,22 @@ export interface BuilderProviderDriver {
     payAsYouGoFallbackPossible: boolean;
   };
   run(request: BuilderProviderRequest): Promise<BuilderProviderResult>;
+  /**
+   * Optional authoritative reconciliation of one exact prior-dispatched
+   * execution, identified by its durable provider run/thread identity. A
+   * driver should implement this ONLY when the underlying provider actually
+   * exposes a way to query or resume that exact execution's outcome. When a
+   * driver leaves this undefined (as the Codex SDK driver does today, since
+   * the SDK does not expose reliable provider-side status recovery), the
+   * Gateway must never fabricate reconciliation: any run whose provider
+   * boundary was crossed and then lost local ownership stays durably
+   * uncertain/blocked rather than being replayed or resolved by guesswork.
+   */
+  reconcile?(input: {
+    providerRunId: string;
+    providerThreadId: string | null;
+    signal: AbortSignal;
+  }): Promise<BuilderProviderResult>;
 }
 
 const SAFE_ENVIRONMENT_KEYS = ["PATH", "TMPDIR", "LANG", "LC_ALL"] as const;

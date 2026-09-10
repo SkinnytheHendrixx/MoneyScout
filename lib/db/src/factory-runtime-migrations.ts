@@ -16,6 +16,8 @@ export const REQUIRED_FACTORY_RUNTIME_TABLES = [
 const MIGRATION_ID = "2026-09-10-asset-factory-builder-gateway-v1";
 const OWNERSHIP_MIGRATION_ID =
   "2026-09-10-asset-factory-owned-record-cascades-v2";
+const EXECUTION_PHASE_MIGRATION_ID =
+  "2026-09-10-asset-factory-gateway-execution-phase-v3";
 
 async function applied(
   client: PoolClient,
@@ -343,6 +345,16 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
         [OWNERSHIP_MIGRATION_ID],
       );
       appliedMigrationIds.push(OWNERSHIP_MIGRATION_ID);
+    }
+    if (!(await applied(client, EXECUTION_PHASE_MIGRATION_ID))) {
+      await client.query(`
+        ALTER TABLE builder_gateway_runs ADD COLUMN IF NOT EXISTS execution_phase TEXT NOT NULL DEFAULT 'PRE_PROVIDER';
+      `);
+      await client.query(
+        "INSERT INTO runtime_schema_migrations (id) VALUES ($1)",
+        [EXECUTION_PHASE_MIGRATION_ID],
+      );
+      appliedMigrationIds.push(EXECUTION_PHASE_MIGRATION_ID);
     }
     await client.query("COMMIT");
   } catch (error) {
