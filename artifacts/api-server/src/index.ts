@@ -2,12 +2,14 @@ import "./lib/anthropic-provider";
 import {
   pool,
   prepareBuilderWorkspaceSchema,
+  prepareControlledReleaseSchema,
   prepareQaDebugSchema,
   prepareRuntimeSchema,
 } from "@workspace/db";
 import app from "./app";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
+import { startControlledReleaseSafetyWorker } from "./lib/controlled-release-safety";
 import { startExecutionKernel } from "./lib/execution-kernel";
 import { startExecutionReconciler } from "./lib/execution-reconciler";
 import { logger } from "./lib/logger";
@@ -33,17 +35,20 @@ async function startServer(): Promise<void> {
   const schema = await prepareRuntimeSchema(pool);
   const builderSchema = await prepareBuilderWorkspaceSchema(pool);
   const qaSchema = await prepareQaDebugSchema(pool);
+  const releaseSchema = await prepareControlledReleaseSchema(pool);
   logger.info(
     {
       appliedRuntimeMigrations: [
         ...schema.appliedMigrationIds,
         ...builderSchema.appliedMigrationIds,
         ...qaSchema.appliedMigrationIds,
+        ...releaseSchema.appliedMigrationIds,
       ],
       requiredRuntimeTables: [
         ...schema.requiredTables,
         ...builderSchema.requiredTables,
         ...qaSchema.requiredTables,
+        ...releaseSchema.requiredTables,
       ],
     },
     "Runtime database schema ready",
@@ -63,6 +68,7 @@ async function startServer(): Promise<void> {
     startBuildOrchestratorWorker();
     startBuilderWorkspaceWorker();
     startQaDebugWorker();
+    startControlledReleaseSafetyWorker();
     startPortfolioHeartbeat(port);
   });
 }
