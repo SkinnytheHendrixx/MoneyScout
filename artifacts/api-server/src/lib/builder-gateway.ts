@@ -326,24 +326,42 @@ async function blockRunForUncertainProviderOutcome(input: {
   // write. Requiring the lease to still be expired *at write time* closes
   // that race -- a renewal that lands first makes this write a no-op.
   requireLeaseExpired?: boolean;
+  // Set only when the provider's cost/usage were already durably recorded
+  // *before* the uncertain boundary was crossed -- the repository-
+  // finalization case, where the provider result is fully known and only
+  // the repository mutation outcome (did the push land?) is uncertain.
+  // Resetting a known real cost back to null here would under-count spend
+  // actually incurred against the Bet's budget; preserving it is more
+  // correct than pretending a known cost is unknown.
+  preserveKnownCost?: boolean;
 }): Promise<void> {
   const now = new Date();
+  const reason = input.preserveKnownCost
+    ? "A local Builder Gateway worker lease expired or was lost after the durable Asset repository mutation boundary was crossed (a git push may already have been dispatched). The known provider cost is preserved, but whether the push landed cannot be proven from the durable remote repository state, and no automatic push retry is safe."
+    : "A local Builder Gateway worker lease expired or was lost after the external provider boundary was crossed. The external outcome and cost cannot be proven zero, and no authoritative provider-side recovery is available for this execution.";
+  const summary = input.preserveKnownCost
+    ? "REPOSITORY_MUTATION_OUTCOME_UNCERTAIN"
+    : "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN";
   const [updated] = await db
     .update(builderGatewayRunsTable)
     .set({
       status: "BLOCKED",
       terminalOutcome: "RESOURCE_BLOCKED",
       // executionPhase is deliberately left untouched here: it stays
-      // PROVIDER_DISPATCH_ATTEMPTED/PROVIDER_RUN_CONFIRMED rather than being
-      // reset to PRE_PROVIDER or advanced to TERMINAL_RECONCILED, because the
-      // provider outcome was never actually reconciled.
-      actualExternalCashCostCents: null,
-      costProvenance: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
-      resultSummary: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+      // PROVIDER_DISPATCH_ATTEMPTED/PROVIDER_RUN_CONFIRMED/
+      // REPOSITORY_FINALIZATION_ATTEMPTED rather than being reset to
+      // PRE_PROVIDER or advanced to TERMINAL_RECONCILED, because the
+      // outcome was never actually reconciled.
+      ...(input.preserveKnownCost
+        ? {}
+        : {
+            actualExternalCashCostCents: null,
+            costProvenance: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+          }),
+      resultSummary: summary,
       challenge: {
-        kind: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
-        reason:
-          "A local Builder Gateway worker lease expired or was lost after the external provider boundary was crossed. The external outcome and cost cannot be proven zero, and no authoritative provider-side recovery is available for this execution.",
+        kind: summary,
+        reason,
         retryable_by_automation: false,
         human_attestation_cannot_satisfy: true,
       },
@@ -384,7 +402,7 @@ async function blockRunForUncertainProviderOutcome(input: {
     .update(buildJobsTable)
     .set({
       status: "BLOCKED",
-      blockedReason: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
+      blockedReason: summary,
       updatedAt: now,
     })
     .where(eq(buildJobsTable.id, job.id));
@@ -393,9 +411,10 @@ async function blockRunForUncertainProviderOutcome(input: {
       .update(assetFactoryRunsTable)
       .set({
         status: "BUILDER_BLOCKED",
-        blockerCode: "PROVIDER_EXECUTION_OUTCOME_UNCERTAIN",
-        nextAction:
-          "A prior Builder Gateway run's external provider outcome is uncertain after local worker/process loss. A human must verify the exact provider-side execution before any further automated action; do not redispatch this logical run.",
+        blockerCode: summary,
+        nextAction: input.preserveKnownCost
+          ? "A prior Builder Gateway run's durable Asset repository mutation outcome is uncertain after local worker/process loss (a git push may already have been dispatched). A human must verify the exact remote repository state before any further automated action; do not redispatch or push again."
+          : "A prior Builder Gateway run's external provider outcome is uncertain after local worker/process loss. A human must verify the exact provider-side execution before any further automated action; do not redispatch this logical run.",
         updatedAt: now,
       })
       .where(eq(assetFactoryRunsTable.id, job.factoryRunId));
@@ -403,11 +422,15 @@ async function blockRunForUncertainProviderOutcome(input: {
   await createOrReuseHumanAction({
     opportunityId: job.opportunityId,
     actionType: "VERIFY_UNCERTAIN_BUILDER_PROVIDER_EXECUTION",
-    title: "Verify an uncertain Builder Gateway provider execution",
-    whyNeeded:
-      "Money Scout lost local ownership of a Builder Gateway run after it may have crossed the external provider boundary. Automation cannot prove whether the provider executed, and therefore cannot prove the cost or entitlement consumption is zero.",
-    instructions:
-      "Check the coding provider's own dashboard/billing/run history for this exact run before taking any action. Do not resume this run automatically.",
+    title: input.preserveKnownCost
+      ? "Verify an uncertain Builder Gateway repository mutation"
+      : "Verify an uncertain Builder Gateway provider execution",
+    whyNeeded: input.preserveKnownCost
+      ? "Money Scout lost authoritative ownership of a Builder Gateway run after it may have crossed the durable Asset repository mutation boundary (git push). Automation cannot prove whether the push landed, and must never push a replacement result while that is unresolved."
+      : "Money Scout lost local ownership of a Builder Gateway run after it may have crossed the external provider boundary. Automation cannot prove whether the provider executed, and therefore cannot prove the cost or entitlement consumption is zero.",
+    instructions: input.preserveKnownCost
+      ? "Check the durable Asset repository's exact branch state (and the coding provider's dashboard if needed) for this exact run before taking any action. Do not push or resume this run automatically."
+      : "Check the coding provider's own dashboard/billing/run history for this exact run before taking any action. Do not resume this run automatically.",
     blockedStage: `BUILDER_GATEWAY:${input.run.id}`,
     requiredCapabilityKey: "BUILDER_GATEWAY_UNCERTAIN_EXECUTION_REVIEW",
     provider: input.run.provider,
@@ -564,6 +587,151 @@ async function reconcileKnownProviderRun(input: {
   } finally {
     releaseGatewayController(input.run.id, input.expectedLeaseOwner);
   }
+}
+
+/**
+ * Case D: the durable execution phase is REPOSITORY_FINALIZATION_ATTEMPTED,
+ * meaning the provider's terminal result is already known and durably
+ * recorded on this row (see the finalization-claim write in
+ * executeBuilderGatewayRun), and a `git push` to the durable Asset
+ * repository may have been dispatched before this worker's lease was lost.
+ * A local timeout or lease expiry proves nothing about whether that push
+ * landed: Git gives an exact, checkable answer, so reconciliation here is
+ * deterministic rather than provider-driver-dependent (unlike Case C, this
+ * never needs `driver.reconcile()`).
+ *
+ * Exactly one of three outcomes is ever recorded:
+ *  - the remote branch already points at the exact intended
+ *    `resultCommitSha`: the mutation succeeded; reconcile success without
+ *    ever pushing again.
+ *  - anything else (branch missing, branch points elsewhere, or the remote
+ *    could not be queried at all): the outcome cannot be proven. This is
+ *    deliberately conservative -- a branch that does not yet show the
+ *    intended commit does not prove a dispatched push failed or is not
+ *    still in flight, so it is never treated as safe to requeue or
+ *    re-push. It becomes a durably blocked/uncertain run requiring human
+ *    verification, exactly like Case B.
+ */
+async function reconcileRepositoryFinalization(input: {
+  run: typeof builderGatewayRunsTable.$inferSelect;
+  // See blockRunForUncertainProviderOutcome. Set only when called from lease
+  // recovery, whose "expired" observation may be stale by the time this
+  // write executes.
+  requireLeaseExpired?: boolean;
+}): Promise<void> {
+  const { run } = input;
+  if (!run.resultCommitSha) {
+    // The finalization-claim write always records resultCommitSha before
+    // the push runs, so this should be unreachable; it remains as defense
+    // in depth against ever treating an unidentified mutation as safe.
+    await blockRunForUncertainProviderOutcome({
+      run,
+      expectedLeaseOwner: run.leaseOwner,
+      requireLeaseExpired: input.requireLeaseExpired,
+      preserveKnownCost: true,
+    });
+    return;
+  }
+  const [repository] = await db
+    .select()
+    .from(assetRepositoriesTable)
+    .where(eq(assetRepositoriesTable.id, run.assetRepositoryId));
+  let remoteSha: string | null = null;
+  let remoteCheckSucceeded = false;
+  if (repository?.repositoryUrl) {
+    try {
+      const token = await repositoryCredentialAvailable(
+        repository.repositoryUrl,
+      );
+      if (token) {
+        const remote = await git(
+          tmpdir(),
+          [
+            "ls-remote",
+            repository.repositoryUrl,
+            `refs/heads/${run.branchName}`,
+          ],
+          gatewayGitEnvironment(token),
+        );
+        remoteSha = remote.stdout.trim().split(/\s+/)[0] || null;
+        remoteCheckSucceeded = true;
+      }
+    } catch {
+      remoteCheckSucceeded = false;
+    }
+  }
+  if (remoteCheckSucceeded && remoteSha === run.resultCommitSha) {
+    const now = new Date();
+    const [updated] = await db
+      .update(builderGatewayRunsTable)
+      .set({
+        status: "SUCCEEDED",
+        terminalOutcome: "IMPLEMENTATION_READY",
+        executionPhase: "TERMINAL_RECONCILED",
+        challenge: null,
+        resultSummary:
+          `Reconciled after worker/process loss: the durable Asset repository already contains the exact intended commit. ${run.resultSummary ?? ""}`.slice(
+            0,
+            4_000,
+          ),
+        isolatedWorkspacePath: null,
+        finishedAt: now,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(builderGatewayRunsTable.id, run.id),
+          leaseOwnerMatch(run.leaseOwner),
+          inArray(builderGatewayRunsTable.status, ["RUNNING", "CANCELLING"]),
+          eq(
+            builderGatewayRunsTable.executionPhase,
+            "REPOSITORY_FINALIZATION_ATTEMPTED",
+          ),
+          ...(input.requireLeaseExpired
+            ? [lt(builderGatewayRunsTable.leaseExpiresAt, new Date())]
+            : []),
+        ),
+      )
+      .returning();
+    if (!updated) {
+      logger.warn(
+        { gatewayRunId: run.id },
+        "Builder Gateway repository-finalization reconciliation skipped: run ownership/state changed since observation",
+      );
+      return;
+    }
+    const [job] = await db
+      .select()
+      .from(buildJobsTable)
+      .where(eq(buildJobsTable.id, run.buildJobId));
+    if (!job) return;
+    await db
+      .update(buildJobsTable)
+      .set({ resultCommitSha: run.resultCommitSha, updatedAt: now })
+      .where(eq(buildJobsTable.id, job.id));
+    // The full provider result (including cost) was already made durable by
+    // the finalization-claim write before the push ran; it is read back
+    // from the row here rather than re-derived, since no in-memory result
+    // object exists in a recovery pass.
+    await reconcileObservedCashCost(
+      job,
+      run.id,
+      run.actualExternalCashCostCents,
+    );
+    return;
+  }
+  // Remote branch missing, pointing elsewhere, or unqueryable: none of
+  // these prove the dispatched push definitely failed or is not still in
+  // flight. Remain durably uncertain/blocked -- never requeue, never push
+  // again, and never assume failure.
+  await blockRunForUncertainProviderOutcome({
+    run,
+    expectedLeaseOwner: run.leaseOwner,
+    requireLeaseExpired: input.requireLeaseExpired,
+    preserveKnownCost: true,
+  });
 }
 
 export function realProviderExecutionGate(input: {
@@ -959,6 +1127,15 @@ export async function executeBuilderGatewayRun(
   // "something failed locally before we ever attempted dispatch" (safely
   // terminal).
   let providerBoundaryCrossed = false;
+  // Set only once the repository-finalization CAS below actually persists
+  // REPOSITORY_FINALIZATION_ATTEMPTED (durably, before `git push` runs). An
+  // exception past this point -- including one thrown by `git push` itself
+  // (network drop, timeout, a rejected response after GitHub already
+  // accepted the ref update) -- must never be concluded as a clean local
+  // failure: that could mark the run FAILED and let a downstream repair
+  // flow dispatch a fresh attempt against a repository that may already
+  // carry this exact commit.
+  let repositoryMutationBoundaryCrossed = false;
   const controller = new AbortController();
   registerGatewayController(run.id, leaseOwner, controller);
   try {
@@ -1222,19 +1399,35 @@ export async function executeBuilderGatewayRun(
     // contention, so a plain "is my lease still fresh?" read is not
     // sufficient (another worker could race between that read and the
     // push). Instead, atomically re-claim exclusive ownership here: the CAS
-    // requires this worker's exact leaseOwner and status='RUNNING', so if
-    // lease recovery already decided this run is uncertain/blocked or
-    // reassigned it, the update affects zero rows and the push never
-    // happens. On success it also renews the lease, buying a fresh window
-    // to complete the push and final write without further contention.
-    // Recovery's own competing writes for this run are symmetrically
-    // guarded (they require the lease to still appear expired at write
-    // time, not just at an earlier read), so exactly one side of this race
-    // can ever win.
+    // requires this worker's exact leaseOwner and status='RUNNING'.
+    //
+    // Critically, this write also durably persists the REPOSITORY_
+    // FINALIZATION_ATTEMPTED phase and the full provider result (resultCommitSha,
+    // usage, cost, provenance, entitlement consumption, summary) *before* the
+    // push runs. A fixed lease-renewal window is not a correctness
+    // mechanism -- git push itself can stall arbitrarily long (network
+    // stalls, GitHub outages, process death) well past any renewed TTL.
+    // Once this phase is durably recorded, lease expiry alone must never
+    // let recovery conclude the repository mutation did not happen, requeue
+    // this run, or push a replacement result: recovery instead
+    // authoritatively reconciles the exact remote branch SHA against the
+    // resultCommitSha recorded right here (see
+    // reconcileRepositoryFinalization below). Because the full result is
+    // already durable at this point, recovery never needs the in-memory
+    // `result` object to reconcile cost/usage/outcome.
     const finalizationClaim = await db
       .update(builderGatewayRunsTable)
       .set({
+        executionPhase: "REPOSITORY_FINALIZATION_ATTEMPTED",
         leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+        providerRunId: result.providerRunId,
+        baseCommitSha: attemptBaseCommitSha,
+        resultCommitSha,
+        usage: result.usage,
+        actualExternalCashCostCents: result.actualExternalCashCostCents,
+        costProvenance: result.costProvenance,
+        entitlementConsumption: result.entitlementConsumption,
+        resultSummary: result.summary,
         updatedAt: new Date(),
       })
       .where(
@@ -1253,26 +1446,35 @@ export async function executeBuilderGatewayRun(
       );
       return;
     }
+    // REPOSITORY_FINALIZATION_ATTEMPTED is now durable. From this point on,
+    // any exception (including from the push call itself) must be
+    // reconciled against the durable repository state, never concluded as
+    // a clean local failure.
+    repositoryMutationBoundaryCrossed = true;
     await git(
       worktree.repositoryPath,
       ["push", "origin", `HEAD:refs/heads/${run.branchName}`],
       worktree.gitEnv,
     );
     const now = new Date();
+    // The push has landed. This write only flips terminal status/phase and
+    // clears the lease -- all result data was already made durable by the
+    // finalization-claim write above, so a crash between the push
+    // succeeding and this write reaching the database loses nothing:
+    // recovery's ls-remote reconciliation (reconcileRepositoryFinalization)
+    // will see the exact same resultCommitSha already on the row and the
+    // exact same SHA on the remote branch, and reconcile success itself.
+    // The CAS requires executionPhase still be exactly
+    // REPOSITORY_FINALIZATION_ATTEMPTED: if recovery already reconciled (or
+    // blocked) this run while the push was in flight, this write must be a
+    // no-op rather than clobber whatever recovery already recorded as the
+    // authoritative outcome.
     const successWrite = await db
       .update(builderGatewayRunsTable)
       .set({
         status: "SUCCEEDED",
         terminalOutcome: "IMPLEMENTATION_READY",
         executionPhase: "TERMINAL_RECONCILED",
-        providerRunId: result.providerRunId,
-        baseCommitSha: attemptBaseCommitSha,
-        resultCommitSha,
-        usage: result.usage,
-        actualExternalCashCostCents: result.actualExternalCashCostCents,
-        costProvenance: result.costProvenance,
-        entitlementConsumption: result.entitlementConsumption,
-        resultSummary: result.summary,
         challenge: null,
         isolatedWorkspacePath: null,
         finishedAt: now,
@@ -1284,21 +1486,28 @@ export async function executeBuilderGatewayRun(
         and(
           eq(builderGatewayRunsTable.id, run.id),
           eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
+          eq(builderGatewayRunsTable.status, "RUNNING"),
+          eq(
+            builderGatewayRunsTable.executionPhase,
+            "REPOSITORY_FINALIZATION_ATTEMPTED",
+          ),
         ),
       )
       .returning();
     if (!successWrite.length) {
-      // The repository-finalization CAS immediately above already proved
-      // exclusive ownership and renewed the lease, so this should be
-      // unreachable in practice; it remains as defense in depth. Ownership
-      // derived downstream (Build Job, cost reconciliation) may occur only
-      // after this exact write wins its own CAS, so neither happens below
-      // when it doesn't. The commit was genuinely pushed; it is not
-      // additionally claimed for a build job this worker is no longer
-      // authoritative for.
+      // A stale finalizer (its own push landed only after recovery already
+      // reconciled or blocked this run while the lease was expired) must
+      // never overwrite a newer authoritative state. Ownership derived
+      // downstream (Build Job, cost reconciliation) may occur only after
+      // this exact write wins its own CAS, so neither happens below when it
+      // doesn't. The commit was genuinely pushed; if recovery has not
+      // already independently reconciled it as such, its own next pass will
+      // observe the exact same resultCommitSha durably recorded on this row
+      // (written above, before the push) match the remote branch and
+      // reconcile it -- this worker does not need to.
       logger.warn(
         { gatewayRunId: run.id, resultCommitSha },
-        "Builder Gateway lost lease ownership before recording a successful result; the pushed commit is not recorded against this row",
+        "Builder Gateway lost lease ownership before recording a successful result; the pushed commit is not recorded against this row by this worker",
       );
       return;
     }
@@ -1317,7 +1526,31 @@ export async function executeBuilderGatewayRun(
       error instanceof Error
         ? error.message
         : "Unknown Builder Gateway failure";
-    if (providerBoundaryCrossed && !observedProviderResult) {
+    if (repositoryMutationBoundaryCrossed) {
+      // The durable Asset repository mutation boundary was already crossed
+      // (REPOSITORY_FINALIZATION_ATTEMPTED is durably recorded) when this
+      // exception fired -- most likely `git push` itself threw (network
+      // drop, timeout, a rejected response after GitHub may have already
+      // accepted the ref update). This can never be concluded as a clean
+      // local failure: doing so would let a downstream repair flow
+      // dispatch a fresh attempt against a repository that may already
+      // carry this exact commit. Re-read the row fresh (this worker's own
+      // finalization-claim write, not the stale pre-loop `run`, has the
+      // durable resultCommitSha needed to reconcile) and deterministically
+      // reconcile against the remote branch, exactly as lease-expiry
+      // recovery would. This runs in-process with the lease still
+      // potentially valid, so no lease-expiry requirement is imposed.
+      logger.warn(
+        { err: error, gatewayRunId: run.id, cancelled },
+        "Builder Gateway repository mutation threw after crossing the finalization boundary; reconciling against the durable remote branch instead of concluding failure",
+      );
+      const [freshRun] = await db
+        .select()
+        .from(builderGatewayRunsTable)
+        .where(eq(builderGatewayRunsTable.id, run.id));
+      if (freshRun)
+        await reconcileRepositoryFinalization({ run: freshRun });
+    } else if (providerBoundaryCrossed && !observedProviderResult) {
       // The provider boundary was crossed (this worker's own CAS proved
       // it), but driver.run() threw before returning any authoritative
       // terminal result. An exception here does NOT prove the provider
@@ -1469,6 +1702,22 @@ export async function cancelBuilderGatewayRun(runId: number, reason: string) {
         .returning();
       return cancelled ?? updated;
     }
+    if (updated.executionPhase === "REPOSITORY_FINALIZATION_ATTEMPTED") {
+      // The durable Asset repository mutation boundary may already have
+      // been crossed with no local controller left to confirm or deny it,
+      // and a dispatched `git push` cannot be aborted after the fact.
+      // Cancellation intent is not proof of anything here: deterministically
+      // reconcile against the remote branch instead of blindly blocking.
+      await reconcileRepositoryFinalization({ run: updated });
+      return (
+        (
+          await db
+            .select()
+            .from(builderGatewayRunsTable)
+            .where(eq(builderGatewayRunsTable.id, runId))
+        )[0] ?? updated
+      );
+    }
     // The provider boundary may already have been crossed with no local
     // controller left to confirm or deny it. Do not claim
     // BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT; transition durably to an honest
@@ -1530,6 +1779,17 @@ async function recoverExpiredGatewayLeases(
         ),
       );
     if (!run) continue;
+    if (run.executionPhase === "REPOSITORY_FINALIZATION_ATTEMPTED") {
+      // The durable Asset repository mutation boundary was already crossed
+      // (or about to be) before this lease expired -- a `git push` may
+      // still be genuinely in flight. This is checked before the
+      // CANCELLING branch below because the same deterministic reconciliation
+      // applies whether or not a cancellation was also requested: cancellation
+      // intent proves nothing about whether the push landed. Never requeue,
+      // never push again -- only ls-remote reconciliation may resolve this.
+      await reconcileRepositoryFinalization({ run, requireLeaseExpired: true });
+      continue;
+    }
     if (run.status === "CANCELLING") {
       if (run.executionPhase === "PRE_PROVIDER") {
         // A cancellation was requested and durable state proves the

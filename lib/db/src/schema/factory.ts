@@ -199,6 +199,19 @@ export type SoftwareCapabilityLifecycle =
  * execution if the provider driver supports it; it must never dispatch a
  * replacement run.
  *
+ * REPOSITORY_FINALIZATION_ATTEMPTED: the provider's terminal result is
+ * already known and durably recorded on this row (usage, cost, provenance,
+ * entitlement consumption, and the exact intended `resultCommitSha`), and
+ * Money Scout is about to (or has just) crossed the durable Asset
+ * repository mutation boundary (`git push`). This is deliberately distinct
+ * from PROVIDER_DISPATCH_ATTEMPTED: a lease expiring here does not mean the
+ * provider outcome is unknown -- it is known -- it means an external Git
+ * push may still be in flight. Recovery must never requeue or treat this as
+ * a normal uncertain-provider-outcome case; it must authoritatively
+ * reconcile the remote branch against the exact recorded `resultCommitSha`
+ * (see reconcileRepositoryFinalization in builder-gateway.ts) before ever
+ * concluding anything about this run. It must never push again.
+ *
  * TERMINAL_RECONCILED: terminal outcome, cost, and usage are durably
  * recorded. The run is never replayed.
  */
@@ -206,6 +219,7 @@ export type GatewayExecutionPhase =
   | "PRE_PROVIDER"
   | "PROVIDER_DISPATCH_ATTEMPTED"
   | "PROVIDER_RUN_CONFIRMED"
+  | "REPOSITORY_FINALIZATION_ATTEMPTED"
   | "TERMINAL_RECONCILED";
 
 export type BuilderTerminalOutcome =

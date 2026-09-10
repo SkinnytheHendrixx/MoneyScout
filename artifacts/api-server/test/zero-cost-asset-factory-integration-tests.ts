@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -2477,6 +2477,490 @@ assert.notEqual(
   reconcileRenewalResult?.actualExternalCashCostCents,
   3,
   "a stale reconciliation write must not attach cost to a row it no longer authoritatively owns",
+);
+
+// ---------------------------------------------------------------------
+// Final defect: a lease can expire while `git push` is genuinely still in
+// flight. A fixed lease-renewal window is not a correctness mechanism --
+// once REPOSITORY_FINALIZATION_ATTEMPTED is durably recorded (before the
+// push runs), lease expiry alone must never let recovery conclude the
+// repository mutation did not happen, requeue the run, or push a
+// replacement result. Recovery must instead deterministically reconcile
+// the exact remote branch SHA against the durably recorded
+// resultCommitSha.
+// ---------------------------------------------------------------------
+
+// Requirement #1 and #2: the finalization phase (and the full provider
+// result needed to reconcile it later) is durably written *before* the
+// push runs, and an exception thrown after that boundary -- including one
+// thrown by the push itself -- must never be concluded as a clean local
+// failure. Simulated here by making the durable Asset repository
+// unreachable (a directory rename) from inside driver.run(), which lands
+// deterministically before the push is ever attempted, with no wall-clock
+// dependency.
+const finalizationDurabilityBranch = "money-scout/finalization-durability";
+const [finalizationDurabilityRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-finalization-durability-${recoverySuffix}`,
+    provider: "ZERO_COST_FINALIZATION_DURABILITY_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 520,
+    repairNumber: 0,
+    branchName: finalizationDurabilityBranch,
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const hiddenBareRepo = `${bareRepo}.finalization-durability-hidden`;
+const finalizationDurabilityDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_FINALIZATION_DURABILITY_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "finalization-durability.ts"),
+      "export const finalizationDurability = true;\n",
+    );
+    // Break the push target deterministically before finalization is ever
+    // attempted. The worker has no way to know yet.
+    await rename(bareRepo, hiddenBareRepo);
+    return {
+      providerRunId: "finalization-durability-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary:
+        "Fixture implementation ready before the durable Asset repository becomes unreachable.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 11,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+try {
+  await executeBuilderGatewayRun(
+    finalizationDurabilityRun!.id,
+    finalizationDurabilityDriver,
+  );
+} finally {
+  await rename(hiddenBareRepo, bareRepo);
+}
+const [finalizationDurabilityResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, finalizationDurabilityRun!.id));
+assert.match(
+  finalizationDurabilityResult?.resultCommitSha ?? "",
+  /^[0-9a-f]{40}$/,
+  "Requirement #1: the intended commit SHA is durably recorded before git push runs",
+);
+assert.equal(
+  finalizationDurabilityResult?.executionPhase,
+  "REPOSITORY_FINALIZATION_ATTEMPTED",
+  "Requirement #1: the finalization phase is durably persisted before the push attempt and is never silently advanced past when the mutation outcome cannot be proven",
+);
+assert.notEqual(
+  finalizationDurabilityResult?.status,
+  "SUCCEEDED",
+  "a push that never reached the remote must never be recorded as a success",
+);
+assert.notEqual(
+  finalizationDurabilityResult?.status,
+  "FAILED",
+  "Requirement #2: an exception thrown after crossing the repository-mutation boundary must never be concluded as a clean local failure -- that could let a repair flow dispatch a fresh, possibly duplicate, attempt",
+);
+assert.equal(
+  finalizationDurabilityResult?.status,
+  "BLOCKED",
+  "an unreachable durable Asset repository after the mutation boundary was crossed resolves to a durably uncertain/blocked state, never an automatic retry",
+);
+assert.equal(
+  finalizationDurabilityResult?.actualExternalCashCostCents,
+  11,
+  "the provider result (including cost) was already made durable before the push attempt, so it survives even though the push itself failed",
+);
+
+// Requirements #2, #3, #5: a lease that expires after the push already
+// landed (but before the local worker recorded success) must be
+// reconciled by recovery from the exact remote SHA, without ever pushing
+// again. The "already pushed" state is constructed directly (bypassing
+// the Gateway) so the scenario is exact and reproducible rather than
+// timing-dependent.
+const alreadyPushedBranch = "money-scout/already-pushed-reconciliation";
+const alreadyPushedClone = await mkdtemp(
+  path.join(tmpdir(), "money-scout-already-pushed-"),
+);
+await exec("git", ["clone", "-q", bareRepo, alreadyPushedClone]);
+await exec("git", ["checkout", "-q", "-B", alreadyPushedBranch], {
+  cwd: alreadyPushedClone,
+});
+await exec("git", ["config", "user.email", "fixture@money-scout.invalid"], {
+  cwd: alreadyPushedClone,
+});
+await exec("git", ["config", "user.name", "Money Scout Fixture"], {
+  cwd: alreadyPushedClone,
+});
+await writeFile(
+  path.join(alreadyPushedClone, "already-pushed.txt"),
+  "already pushed before the local worker recorded success\n",
+);
+await exec("git", ["add", "-A"], { cwd: alreadyPushedClone });
+await exec("git", ["commit", "-q", "-m", "already pushed"], {
+  cwd: alreadyPushedClone,
+});
+await exec(
+  "git",
+  ["push", "-q", "origin", `HEAD:refs/heads/${alreadyPushedBranch}`],
+  { cwd: alreadyPushedClone },
+);
+const alreadyPushedSha = (
+  await exec("git", ["rev-parse", "HEAD"], { cwd: alreadyPushedClone })
+).stdout.trim();
+await rm(alreadyPushedClone, { recursive: true, force: true });
+const [alreadyPushedRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-already-pushed-${recoverySuffix}`,
+    provider: "ZERO_COST_ALREADY_PUSHED_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "REPOSITORY_FINALIZATION_ATTEMPTED",
+    providerRunId: "already-pushed-provider-run",
+    resultCommitSha: alreadyPushedSha,
+    attemptNumber: 521,
+    repairNumber: 0,
+    branchName: alreadyPushedBranch,
+    leaseOwner: "already-pushed-stale-owner",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: fixtureDriverUsage,
+    actualExternalCashCostCents: 13,
+    costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+    entitlementConsumption: { fixture_units: 1 },
+    resultSummary: "Durably recorded before the push that then actually landed.",
+    requestPayload: {},
+  })
+  .returning();
+// Read-only durable Asset repository: any code path that tried to push
+// again would fail loudly. Reconciliation only ever reads (`git
+// ls-remote`), so this proves no second push is attempted.
+await chmod(bareRepo, 0o555);
+const noRedispatchDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_ALREADY_PUSHED_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    throw new Error(
+      "must not be called: a run whose repository mutation was already attempted must never be redispatched",
+    );
+  },
+};
+try {
+  await runBuilderGatewayTick(noRedispatchDriver);
+} finally {
+  await chmod(bareRepo, 0o755);
+}
+const [alreadyPushedResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, alreadyPushedRun!.id));
+assert.equal(
+  alreadyPushedResult?.status,
+  "SUCCEEDED",
+  "Requirement #3: recovery reconciles success from the exact remote SHA without redispatching",
+);
+assert.equal(alreadyPushedResult?.terminalOutcome, "IMPLEMENTATION_READY");
+assert.equal(alreadyPushedResult?.executionPhase, "TERMINAL_RECONCILED");
+assert.equal(alreadyPushedResult?.resultCommitSha, alreadyPushedSha);
+assert.equal(
+  alreadyPushedResult?.actualExternalCashCostCents,
+  13,
+  "cost is reconciled from the durably-stored provider result, not re-derived -- no in-memory result exists during recovery",
+);
+assert.equal(alreadyPushedResult?.leaseOwner, null);
+const [alreadyPushedBuildJob] = await db
+  .select()
+  .from(buildJobsTable)
+  .where(eq(buildJobsTable.id, factoryBuild!.id));
+assert.equal(alreadyPushedBuildJob?.resultCommitSha, alreadyPushedSha);
+assert.equal(
+  (
+    await exec("git", ["rev-parse", `refs/heads/${alreadyPushedBranch}`], {
+      cwd: bareRepo,
+    })
+  ).stdout.trim(),
+  alreadyPushedSha,
+  "Requirement #5: the exact already-pushed SHA is not pushed a second time -- the branch still points at the same commit reconciliation observed",
+);
+
+// Requirement #4: recovery must never conclude success (or safely retry)
+// when the remote branch does not show the exact intended commit -- it
+// must remain durably uncertain/blocked pending human verification. Being
+// conservative here is deliberate: a mismatch does not prove a dispatched
+// push failed or is not still in flight.
+const [unresolvedFinalizationRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-unresolved-finalization-${recoverySuffix}`,
+    provider: "ZERO_COST_UNRESOLVED_FINALIZATION_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "REPOSITORY_FINALIZATION_ATTEMPTED",
+    providerRunId: "unresolved-finalization-provider-run",
+    resultCommitSha: "f".repeat(40),
+    attemptNumber: 522,
+    repairNumber: 0,
+    branchName: "money-scout/unresolved-finalization-never-pushed",
+    leaseOwner: "unresolved-finalization-stale-owner",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: fixtureDriverUsage,
+    actualExternalCashCostCents: 17,
+    costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+    entitlementConsumption: { fixture_units: 1 },
+    resultSummary:
+      "Durably recorded before a push that never reached the remote branch.",
+    requestPayload: {},
+  })
+  .returning();
+const unresolvedFinalizationDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_UNRESOLVED_FINALIZATION_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    throw new Error(
+      "must not be called: an unresolved repository mutation must never be redispatched",
+    );
+  },
+};
+await runBuilderGatewayTick(unresolvedFinalizationDriver);
+const [unresolvedFinalizationResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, unresolvedFinalizationRun!.id));
+assert.equal(unresolvedFinalizationResult?.status, "BLOCKED");
+assert.equal(
+  unresolvedFinalizationResult?.terminalOutcome,
+  "RESOURCE_BLOCKED",
+);
+assert.equal(
+  unresolvedFinalizationResult?.executionPhase,
+  "REPOSITORY_FINALIZATION_ATTEMPTED",
+  "the repository-finalization phase is left untouched: the mutation outcome was never actually reconciled",
+);
+assert.equal(unresolvedFinalizationResult?.leaseOwner, null);
+assert.equal(
+  unresolvedFinalizationResult?.actualExternalCashCostCents,
+  17,
+  "the known provider cost, already durable before the uncertain repository boundary, is preserved rather than reset to null -- the cost is known even though the repository outcome is not",
+);
+const [unresolvedFinalizationAction] = await db
+  .select()
+  .from(humanActionsTable)
+  .where(
+    and(
+      eq(humanActionsTable.opportunityId, opportunity.id),
+      eq(
+        humanActionsTable.actionType,
+        "VERIFY_UNCERTAIN_BUILDER_PROVIDER_EXECUTION",
+      ),
+      eq(
+        humanActionsTable.blockedStage,
+        `BUILDER_GATEWAY:${unresolvedFinalizationRun!.id}`,
+      ),
+    ),
+  );
+assert.equal(
+  unresolvedFinalizationAction?.resumeAction,
+  "NO_AUTOMATIC_RESUME",
+  "an unresolved repository mutation is a genuine human-only boundary, never auto-resumed",
+);
+await assert.rejects(
+  () =>
+    exec(
+      "git",
+      [
+        "rev-parse",
+        `refs/heads/${unresolvedFinalizationResult!.branchName}`,
+      ],
+      { cwd: bareRepo },
+    ),
+  "the branch was genuinely never pushed in this scenario",
+);
+
+// Requirement #6: a stale finalizer's own success write must never
+// overwrite a newer authoritative state. A post-receive hook on the
+// durable Asset repository fires synchronously as part of `git push` --
+// verified independently to run before the push command returns to the
+// caller -- so it deterministically lands between the finalization-claim
+// write and the worker's own success write, exactly the window a
+// concurrent recovery pass could otherwise race into. The hook simulates
+// exactly that: a recovery pass concluding BLOCKED for this run while the
+// push was still in flight.
+const [staleFinalizerRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-stale-finalizer-${recoverySuffix}`,
+    provider: "ZERO_COST_STALE_FINALIZER_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 523,
+    repairNumber: 0,
+    branchName: "money-scout/stale-finalizer",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const staleFinalizerHookPath = path.join(bareRepo, "hooks", "post-receive");
+const staleFinalizerHookScript = `#!/bin/sh
+psql '${process.env.DATABASE_URL}' -v ON_ERROR_STOP=1 -c "UPDATE builder_gateway_runs SET status='BLOCKED', terminal_outcome='RESOURCE_BLOCKED', execution_phase='TERMINAL_RECONCILED', lease_owner=NULL, lease_expires_at=NULL, finished_at=now(), updated_at=now() WHERE id=${staleFinalizerRun!.id} AND execution_phase='REPOSITORY_FINALIZATION_ATTEMPTED'" >&2
+`;
+await writeFile(staleFinalizerHookPath, staleFinalizerHookScript, {
+  mode: 0o755,
+});
+const staleFinalizerDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_STALE_FINALIZER_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "stale-finalizer.ts"),
+      "export const staleFinalizer = true;\n",
+    );
+    return {
+      providerRunId: "stale-finalizer-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary:
+        "Fixture implementation ready; a concurrent recovery pass wins the race during the push.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 19,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+try {
+  await executeBuilderGatewayRun(staleFinalizerRun!.id, staleFinalizerDriver);
+} finally {
+  await rm(staleFinalizerHookPath, { force: true });
+}
+const [staleFinalizerResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, staleFinalizerRun!.id));
+assert.equal(
+  staleFinalizerResult?.status,
+  "BLOCKED",
+  "Requirement #6: the recovery pass that won the race (simulated by the hook) remains the authoritative outcome",
+);
+assert.equal(staleFinalizerResult?.terminalOutcome, "RESOURCE_BLOCKED");
+assert.notEqual(
+  staleFinalizerResult?.status,
+  "SUCCEEDED",
+  "the stale finalizer's own success write must not overwrite the newer authoritative BLOCKED state",
+);
+assert.equal(
+  (
+    await exec(
+      "git",
+      ["rev-parse", `refs/heads/${staleFinalizerResult!.branchName}`],
+      { cwd: bareRepo },
+    )
+  ).stdout.trim(),
+  staleFinalizerResult?.resultCommitSha,
+  "the push itself genuinely succeeded (the hook only races the bookkeeping write, not the mutation) -- the durable repository matches the intended commit even though Money Scout's own row was already claimed by another authoritative writer",
+);
+
+// Requirement #7: ordinary successful finalization still works end to end
+// through the new phase machinery -- REPOSITORY_FINALIZATION_ATTEMPTED is
+// not left behind, and durable result data recorded before the push
+// survives all the way to the terminal write.
+const [ordinaryFinalizationRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-ordinary-finalization-${recoverySuffix}`,
+    provider: "ZERO_COST_ORDINARY_FINALIZATION_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 524,
+    repairNumber: 0,
+    branchName: "money-scout/ordinary-finalization",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const ordinaryFinalizationDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_ORDINARY_FINALIZATION_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "ordinary-finalization.ts"),
+      "export const ordinaryFinalization = true;\n",
+    );
+    return {
+      providerRunId: "ordinary-finalization-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Fixture implementation ready with an uninterrupted finalization.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 23,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+await executeBuilderGatewayRun(
+  ordinaryFinalizationRun!.id,
+  ordinaryFinalizationDriver,
+);
+const [ordinaryFinalizationResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, ordinaryFinalizationRun!.id));
+assert.equal(ordinaryFinalizationResult?.status, "SUCCEEDED");
+assert.equal(
+  ordinaryFinalizationResult?.terminalOutcome,
+  "IMPLEMENTATION_READY",
+);
+assert.equal(
+  ordinaryFinalizationResult?.executionPhase,
+  "TERMINAL_RECONCILED",
+  "the new REPOSITORY_FINALIZATION_ATTEMPTED phase is not left behind on an ordinary successful run",
+);
+assert.equal(ordinaryFinalizationResult?.actualExternalCashCostCents, 23);
+assert.equal(
+  (
+    await exec(
+      "git",
+      ["rev-parse", `refs/heads/${ordinaryFinalizationResult!.branchName}`],
+      { cwd: bareRepo },
+    )
+  ).stdout.trim(),
+  ordinaryFinalizationResult?.resultCommitSha,
+  "the durable Asset repository carries the exact recorded commit",
 );
 
 await db
