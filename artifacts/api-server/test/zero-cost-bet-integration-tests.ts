@@ -4,11 +4,16 @@ import {
   betCostAttributionsTable,
   betsTable,
   buildJobsTable,
+  capabilitiesTable,
   db,
   opportunitiesTable,
 } from "@workspace/db";
 import { reconcileBet } from "../src/lib/bet-reconciliation-worker";
-import { approveBet, createBetProposal } from "../src/routes/bets";
+import {
+  approveBet,
+  createBetProposal,
+  scopedBetCapitalCapabilityKey,
+} from "../src/routes/bets";
 
 const [opportunity] = await db
   .insert(opportunitiesTable)
@@ -28,6 +33,10 @@ const [opportunity] = await db
   })
   .returning();
 if (!opportunity) throw new Error("fixture opportunity missing");
+assert.equal(
+  scopedBetCapitalCapabilityKey(42, 1_500),
+  "CAPITAL_ALLOCATION_AUTHORITY:BET:42:1500",
+);
 
 const estimate = {
   status: "UNKNOWN" as const,
@@ -115,6 +124,18 @@ const proposalInput = {
 };
 
 try {
+  await db
+    .delete(capabilitiesTable)
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
+  await db.insert(capabilitiesTable).values({
+    key: "CAPITAL_ALLOCATION_AUTHORITY",
+    provider: "TEST_OWNER_POLICY",
+    status: "AVAILABLE",
+    accessLevel: "AUTOMATION_READY",
+    verificationMethod: "ZERO_COST_TEST",
+    metadata: { maximum_external_cash_cents: 50 },
+    verifiedAt: new Date(),
+  });
   const proposed = await createBetProposal(proposalInput);
   assert.equal(
     proposed.bet.status,
@@ -124,6 +145,24 @@ try {
   const reusedProposal = await createBetProposal(proposalInput);
   assert.equal(reusedProposal.reused, true);
   assert.equal(reusedProposal.bet.id, proposed.bet.id);
+
+  const cashProposal = await createBetProposal({
+    ...proposalInput,
+    idempotencyKey: `bet-integration-cash:${opportunity.id}`,
+    resourceEnvelope: {
+      ...proposalInput.resourceEnvelope,
+      externalCash: makeBucket(100),
+    },
+  });
+  const gated = await approveBet({ betId: cashProposal.bet.id });
+  assert.equal(gated.kind, "AUTHORITY_REQUIRED");
+  if (gated.kind === "AUTHORITY_REQUIRED") {
+    assert.equal(
+      gated.humanAction?.requiredCapabilityKey,
+      scopedBetCapitalCapabilityKey(cashProposal.bet.id, 100),
+      "capital authority Human Action must be scoped to this exact Bet and amount",
+    );
+  }
 
   const approved = await approveBet({ betId: proposed.bet.id });
   assert.equal(approved.kind, "APPROVED");
@@ -208,6 +247,9 @@ try {
   await db
     .delete(opportunitiesTable)
     .where(eq(opportunitiesTable.id, opportunity.id));
+  await db
+    .delete(capabilitiesTable)
+    .where(eq(capabilitiesTable.key, "CAPITAL_ALLOCATION_AUTHORITY"));
 }
 
 console.log("PASS zero-cost durable Bet integration and reconciliation");

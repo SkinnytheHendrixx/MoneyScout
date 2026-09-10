@@ -128,25 +128,33 @@ export async function createBetProposal(input: {
     )[0];
   if (!bet) throw new Error("BET_PROPOSAL_IDEMPOTENCY_RECOVERY_FAILED");
   if (created)
-    await db
-      .insert(betEventsTable)
-      .values({
-        betId: bet.id,
-        opportunityId: bet.opportunityId,
-        eventType: "BET_PROPOSED",
-        summary:
-          "A bounded Bet was proposed; no capital or side-effect authority was granted.",
-        metadata: {
-          authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
-          external_cash_allocated_cents: bet.allocatedExternalCashCents,
-        },
-      });
+    await db.insert(betEventsTable).values({
+      betId: bet.id,
+      opportunityId: bet.opportunityId,
+      eventType: "BET_PROPOSED",
+      summary:
+        "A bounded Bet was proposed; no capital or side-effect authority was granted.",
+      metadata: {
+        authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
+        external_cash_allocated_cents: bet.allocatedExternalCashCents,
+      },
+    });
   return { bet, reused: !created };
 }
+
+export const scopedBetCapitalCapabilityKey = (
+  betId: number,
+  cents: number | null,
+): string =>
+  `CAPITAL_ALLOCATION_AUTHORITY:BET:${betId}:${cents == null ? "UNKNOWN" : cents}`;
 
 async function capitalAuthorityCovers(
   bet: typeof betsTable.$inferSelect,
 ): Promise<boolean> {
+  const scoped = await getCapability(
+    scopedBetCapitalCapabilityKey(bet.id, bet.allocatedExternalCashCents),
+  );
+  if (scoped && capabilityIsUsable(scoped)) return true;
   const capability = await getCapability("CAPITAL_ALLOCATION_AUTHORITY");
   if (!capability || !capabilityIsUsable(capability)) return false;
   const maximum = Number(capability.metadata.maximum_external_cash_cents);
@@ -193,7 +201,10 @@ export async function approveBet(input: {
       instructions:
         "Approve only the displayed Bet envelope or configure a bounded CAPITAL_ALLOCATION_AUTHORITY capability. This does not authorize provider calls, charging, release, outbound, ads, credentials, domains, or other spend.",
       blockedStage: `BET_APPROVAL:${bet.id}`,
-      requiredCapabilityKey: "CAPITAL_ALLOCATION_AUTHORITY",
+      requiredCapabilityKey: scopedBetCapitalCapabilityKey(
+        bet.id,
+        bet.allocatedExternalCashCents,
+      ),
       provider: "OWNER_POLICY",
       verificationMode: "HUMAN_ATTESTATION",
       urgency: "NORMAL",
@@ -230,19 +241,17 @@ export async function approveBet(input: {
     .where(and(eq(betsTable.id, bet.id), eq(betsTable.status, "PROPOSED")))
     .returning();
   if (!updated) return approveBet(input);
-  await db
-    .insert(betEventsTable)
-    .values({
-      betId: updated.id,
-      opportunityId: updated.opportunityId,
-      eventType: "BET_APPROVED",
-      summary:
-        "The Bet resource envelope was approved without granting downstream side-effect authority.",
-      metadata: {
-        approved_by: approvedBy,
-        authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
-      },
-    });
+  await db.insert(betEventsTable).values({
+    betId: updated.id,
+    opportunityId: updated.opportunityId,
+    eventType: "BET_APPROVED",
+    summary:
+      "The Bet resource envelope was approved without granting downstream side-effect authority.",
+    metadata: {
+      approved_by: approvedBy,
+      authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
+    },
+  });
   return { kind: "APPROVED" as const, bet: updated, reused: false };
 }
 
@@ -283,15 +292,13 @@ export async function transitionBet(input: {
     .where(eq(betsTable.id, bet.id))
     .returning();
   if (!updated) throw new Error("BET_TRANSITION_FAILED");
-  await db
-    .insert(betEventsTable)
-    .values({
-      betId: updated.id,
-      opportunityId: updated.opportunityId,
-      eventType: `BET_${input.target}`,
-      summary: input.reason,
-      metadata: { from_status: bet.status, to_status: input.target },
-    });
+  await db.insert(betEventsTable).values({
+    betId: updated.id,
+    opportunityId: updated.opportunityId,
+    eventType: `BET_${input.target}`,
+    summary: input.reason,
+    metadata: { from_status: bet.status, to_status: input.target },
+  });
   return updated;
 }
 
@@ -330,15 +337,13 @@ router.get("/bets", async (req, res): Promise<void> => {
         .from(buildJobsTable)
         .where(inArray(buildJobsTable.betId, ids))
     : [];
-  res
-    .status(200)
-    .json({
-      bets: rows.map((bet) => ({
-        ...bet,
-        authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
-        downstream_builds: builds.filter((build) => build.betId === bet.id),
-      })),
-    });
+  res.status(200).json({
+    bets: rows.map((bet) => ({
+      ...bet,
+      authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
+      downstream_builds: builds.filter((build) => build.betId === bet.id),
+    })),
+  });
 });
 
 router.get("/bets/:betId", async (req, res): Promise<void> => {
@@ -363,15 +368,13 @@ router.get("/bets/:betId", async (req, res): Promise<void> => {
       .where(eq(betCostAttributionsTable.betId, betId)),
     db.select().from(buildJobsTable).where(eq(buildJobsTable.betId, betId)),
   ]);
-  res
-    .status(200)
-    .json({
-      bet,
-      authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
-      events,
-      cost_attributions: attributions,
-      downstream_builds: builds,
-    });
+  res.status(200).json({
+    bet,
+    authority_grants: BET_DOES_NOT_GRANT_AUTHORITY,
+    events,
+    cost_attributions: attributions,
+    downstream_builds: builds,
+  });
 });
 
 router.post(
@@ -395,11 +398,9 @@ router.post(
       });
       res.status(result.reused ? 200 : 201).json(result);
     } catch (error) {
-      res
-        .status(400)
-        .json({
-          error: error instanceof Error ? error.message : "BET_PROPOSAL_FAILED",
-        });
+      res.status(400).json({
+        error: error instanceof Error ? error.message : "BET_PROPOSAL_FAILED",
+      });
     }
   },
 );
@@ -448,11 +449,9 @@ router.post("/bets/:betId/transition", async (req, res): Promise<void> => {
     }
     res.status(200).json({ bet });
   } catch (error) {
-    res
-      .status(409)
-      .json({
-        error: error instanceof Error ? error.message : "BET_TRANSITION_FAILED",
-      });
+    res.status(409).json({
+      error: error instanceof Error ? error.message : "BET_TRANSITION_FAILED",
+    });
   }
 });
 
