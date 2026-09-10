@@ -16,9 +16,9 @@ import type {
   ReleaseDispatchInput,
 } from "../src/lib/release-agent-adapter";
 import {
-  authorizePublicRelease,
-  runControlledReleaseTick,
-} from "../src/lib/controlled-release-worker";
+  authorizePublicReleaseSafely,
+  runControlledReleaseTickSafely,
+} from "../src/lib/controlled-release-safety";
 
 const migration1 = await prepareControlledReleaseSchema(pool);
 assert.ok(migration1.requiredTables.includes("release_jobs"));
@@ -147,7 +147,7 @@ const fakeAdapter: ReleaseAgentAdapter = {
   },
 };
 
-await runControlledReleaseTick(fakeAdapter);
+await runControlledReleaseTickSafely(fakeAdapter);
 assert.equal(previewDispatches, 1, "QA-passed build should receive exactly one private preview dispatch");
 assert.equal(productionDispatches, 0, "production must not dispatch during preview");
 
@@ -157,7 +157,7 @@ assert.equal(release.previewVisibility, "PRIVATE");
 assert.equal(release.previewHealthPassed, true);
 assert.equal(release.status, "PREVIEW_READY");
 
-await runControlledReleaseTick(fakeAdapter);
+await runControlledReleaseTickSafely(fakeAdapter);
 [release] = await db.select().from(releaseJobsTable).where(eq(releaseJobsTable.buildJobId, build.id));
 assert.equal(release?.status, "WAITING_FOR_PUBLIC_AUTHORITY");
 assert.equal(productionDispatches, 0, "verified preview alone must never authorize public release");
@@ -169,11 +169,11 @@ const [authorityAction] = await db.select().from(humanActionsTable).where(and(
 assert.ok(authorityAction, "public release should appear as a structured Needs You action");
 assert.equal(authorityAction.status, "OPEN");
 
-await runControlledReleaseTick(fakeAdapter);
+await runControlledReleaseTickSafely(fakeAdapter);
 assert.equal(productionDispatches, 0, "repeated worker ticks must remain blocked without explicit authority");
 
-await authorizePublicRelease({ releaseJobId: release!.id, authorizedBy: "ZERO_COST_TEST" });
-await runControlledReleaseTick(fakeAdapter);
+await authorizePublicReleaseSafely({ releaseJobId: release!.id, authorizedBy: "ZERO_COST_TEST" });
+await runControlledReleaseTickSafely(fakeAdapter);
 assert.equal(productionDispatches, 1, "authorized production release should dispatch exactly once");
 
 [release] = await db.select().from(releaseJobsTable).where(eq(releaseJobsTable.buildJobId, build.id));
@@ -183,8 +183,8 @@ assert.equal(release?.productionHealthPassed, true);
 assert.equal(release?.productionUrl, `https://public.example.test/${build.id}`);
 assert.ok(release?.publicReleaseAuthorizedAt);
 
-await runControlledReleaseTick(fakeAdapter);
-await runControlledReleaseTick(fakeAdapter);
+await runControlledReleaseTickSafely(fakeAdapter);
+await runControlledReleaseTickSafely(fakeAdapter);
 assert.equal(previewDispatches, 1, "completed release must never repeat private preview");
 assert.equal(productionDispatches, 1, "completed release must never repeat public deployment");
 assert.equal(captured[0]?.plan.production.customerChargingAuthorized, false);
