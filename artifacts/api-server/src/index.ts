@@ -18,6 +18,7 @@ import { startQaDebugWorker } from "./lib/qa-debug-worker";
 import { reconcileDiscoveryRunsOnStartup } from "./routes/discovery";
 
 const rawPort = process.env["PORT"];
+const runtimePreflight = process.env.MONEY_SCOUT_RUNTIME_PREFLIGHT === "1";
 
 if (!rawPort) {
   throw new Error(
@@ -50,11 +51,14 @@ async function startServer(): Promise<void> {
         ...qaSchema.requiredTables,
         ...releaseSchema.requiredTables,
       ],
+      runtimePreflight,
     },
     "Runtime database schema ready",
   );
 
-  await reconcileDiscoveryRunsOnStartup();
+  if (!runtimePreflight) {
+    await reconcileDiscoveryRunsOnStartup();
+  }
 
   app.listen(port, (err) => {
     if (err) {
@@ -62,7 +66,12 @@ async function startServer(): Promise<void> {
       process.exit(1);
     }
 
-    logger.info({ port }, "Server listening");
+    logger.info({ port, runtimePreflight }, "Server listening");
+    if (runtimePreflight) {
+      logger.info("Runtime preflight mode is active; autonomous workers are intentionally disabled");
+      return;
+    }
+
     startExecutionReconciler(port);
     startExecutionKernel(port);
     startBuildOrchestratorWorker();
