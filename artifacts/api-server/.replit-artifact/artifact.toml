@@ -10,7 +10,7 @@ name = "API Server"
 paths = ["/api"]
 
 [services.development]
-run = "node scripts/runtime-bootstrap.mjs api"
+run = "node ../../scripts/runtime-bootstrap.mjs api"
 
 [services.production]
 
