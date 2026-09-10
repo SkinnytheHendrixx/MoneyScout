@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Activity, AlertTriangle, ExternalLink, Gauge, Radio, WalletCards } from "lucide-react"
+import { Activity, AlertTriangle, ExternalLink, Gauge, Radio, RefreshCw, WalletCards, Wrench } from "lucide-react"
 
 type Asset = {
   id: number
@@ -10,6 +10,7 @@ type Asset = {
   status: string
   operatingMode: string
   healthStatus: string
+  economicsStatus: string
   authorities: {
     publicReleaseAuthorized: boolean
     customerChargingAuthorized: boolean
@@ -20,14 +21,20 @@ type Asset = {
     externalSpendCeilingCents: number
   }
   revenueInstrumentationStatus: string
+  costInstrumentationStatus: string
   usageInstrumentationStatus: string
   supportInstrumentationStatus: string
   totalObservedRevenueCents: number
   totalObservedCostCents: number
   totalObservedTransactions: number
+  externalSpendUsedCents: number
   consecutiveHealthFailures: number
   lastHealthCheckAt: string | null
   nextHealthCheckAt: string | null
+  lastTelemetrySyncAt: string | null
+  nextTelemetrySyncAt: string | null
+  lastEconomicReviewAt: string | null
+  lastRemediationAt: string | null
   activatedAt: string
 }
 
@@ -38,22 +45,25 @@ function money(cents: number) {
 }
 
 function statusClass(value: string) {
-  if (value === "HEALTHY" || value === "ACTIVE") return "border-emerald-200 bg-emerald-50 text-emerald-800"
-  if (value === "DEGRADED" || value === "UNHEALTHY" || value === "BLOCKED") return "border-amber-200 bg-amber-50 text-amber-900"
+  if (["HEALTHY", "ACTIVE", "MEASURED_POSITIVE", "MEASURED_BREAK_EVEN"].includes(value)) return "border-emerald-200 bg-emerald-50 text-emerald-800"
+  if (["DEGRADED", "UNHEALTHY", "BLOCKED", "INCOMPLETE", "MEASURED_NEGATIVE"].includes(value)) return "border-amber-200 bg-amber-50 text-amber-900"
   if (value === "KILLED" || value === "ARCHIVED") return "border-red-200 bg-red-50 text-red-800"
   return "border-border bg-muted text-muted-foreground"
 }
 
 function Instrumentation({ label, value }: { label: string; value: string }) {
-  const on = value === "INSTRUMENTED"
+  const text = value === "INSTRUMENTED" ? "Instrumented" : value === "CONNECTED" ? "Connected" : value === "ERROR" ? "Error" : "Not instrumented"
+  const className = value === "INSTRUMENTED" ? "text-emerald-700" : value === "CONNECTED" ? "text-blue-700" : "text-amber-700"
   return (
     <div className="flex items-center justify-between gap-3 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <span className={on ? "font-medium text-emerald-700" : "font-medium text-amber-700"}>
-        {on ? "Instrumented" : "Not instrumented"}
-      </span>
+      <span className={`font-medium ${className}`}>{text}</span>
     </div>
   )
+}
+
+function time(value: string | null) {
+  return value ? new Date(value).toLocaleString() : "pending"
 }
 
 export default function AssetsPage() {
@@ -70,7 +80,7 @@ export default function AssetsPage() {
   const assets = query.data?.assets ?? []
   const healthy = assets.filter((asset) => asset.healthStatus === "HEALTHY").length
   const degraded = assets.filter((asset) => asset.status === "DEGRADED" || asset.healthStatus === "UNHEALTHY").length
-  const instrumented = assets.filter((asset) => asset.revenueInstrumentationStatus === "INSTRUMENTED").length
+  const measured = assets.filter((asset) => asset.economicsStatus.startsWith("MEASURED_")).length
   const observedRevenue = assets.reduce((sum, asset) => sum + asset.totalObservedRevenueCents, 0)
   const observedCost = assets.reduce((sum, asset) => sum + asset.totalObservedCostCents, 0)
 
@@ -82,14 +92,14 @@ export default function AssetsPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Assets</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Live businesses that passed build, independent QA, and controlled public release. Observed economics are shown separately from uninstrumented unknowns.
+              Live businesses under autonomous health, telemetry, economic measurement, and bounded maintenance. Unknown economics stay unknown until provider coverage proves the window is complete.
             </p>
           </div>
           <div className="text-xs text-muted-foreground">Auto-refreshes every 15 seconds</div>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <div className="rounded-xl border bg-card p-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><Radio className="h-4 w-4" /> Operating assets</div>
           <div className="mt-2 text-2xl font-semibold">{assets.length}</div>
@@ -103,14 +113,19 @@ export default function AssetsPage() {
           <div className="mt-2 text-2xl font-semibold">{degraded}</div>
         </div>
         <div className="rounded-xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><WalletCards className="h-4 w-4" /> Observed revenue</div>
-          <div className="mt-2 text-2xl font-semibold">{money(observedRevenue)}</div>
-          <div className="mt-1 text-[11px] text-muted-foreground">{instrumented}/{assets.length} revenue-instrumented</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><Gauge className="h-4 w-4" /> Measured economics</div>
+          <div className="mt-2 text-2xl font-semibold">{measured}/{assets.length}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Complete revenue + cost window</div>
         </div>
         <div className="rounded-xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><Gauge className="h-4 w-4" /> Observed cash cost</div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><WalletCards className="h-4 w-4" /> Observed revenue</div>
+          <div className="mt-2 text-2xl font-semibold">{money(observedRevenue)}</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Cumulative attributable FACTs</div>
+        </div>
+        <div className="rounded-xl border bg-card p-4">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><WalletCards className="h-4 w-4" /> Observed cash cost</div>
           <div className="mt-2 text-2xl font-semibold">{money(observedCost)}</div>
-          <div className="mt-1 text-[11px] text-muted-foreground">Only attributable FACT observations</div>
+          <div className="mt-1 text-[11px] text-muted-foreground">Not labeled as margin</div>
         </div>
       </div>
 
@@ -121,9 +136,7 @@ export default function AssetsPage() {
       ) : assets.length === 0 ? (
         <div className="rounded-xl border border-dashed bg-card p-10 text-center">
           <h2 className="font-semibold">No operating Assets yet</h2>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
-            An Asset is created automatically only after a release is explicitly authorized, publicly deployed, and independently verified healthy.
-          </p>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">An Asset is created automatically only after a release is explicitly authorized, publicly deployed, and independently verified healthy.</p>
         </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
@@ -138,15 +151,14 @@ export default function AssetsPage() {
                       <h2 className="truncate text-lg font-semibold">{asset.nameSnapshot}</h2>
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClass(asset.status)}`}>{asset.status}</span>
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClass(asset.healthStatus)}`}>{asset.healthStatus}</span>
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClass(asset.economicsStatus)}`}>{asset.economicsStatus.replaceAll("_", " ")}</span>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{asset.productShape} · {asset.targetKind} · {asset.operatingMode}</p>
                   </div>
-                  <a href={asset.productionUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium hover:bg-muted">
-                    Live <ExternalLink className="h-3 w-3" />
-                  </a>
+                  <a href={asset.productionUrl} target="_blank" rel="noreferrer" className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border px-2 text-xs font-medium hover:bg-muted">Live <ExternalLink className="h-3 w-3" /></a>
                 </div>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="mt-5 grid gap-3 sm:grid-cols-4">
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Revenue</div>
                     <div className="mt-1 text-lg font-semibold">{revenueKnown ? money(asset.totalObservedRevenueCents) : "Unknown"}</div>
@@ -158,34 +170,58 @@ export default function AssetsPage() {
                     <div className="text-[11px] text-muted-foreground">Attributed FACT total</div>
                   </div>
                   <div className="rounded-lg border bg-muted/20 p-3">
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Ops cash used</div>
+                    <div className="mt-1 text-lg font-semibold">{money(asset.externalSpendUsedCents)}</div>
+                    <div className="text-[11px] text-muted-foreground">Autonomous ops external cost</div>
+                  </div>
+                  <div className="rounded-lg border bg-muted/20 p-3">
                     <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Health failures</div>
                     <div className="mt-1 text-lg font-semibold">{asset.consecutiveHealthFailures}</div>
                     <div className="text-[11px] text-muted-foreground">Consecutive probes</div>
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div className="mt-4 grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2 rounded-lg border p-3">
                     <div className="text-xs font-semibold">Instrumentation</div>
                     <Instrumentation label="Revenue" value={asset.revenueInstrumentationStatus} />
+                    <Instrumentation label="Cost" value={asset.costInstrumentationStatus} />
                     <Instrumentation label="Usage" value={asset.usageInstrumentationStatus} />
                     <Instrumentation label="Support" value={asset.supportInstrumentationStatus} />
                   </div>
                   <div className="space-y-2 rounded-lg border p-3">
-                    <div className="flex items-center justify-between gap-2 text-xs font-semibold">
-                      <span>Commercial authority</span>
-                      <span className={restricted ? "text-amber-700" : "text-emerald-700"}>{restricted ? "Restricted" : "Expanded"}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">Public release: {asset.authorities.publicReleaseAuthorized ? "authorized" : "off"}</div>
-                    <div className="text-xs text-muted-foreground">Customer charging: {asset.authorities.customerChargingAuthorized ? "authorized" : "off"}</div>
-                    <div className="text-xs text-muted-foreground">Outbound: {asset.authorities.outboundAuthorized ? "authorized" : "off"}</div>
-                    <div className="text-xs text-muted-foreground">Advertising: {asset.authorities.advertisingAuthorized ? "authorized" : "off"}</div>
+                    <div className="flex items-center gap-2 text-xs font-semibold"><RefreshCw className="h-3.5 w-3.5" /> Measurement</div>
+                    <div className="text-xs text-muted-foreground">Last telemetry: {time(asset.lastTelemetrySyncAt)}</div>
+                    <div className="text-xs text-muted-foreground">Next telemetry: {time(asset.nextTelemetrySyncAt)}</div>
+                    <div className="text-xs text-muted-foreground">Economic review: {time(asset.lastEconomicReviewAt)}</div>
+                    <div className="text-[11px] text-muted-foreground">Measured status requires overlapping complete provider revenue and cost windows.</div>
+                  </div>
+                  <div className="space-y-2 rounded-lg border p-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold"><Wrench className="h-3.5 w-3.5" /> Maintenance</div>
+                    <div className="text-xs text-muted-foreground">Last autonomous remediation: {asset.lastRemediationAt ? time(asset.lastRemediationAt) : "none"}</div>
+                    <div className="text-xs text-muted-foreground">Inherited release authority: same public surface only</div>
+                    <div className="text-xs text-muted-foreground">Generic metered repair: blocked without a hard per-call ceiling</div>
+                  </div>
+                </div>
+
+                <div className="mt-4 rounded-lg border p-3">
+                  <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+                    <span>Commercial authority</span>
+                    <span className={restricted ? "text-amber-700" : "text-emerald-700"}>{restricted ? "Restricted" : "Expanded"}</span>
+                  </div>
+                  <div className="mt-2 grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                    <div>Public release: {asset.authorities.publicReleaseAuthorized ? "authorized" : "off"}</div>
+                    <div>Customer charging: {asset.authorities.customerChargingAuthorized ? "authorized" : "off"}</div>
+                    <div>Outbound: {asset.authorities.outboundAuthorized ? "authorized" : "off"}</div>
+                    <div>Advertising: {asset.authorities.advertisingAuthorized ? "authorized" : "off"}</div>
+                    <div>Custom domain: {asset.authorities.customDomainAuthorized ? "authorized" : "off"}</div>
+                    <div>Production credentials: {asset.authorities.productionCredentialsAuthorized ? "authorized" : "off"}</div>
                   </div>
                 </div>
 
                 <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
-                  <span>Activated {new Date(asset.activatedAt).toLocaleString()}</span>
-                  <span>Last check {asset.lastHealthCheckAt ? new Date(asset.lastHealthCheckAt).toLocaleString() : "pending"}</span>
+                  <span>Activated {time(asset.activatedAt)}</span>
+                  <span>Last health {time(asset.lastHealthCheckAt)}</span>
                   <span>Observed transactions {asset.totalObservedTransactions}</span>
                 </div>
               </section>
