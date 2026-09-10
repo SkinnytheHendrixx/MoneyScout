@@ -20,3 +20,4 @@ export * from "./qa-runtime-migrations";
 export * from "./release-runtime-migrations";
 export * from "./asset-runtime-migrations";
 export * from "./bet-runtime-migrations";
+export * from "./factory-runtime-migrations";

@@ -8,10 +8,9 @@ This file is intentionally operational and should be updated whenever a mileston
 
 - Repository: `SkinnytheHendrixx/MoneyScout`.
 - GitHub `main` is the source of truth.
-- Current functional milestone on `main`: **#75 Commercial Activation & Revenue Execution**.
-- #75 merge SHA: `164fdb88e773040f09d85b1467ed07edaca705d9`.
-- Exact `main` push CI for that merge completed successfully in Money Scout CI run #581.
-- #76 Bet & Capital Allocation Kernel is the active implementation milestone and is not yet merged at the time of this update.
+- Current functional milestone on `main`: **#76 Bet & Capital Allocation Kernel**.
+- #76 merge SHA: `f6ec8b817e5e93b64168f14813696f1a20802572`.
+- #77 Asset Factory & Real Builder Integration is implemented on its feature branch and remains pending PR review/merge at the time of this update.
 - GitHub Actions `Money Scout CI` is the merge/deployment acceptance gate.
 - Replit is the active runtime/database/preview environment, not the primary coding environment.
 - Money Scout's self-deployment supervisor watches exact green `main` push SHAs and promotes them without requiring routine owner sync/reset actions.
@@ -24,14 +23,15 @@ Money Scout currently supports the pipeline through commercially activatable, me
 2. **Research**: policy/access and demand analysis with durable evidence and bounded provider cost.
 3. **Validation**: kill-risk collection, evidence collection, 13-factor assessment, underwriting, adversarial challenge, experiments, WATCH, and autonomous resolution.
 4. **Commercial planning**: deterministic Commercial Build Brief and Monetization Execution Plan.
-5. **Build**: durable Builder Workspace/provider adapter contract.
-6. **Independent QA**: acceptance criteria, baseline checks, defect persistence, bounded repair/retest loop.
-7. **Controlled Release**: preview-first deployment and explicit public release authority.
-8. **Self-deployment**: Money Scout can update its own Replit runtime from a green GitHub `main` SHA.
-9. **Asset activation**: verified public releases become durable Assets.
-10. **Asset operations**: health checks, incidents, recovery, authoritative telemetry ingestion, economic reviews, and bounded same-surface remediation.
-11. **Commercial activation**: a live Asset can prepare a disabled checkout, require independent merchant/credential/charging gates, become transaction-ready after explicit authority, and ingest signed authoritative payment events into the existing Asset economic system.
-12. **Revenue adjustments**: refunds, partial refunds, chargebacks, and reversals append compensating `FACT` observations without mutating the original payment fact, so realized/net revenue remains auditable and correct.
+5. **Bet allocation**: explicit, bounded resource/decision contracts and machine-readable Build Envelopes.
+6. **Build**: durable Builder Workspace/provider adapter contract.
+7. **Independent QA**: acceptance criteria, baseline checks, defect persistence, bounded repair/retest loop.
+8. **Controlled Release**: preview-first deployment and explicit public release authority.
+9. **Self-deployment**: Money Scout can update its own Replit runtime from a green GitHub `main` SHA.
+10. **Asset activation**: verified public releases become durable Assets.
+11. **Asset operations**: health checks, incidents, recovery, authoritative telemetry ingestion, economic reviews, and bounded same-surface remediation.
+12. **Commercial activation**: a live Asset can prepare a disabled checkout, require independent merchant/credential/charging gates, become transaction-ready after explicit authority, and ingest signed authoritative payment events into the existing Asset economic system.
+13. **Revenue adjustments**: refunds, partial refunds, chargebacks, and reversals append compensating `FACT` observations without mutating the original payment fact, so realized/net revenue remains auditable and correct.
 
 ## What #75 added
 
@@ -108,11 +108,11 @@ No raw credentials should be entered into Money Scout.
 
 ### Builder
 
-- Generic Builder adapter architecture exists.
-- Durable builder workspaces support create/status/repair flow.
-- #69 remains an execution layer that accepts a persisted Build Contract and hands builder completion to independent QA.
-- No real production coding provider should be assumed connected merely because the adapter exists.
-- The planned Asset Factory milestone will sit in front of #69 to create a traceable Product Definition, Architecture Plan, isolated Asset repo, and Build Contract before dispatching a real coding backend.
+- #77 adds a durable Factory in front of #69: Product Definition, requirement graph, adversarial review, Architecture Plan, software capability selection, isolated Asset repository, Build Contract v2, and exact-commit Builder Gateway handoff.
+- #69 remains the execution layer and #70 remains the independent acceptance authority.
+- The official Codex SDK is integrated behind a provider-neutral Gateway, but real metered execution is currently fail-closed: the SDK path does not expose an enforceable maximum incremental cash cost and Money Scout does not yet have the shared atomic per-run Money Safety reservation primitive.
+- `UNKNOWN` cost is never treated as zero. Remaining Bet budget, broad capital allocation, request-body identity text, or a provider account cannot unlock metered execution.
+- Zero-cost deterministic drivers are restricted to test mode. No production coding provider should be assumed executable until its credential and financial-safety contract are machine-verified.
 
 ### Independent QA
 
@@ -164,29 +164,11 @@ The current Money Scout Replit Project runtime uses:
 
 Normal feature delivery should not require the owner to manually sync GitHub into Replit.
 
-## Current next milestone
-
-### #76 Bet & Capital Allocation Kernel
-
-The intended boundary is:
-
-**Underwritten Opportunity -> explicit Bet -> bounded decision/resource contract -> machine-readable Build Envelope -> downstream Build attribution/accounting.**
-
-#76 should establish the durable distinction between:
-
-- an Opportunity being viable;
-- Money Scout actually committing capital/capacity to pursue it; and
-- downstream authority to spend/publish/charge/outreach/etc.
-
-A Bet should track why resources are being committed, what is allocated/consumed/remaining, what proves success/failure/iteration, and what constraints the future Asset Factory must respect.
-
-The Build Envelope should expose enough information for the future Asset Factory to design inside the investment mandate without dictating specific technical implementation.
-
-## Next planned architecture after #76
+## Current implementation milestone
 
 ### #77 Asset Factory & Real Builder Integration
 
-The Asset Factory is planned immediately after the Bet kernel and will sit in front of the existing #69 Builder Workspace.
+The Asset Factory sits in front of the existing #69 Builder Workspace and consumes #76 without turning the Build Envelope into a Product Definition or Architecture Plan.
 
 Its target flow is:
 
@@ -203,6 +185,7 @@ Key product-synthesis rules now considered canonical:
 - Product judgment is allowed but must not be represented as observed market/buyer evidence.
 - Frozen Product Definitions are versioned; material scope changes create a new version rather than silently mutating an active build.
 - A shared portfolio visual design system is downstream and should not block the core Asset Factory. Until then, generated customer-facing products should meet a neutral professional quality floor.
+- Real metered Builder/QA execution remains blocked until the shared Money Safety primitive can atomically reserve an enforceable per-run maximum, or a provider proves a no-paygo entitlement with no silent fallback.
 
 ## Planned sequence after the Asset Factory
 

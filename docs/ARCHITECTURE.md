@@ -97,7 +97,7 @@ A Bet is the explicit commitment of capital and autonomous capacity to an Opport
 
 Bet-level capital includes money, paid services, agent/build capacity, maintenance burden, support burden, and human-only approvals.
 
-A Bet should expose a machine-readable **Build Envelope** that the future Asset Factory can consume. The envelope constrains resource use, acceptable complexity/maintenance burden, reversibility, and product scope without dictating implementation details.
+A Bet exposes a machine-readable **Build Envelope** that the Asset Factory consumes. The envelope constrains resource use, acceptable complexity/maintenance burden, reversibility, and upstream commercial scope without dictating product features, technical architecture, providers, reusable software choices, or repository structure.
 
 ### Product Definition
 
@@ -139,7 +139,7 @@ Its default objective is **the least-complex architecture that supports the comp
 
 ### Software Capability Catalog
 
-The future Asset Factory should maintain a reusable catalog of proven software capabilities and patterns such as authentication, persistence, scheduling, scraping, webhooks, payments, email, file storage, search, AI inference, queues, telemetry, health checks, and deployment conventions.
+The Asset Factory maintains a reusable catalog of versioned software capability families and implementations such as authentication, persistence, scheduling, scraping, webhooks, payments, email, file storage, search, AI inference, queues, telemetry, health checks, and deployment conventions.
 
 Catalog entries should eventually expose compatibility, dependencies, cost/authority implications, operational burden, known limitations, version, and QA history.
 
@@ -166,6 +166,10 @@ The repo should also contain the appropriate code/workflow definitions, tests, C
 A Build is coding-agent implementation of the approved Product Definition/Architecture Plan/Build Contract. It has a durable job/workspace and provider identity. A successful builder response is only a claim that implementation completed.
 
 The #69 Builder Workspace remains the execution layer rather than the product-design layer.
+
+The #77 Builder Gateway owns the narrow repository credential, creates a fresh disposable checkout for every initial/repair attempt, withholds provider/Git/database/production secrets from the coding-agent environment, validates frozen manifests and secret safety, and records the exact pushed commit SHA. Provider terminal outcomes distinguish implementation readiness, product/architecture challenges, dependency/resource blocks, provider failure, and cancellation; only `IMPLEMENTATION_READY` at an exact commit may enter #70 QA.
+
+Provider usage, entitlement consumption, and external cash cost are distinct. `UNKNOWN` cash cost is not zero. A real metered Builder or QA side effect requires an enforceable maximum incremental cost for that exact run plus an atomic reservation against the Bet/build envelope immediately before execution. Because the current shared Money Safety layer cannot provide that reservation, metered execution remains structurally blocked rather than being unlocked by remaining budget or human/request-body text. A verified entitlement is eligible only when pay-as-you-go fallback is impossible.
 
 ### QA run
 
@@ -309,15 +313,15 @@ Human Actions remain appropriate for credentials, KYC, legal/ownership actions, 
 
 The Commercial Build Brief and Monetization Execution Plan translate validated evidence into the current pre-Bet commercial/build contract. They define the first commercial commitment test, pricing confidence state, distribution hypothesis, venture-budget rules, and prohibited inference. They do not invent an exact price merely to advance the pipeline.
 
-The existing narrow/minimum-sellable language in this pre-Factory code is historical scaffolding. The planned Asset Factory must supersede its product-scope semantics with the Competitive First Release standard while preserving its useful locked commercial evidence and authority constraints.
+The existing narrow/minimum-sellable language in pre-Factory Build Contract v1 is historical scaffolding. Asset Factory Build Contract v2 supersedes its product-scope semantics with the Competitive First Release standard while preserving useful locked commercial evidence and authority constraints. Historical v1 records remain readable.
 
 ### 6. Bet / Capital Allocation
 
-Current forward milestone (#76). It creates the first-class allocation object between underwriting and Build and provides the bounded resource/decision contract that later Factory/Build work must consume.
+Implemented in #76. It creates the first-class allocation object between underwriting and Build and provides the bounded resource/decision contract that Factory/Build work consumes.
 
 ### 7. Asset Factory
 
-Planned immediately after #76. It should:
+Implemented on the #77 feature branch pending merge. It:
 
 - snapshot upstream truth;
 - synthesize/version a traceable Product Definition;
