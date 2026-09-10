@@ -620,7 +620,9 @@ await assert.rejects(
       idempotencyKey: `lease-b-${suffix}`,
       attemptNumber: 91,
     }),
-  /builder_gateway_runs_active_branch_unique/,
+  (error: unknown) =>
+    (error as { cause?: { constraint?: string } }).cause?.constraint ===
+    "builder_gateway_runs_active_branch_unique",
   "one active writer lease is allowed per Asset branch",
 );
 await db
