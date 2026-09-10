@@ -142,7 +142,7 @@ await createOrReuseHumanAction({
 
 const priorPreviewKey = previewRelease.previewIdempotencyKey;
 await retryPrivatePreviewAfterSafetyCorrection({ releaseJobId: previewRelease.id, attestedBy: "ZERO_COST_TEST" });
-const [previewRecovered] = await db.select().from(releaseJobsTable).where(eq(releaseJobsTable.id, previewRelease.id));
+let [previewRecovered] = await db.select().from(releaseJobsTable).where(eq(releaseJobsTable.id, previewRelease.id));
 assert.equal(previewRecovered?.status, "READY_FOR_PREVIEW");
 assert.equal(previewRecovered?.blockedReason, null);
 assert.equal(previewRecovered?.previewProviderRunId, null);
@@ -151,12 +151,49 @@ assert.equal(previewRecovered?.previewVisibility, null);
 assert.equal(previewRecovered?.previewHealthPassed, null);
 assert.equal(previewRecovered?.previewFinishedAt, null);
 assert.notEqual(previewRecovered?.previewIdempotencyKey, priorPreviewKey, "safety retry must use a fresh preview idempotency key");
+const recoveredPreviewKey = previewRecovered!.previewIdempotencyKey;
 const [previewAction] = await db.select().from(humanActionsTable).where(and(
   eq(humanActionsTable.opportunityId, opportunity.id),
   eq(humanActionsTable.actionType, "UNAUTHORIZED_PUBLIC_PREVIEW"),
   eq(humanActionsTable.blockedStage, `CONTROLLED_RELEASE_PREVIEW_VISIBILITY:${previewRelease.id}`),
 ));
 assert.equal(previewAction?.status, "RESOLVED");
+
+let freshPreviewDispatches = 0;
+const freshPreviewAdapter: ReleaseAgentAdapter = {
+  provider: "ZERO_COST_TEST_RELEASE",
+  costMode: "ZERO_CASH",
+  async dispatch(input) {
+    assert.equal(input.stage, "PREVIEW");
+    assert.equal(input.idempotencyKey, recoveredPreviewKey);
+    freshPreviewDispatches += 1;
+    return {
+      providerRunId: `safe-preview-${suffix}`,
+      state: "SUCCEEDED",
+      stage: "PREVIEW",
+      url: `https://private.example.test/recovered-${suffix}`,
+      visibility: "PRIVATE",
+      healthChecksPassed: true,
+      retryable: false,
+      summary: "Recovered private preview is healthy.",
+      externalCostCents: 0,
+      metadata: {},
+    };
+  },
+  async getStatus(providerRunId) {
+    throw new Error(`Unexpected poll for terminal recovered preview ${providerRunId}`);
+  },
+};
+await runControlledReleaseTickSafely(freshPreviewAdapter);
+[previewRecovered] = await db.select().from(releaseJobsTable).where(eq(releaseJobsTable.id, previewRelease.id));
+assert.equal(previewRecovered?.status, "PREVIEW_READY");
+assert.equal(previewRecovered?.previewVisibility, "PRIVATE");
+assert.equal(previewRecovered?.previewHealthPassed, true);
+assert.equal(freshPreviewDispatches, 1, "corrected exposure must result in exactly one fresh private preview dispatch");
+
+// Isolate the production-recheck scenario below. The preview recovery behavior has
+// already been verified through its terminal private-preview result above.
+await db.update(releaseJobsTable).set({ status: "FAILED" }).where(eq(releaseJobsTable.id, previewRelease.id));
 
 const productionBase = await makeBase("production");
 const productionRunId = `production-recheck-${suffix}`;
