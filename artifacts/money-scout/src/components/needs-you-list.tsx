@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "wouter"
-import { AlertCircle, CheckCircle2, Clock3, ExternalLink, KeyRound, RefreshCw, ShieldCheck, UserRound } from "lucide-react"
+import { AlertCircle, CheckCircle2, Clock3, DollarSign, ExternalLink, KeyRound, RefreshCw, Rocket, ShieldCheck, UserRound } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -26,6 +26,11 @@ type HumanAction = {
 
 type HumanActionsResponse = { actions: HumanAction[] }
 
+type ReleaseControlInput = {
+  action: HumanAction
+  ceilingCents?: number
+}
+
 const urgencyRank: Record<HumanAction["urgency"], number> = {
   CRITICAL: 0,
   HIGH: 1,
@@ -42,11 +47,31 @@ function urgencyClass(urgency: HumanAction["urgency"]) {
 
 function humanTime(action: HumanAction): string {
   const text = `${action.actionType} ${action.title}`.toLowerCase()
+  if (text.includes("authorize_public_release") || text.includes("authorize_release_spend")) return "~1 min"
   if (text.includes("kyc") || text.includes("identity") || text.includes("verification")) return "~5–10 min"
   if (text.includes("account") || text.includes("connect") || text.includes("access")) return "~3–5 min"
   if (text.includes("domain") || text.includes("purchase")) return "~2–3 min"
   if (text.includes("review") || text.includes("decision")) return "~5–10 min"
   return "~2–5 min"
+}
+
+function releaseJobId(action: HumanAction): number | null {
+  const match = action.blockedStage.match(/^CONTROLLED_RELEASE_(?:PUBLIC|SPEND):(\d+)/)
+  const id = match ? Number(match[1]) : NaN
+  return Number.isInteger(id) && id > 0 ? id : null
+}
+
+function afterResolutionCopy(action: HumanAction): string {
+  if (action.actionType === "AUTHORIZE_PUBLIC_RELEASE") {
+    return "Money Scout will resume the controlled release worker and deploy only this release publicly. Charging, domains, outbound, and ads remain unauthorized."
+  }
+  if (action.actionType === "AUTHORIZE_RELEASE_SPEND") {
+    return "Money Scout will resume only the blocked release step within the budget ceiling you set. Other safety or authority blocks remain intact."
+  }
+  if (action.actionType === "RESTORE_RELEASE_PROVIDER_ACCESS") {
+    return "Money Scout will detect the original provider automatically, resume polling the preserved run, and resolve this blocker without redispatching the release."
+  }
+  return `Money Scout will queue ${action.resumeAction.replaceAll("_", " ").toLowerCase()} and continue from the blocked workflow.`
 }
 
 export function NeedsYouList({
@@ -62,6 +87,7 @@ export function NeedsYouList({
 }) {
   const queryClient = useQueryClient()
   const [notes, setNotes] = useState<Record<number, string>>({})
+  const [releaseBudgetUsd, setReleaseBudgetUsd] = useState<Record<number, string>>({})
   const queryKey = opportunityId ? ["human-actions", opportunityId] : ["human-actions", "active"]
   const query = useQuery<HumanActionsResponse>({
     queryKey,
@@ -78,6 +104,13 @@ export function NeedsYouList({
     },
     refetchInterval: 15_000,
   })
+
+  const invalidateAfterAction = async (action: HumanAction) => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["human-actions"] }),
+      queryClient.invalidateQueries({ queryKey: ["opportunity-lifecycle", action.opportunityId] }),
+    ])
+  }
 
   const resolveMutation = useMutation({
     mutationFn: async (action: HumanAction) => {
@@ -104,10 +137,45 @@ export function NeedsYouList({
     },
     onSuccess: async (_data, action) => {
       setNotes((current) => ({ ...current, [action.id]: "" }))
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["human-actions"] }),
-        queryClient.invalidateQueries({ queryKey: ["opportunity-lifecycle", action.opportunityId] }),
-      ])
+      await invalidateAfterAction(action)
+    },
+  })
+
+  const releaseControlMutation = useMutation({
+    mutationFn: async ({ action, ceilingCents }: ReleaseControlInput) => {
+      const id = releaseJobId(action)
+      if (!id) throw new Error("Money Scout could not identify the release job for this action.")
+      const isPublicRelease = action.actionType === "AUTHORIZE_PUBLIC_RELEASE"
+      const isSpend = action.actionType === "AUTHORIZE_RELEASE_SPEND"
+      if (!isPublicRelease && !isSpend) throw new Error("Unsupported release authority action.")
+      if (isSpend && (!Number.isInteger(ceilingCents) || (ceilingCents ?? 0) <= 0)) {
+        throw new Error("Enter a release budget greater than $0.00.")
+      }
+      const response = await fetch(
+        isPublicRelease
+          ? `/api/release-jobs/${id}/authorize-public`
+          : `/api/release-jobs/${id}/authorize-spend`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            attested: true,
+            authorized_by: "MONEY_SCOUT_CONTROL_CENTER",
+            ...(isSpend ? { ceiling_cents: ceilingCents } : {}),
+          }),
+        },
+      )
+      const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+      if (!response.ok) {
+        const message = typeof payload.error === "string" ? payload.error : `Release authorization returned ${response.status}`
+        throw new Error(message)
+      }
+      return payload
+    },
+    onSuccess: async (_data, variables) => {
+      setReleaseBudgetUsd((current) => ({ ...current, [variables.action.id]: "" }))
+      await invalidateAfterAction(variables.action)
     },
   })
 
@@ -152,8 +220,15 @@ export function NeedsYouList({
       ) : (
         <div className="space-y-3">
           {actions.map((action) => {
-            const isHumanAttestation = action.verificationMode === "HUMAN_ATTESTATION"
+            const isPublicRelease = action.actionType === "AUTHORIZE_PUBLIC_RELEASE"
+            const isReleaseSpend = action.actionType === "AUTHORIZE_RELEASE_SPEND"
+            const isProviderContinuity = action.actionType === "RESTORE_RELEASE_PROVIDER_ACCESS"
+            const isHumanAttestation = action.verificationMode === "HUMAN_ATTESTATION" && !isProviderContinuity
             const pending = resolveMutation.isPending && resolveMutation.variables?.id === action.id
+            const releasePending = releaseControlMutation.isPending && releaseControlMutation.variables?.action.id === action.id
+            const budgetValue = releaseBudgetUsd[action.id] ?? ""
+            const budgetDollars = Number(budgetValue)
+            const budgetCents = Number.isFinite(budgetDollars) ? Math.round(budgetDollars * 100) : 0
             return (
               <Card key={action.id} className={cn("overflow-hidden border", urgencyClass(action.urgency))}>
                 <CardContent className={cn("p-4", !compact && "md:p-5")}>
@@ -182,7 +257,7 @@ export function NeedsYouList({
                           </div>
                           <div className="rounded-md border border-current/15 bg-white/50 p-3">
                             <div className="text-[10px] font-bold uppercase tracking-wider opacity-60">After you resolve it</div>
-                            <p className="mt-1 text-xs leading-relaxed">Money Scout will queue <strong>{action.resumeAction.replaceAll("_", " ").toLowerCase()}</strong> and continue from the blocked workflow.</p>
+                            <p className="mt-1 text-xs leading-relaxed">{afterResolutionCopy(action)}</p>
                           </div>
                         </div>
                       )}
@@ -195,7 +270,27 @@ export function NeedsYouList({
                         {action.requiredCapabilityProvider && <span>Provider: {action.requiredCapabilityProvider}</span>}
                       </div>
 
-                      {!compact && isHumanAttestation && (
+                      {!compact && isReleaseSpend && (
+                        <label className="mt-4 block max-w-xs">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider opacity-65">Maximum release budget</span>
+                          <div className="relative mt-1.5">
+                            <DollarSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 opacity-60" />
+                            <input
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              inputMode="decimal"
+                              value={budgetValue}
+                              onChange={(event) => setReleaseBudgetUsd((current) => ({ ...current, [action.id]: event.target.value }))}
+                              placeholder="0.00"
+                              className="h-10 w-full rounded-md border border-current/20 bg-background pl-9 pr-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring"
+                            />
+                          </div>
+                          <span className="mt-1 block text-[11px] opacity-65">This is a hard ceiling for this release job, not permission to spend it all.</span>
+                        </label>
+                      )}
+
+                      {!compact && isHumanAttestation && !isPublicRelease && !isReleaseSpend && (
                         <label className="mt-4 block">
                           <span className="text-[11px] font-semibold uppercase tracking-wider opacity-65">Tell Money Scout anything it should know</span>
                           <textarea
@@ -208,8 +303,31 @@ export function NeedsYouList({
                       )}
                     </div>
 
-                    <div className="flex shrink-0 flex-col gap-2 lg:w-48">
-                      {isHumanAttestation ? (
+                    <div className="flex shrink-0 flex-col gap-2 lg:w-52">
+                      {isPublicRelease ? (
+                        <Button
+                          onClick={() => {
+                            const message = "Authorize this specific QA-passed build to become publicly reachable? This does not authorize charging customers, buying a domain, outbound messaging, or advertising."
+                            if (window.confirm(message)) releaseControlMutation.mutate({ action })
+                          }}
+                          disabled={releasePending}
+                        >
+                          <Rocket className="mr-2 h-4 w-4" />
+                          {releasePending ? "Authorizing..." : "Authorize public release"}
+                        </Button>
+                      ) : isReleaseSpend ? (
+                        <Button
+                          onClick={() => {
+                            if (budgetCents <= 0) return
+                            const message = `Set a hard release-spend ceiling of $${(budgetCents / 100).toFixed(2)} for this release only? Money Scout will still prefer the cheapest viable path.`
+                            if (window.confirm(message)) releaseControlMutation.mutate({ action, ceilingCents: budgetCents })
+                          }}
+                          disabled={releasePending || budgetCents <= 0}
+                        >
+                          <DollarSign className="mr-2 h-4 w-4" />
+                          {releasePending ? "Authorizing..." : "Set release budget"}
+                        </Button>
+                      ) : isHumanAttestation ? (
                         <Button
                           onClick={() => {
                             const message = action.requiredCapabilityKey
@@ -234,6 +352,9 @@ export function NeedsYouList({
                       )}
                       {resolveMutation.isError && resolveMutation.variables?.id === action.id && (
                         <p className="text-xs leading-relaxed text-red-700">{resolveMutation.error instanceof Error ? resolveMutation.error.message : "Unable to resolve action."}</p>
+                      )}
+                      {releaseControlMutation.isError && releaseControlMutation.variables?.action.id === action.id && (
+                        <p className="text-xs leading-relaxed text-red-700">{releaseControlMutation.error instanceof Error ? releaseControlMutation.error.message : "Unable to authorize release action."}</p>
                       )}
                     </div>
                   </div>
