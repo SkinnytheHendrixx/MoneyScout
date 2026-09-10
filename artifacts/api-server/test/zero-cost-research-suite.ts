@@ -29,4 +29,5 @@ await import("./zero-cost-build-stage-cost-accounting-tests");
 await import("./zero-cost-controlled-release-tests");
 await import("./zero-cost-controlled-release-safety-tests");
 await import("./zero-cost-release-provider-recovery-tests");
+await import("./zero-cost-release-incident-recovery-tests");
 await import("./zero-cost-runtime-migration-tests");
