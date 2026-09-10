@@ -18,3 +18,4 @@ export * from "./runtime-migrations";
 export * from "./builder-runtime-migrations";
 export * from "./qa-runtime-migrations";
 export * from "./release-runtime-migrations";
+export * from "./asset-runtime-migrations";
