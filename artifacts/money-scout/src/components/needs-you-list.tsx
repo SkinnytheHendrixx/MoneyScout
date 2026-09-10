@@ -48,6 +48,7 @@ function urgencyClass(urgency: HumanAction["urgency"]) {
 function humanTime(action: HumanAction): string {
   const text = `${action.actionType} ${action.title}`.toLowerCase()
   if (text.includes("authorize_public_release") || text.includes("authorize_release_spend")) return "~1 min"
+  if (text.includes("unauthorized_public_preview") || text.includes("production_release_needs_intervention")) return "~2–5 min"
   if (text.includes("kyc") || text.includes("identity") || text.includes("verification")) return "~5–10 min"
   if (text.includes("account") || text.includes("connect") || text.includes("access")) return "~3–5 min"
   if (text.includes("domain") || text.includes("purchase")) return "~2–3 min"
@@ -56,7 +57,7 @@ function humanTime(action: HumanAction): string {
 }
 
 function releaseJobId(action: HumanAction): number | null {
-  const match = action.blockedStage.match(/^CONTROLLED_RELEASE_(?:PUBLIC|SPEND):(\d+)/)
+  const match = action.blockedStage.match(/^CONTROLLED_RELEASE_(?:PUBLIC|SPEND|PREVIEW_VISIBILITY|PRODUCTION_HEALTH):(\d+)/)
   const id = match ? Number(match[1]) : NaN
   return Number.isInteger(id) && id > 0 ? id : null
 }
@@ -67,6 +68,12 @@ function afterResolutionCopy(action: HumanAction): string {
   }
   if (action.actionType === "AUTHORIZE_RELEASE_SPEND") {
     return "Money Scout will resume only the blocked release step within the budget ceiling you set. Other safety or authority blocks remain intact."
+  }
+  if (action.actionType === "UNAUTHORIZED_PUBLIC_PREVIEW") {
+    return "Money Scout will discard the unsafe preview state and create a fresh private preview with a new idempotency key. Public release will remain blocked until that private preview passes."
+  }
+  if (action.actionType === "PRODUCTION_RELEASE_NEEDS_INTERVENTION") {
+    return "Money Scout will recheck the existing production deployment. It will not redispatch a second release, and previously accounted provider cost will not be counted twice."
   }
   if (action.actionType === "RESTORE_RELEASE_PROVIDER_ACCESS") {
     return "Money Scout will detect the original provider automatically, resume polling the preserved run, and resolve this blocker without redispatching the release."
@@ -147,28 +154,36 @@ export function NeedsYouList({
       if (!id) throw new Error("Money Scout could not identify the release job for this action.")
       const isPublicRelease = action.actionType === "AUTHORIZE_PUBLIC_RELEASE"
       const isSpend = action.actionType === "AUTHORIZE_RELEASE_SPEND"
-      if (!isPublicRelease && !isSpend) throw new Error("Unsupported release authority action.")
+      const isPreviewSafety = action.actionType === "UNAUTHORIZED_PUBLIC_PREVIEW"
+      const isProductionIntervention = action.actionType === "PRODUCTION_RELEASE_NEEDS_INTERVENTION"
+      if (!isPublicRelease && !isSpend && !isPreviewSafety && !isProductionIntervention) {
+        throw new Error("Unsupported release control action.")
+      }
       if (isSpend && (!Number.isInteger(ceilingCents) || (ceilingCents ?? 0) <= 0)) {
         throw new Error("Enter a release budget greater than $0.00.")
       }
-      const response = await fetch(
-        isPublicRelease
-          ? `/api/release-jobs/${id}/authorize-public`
-          : `/api/release-jobs/${id}/authorize-spend`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            attested: true,
-            authorized_by: "MONEY_SCOUT_CONTROL_CENTER",
-            ...(isSpend ? { ceiling_cents: ceilingCents } : {}),
-          }),
-        },
-      )
+      const endpoint = isPublicRelease
+        ? `/api/release-jobs/${id}/authorize-public`
+        : isSpend
+          ? `/api/release-jobs/${id}/authorize-spend`
+          : isPreviewSafety
+            ? `/api/release-jobs/${id}/retry-private-preview`
+            : `/api/release-jobs/${id}/recheck-production`
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          attested: true,
+          ...(isPublicRelease || isSpend
+            ? { authorized_by: "MONEY_SCOUT_CONTROL_CENTER" }
+            : { attested_by: "MONEY_SCOUT_CONTROL_CENTER" }),
+          ...(isSpend ? { ceiling_cents: ceilingCents } : {}),
+        }),
+      })
       const payload = await response.json().catch(() => ({})) as Record<string, unknown>
       if (!response.ok) {
-        const message = typeof payload.error === "string" ? payload.error : `Release authorization returned ${response.status}`
+        const message = typeof payload.error === "string" ? payload.error : `Release control returned ${response.status}`
         throw new Error(message)
       }
       return payload
@@ -222,8 +237,11 @@ export function NeedsYouList({
           {actions.map((action) => {
             const isPublicRelease = action.actionType === "AUTHORIZE_PUBLIC_RELEASE"
             const isReleaseSpend = action.actionType === "AUTHORIZE_RELEASE_SPEND"
+            const isPreviewSafety = action.actionType === "UNAUTHORIZED_PUBLIC_PREVIEW"
+            const isProductionIntervention = action.actionType === "PRODUCTION_RELEASE_NEEDS_INTERVENTION"
             const isProviderContinuity = action.actionType === "RESTORE_RELEASE_PROVIDER_ACCESS"
-            const isHumanAttestation = action.verificationMode === "HUMAN_ATTESTATION" && !isProviderContinuity
+            const isSpecialReleaseControl = isPublicRelease || isReleaseSpend || isPreviewSafety || isProductionIntervention || isProviderContinuity
+            const isHumanAttestation = action.verificationMode === "HUMAN_ATTESTATION" && !isSpecialReleaseControl
             const pending = resolveMutation.isPending && resolveMutation.variables?.id === action.id
             const releasePending = releaseControlMutation.isPending && releaseControlMutation.variables?.action.id === action.id
             const budgetValue = releaseBudgetUsd[action.id] ?? ""
@@ -290,7 +308,7 @@ export function NeedsYouList({
                         </label>
                       )}
 
-                      {!compact && isHumanAttestation && !isPublicRelease && !isReleaseSpend && (
+                      {!compact && isHumanAttestation && (
                         <label className="mt-4 block">
                           <span className="text-[11px] font-semibold uppercase tracking-wider opacity-65">Tell Money Scout anything it should know</span>
                           <textarea
@@ -327,6 +345,28 @@ export function NeedsYouList({
                           <DollarSign className="mr-2 h-4 w-4" />
                           {releasePending ? "Authorizing..." : "Set release budget"}
                         </Button>
+                      ) : isPreviewSafety ? (
+                        <Button
+                          onClick={() => {
+                            const message = "Confirm that the unintended public preview has been restricted or removed. Money Scout will then create a fresh PRIVATE preview with a new release idempotency key."
+                            if (window.confirm(message)) releaseControlMutation.mutate({ action })
+                          }}
+                          disabled={releasePending}
+                        >
+                          <RefreshCw className={cn("mr-2 h-4 w-4", releasePending && "animate-spin")} />
+                          {releasePending ? "Queuing..." : "Restricted — retry privately"}
+                        </Button>
+                      ) : isProductionIntervention ? (
+                        <Button
+                          onClick={() => {
+                            const message = "Confirm that you corrected the provider-side production issue. Money Scout will only RECHECK the existing deployment; it will not redispatch a second production release."
+                            if (window.confirm(message)) releaseControlMutation.mutate({ action })
+                          }}
+                          disabled={releasePending}
+                        >
+                          <ShieldCheck className="mr-2 h-4 w-4" />
+                          {releasePending ? "Queuing recheck..." : "Fixed — recheck production"}
+                        </Button>
                       ) : isHumanAttestation ? (
                         <Button
                           onClick={() => {
@@ -354,7 +394,7 @@ export function NeedsYouList({
                         <p className="text-xs leading-relaxed text-red-700">{resolveMutation.error instanceof Error ? resolveMutation.error.message : "Unable to resolve action."}</p>
                       )}
                       {releaseControlMutation.isError && releaseControlMutation.variables?.action.id === action.id && (
-                        <p className="text-xs leading-relaxed text-red-700">{releaseControlMutation.error instanceof Error ? releaseControlMutation.error.message : "Unable to authorize release action."}</p>
+                        <p className="text-xs leading-relaxed text-red-700">{releaseControlMutation.error instanceof Error ? releaseControlMutation.error.message : "Unable to complete release control."}</p>
                       )}
                     </div>
                   </div>
