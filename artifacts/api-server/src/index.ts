@@ -9,7 +9,7 @@ import {
 import app from "./app";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
-import { startControlledReleaseWorker } from "./lib/controlled-release-worker";
+import { startControlledReleaseSafetyWorker } from "./lib/controlled-release-safety";
 import { startExecutionKernel } from "./lib/execution-kernel";
 import { startExecutionReconciler } from "./lib/execution-reconciler";
 import { logger } from "./lib/logger";
@@ -68,7 +68,7 @@ async function startServer(): Promise<void> {
     startBuildOrchestratorWorker();
     startBuilderWorkspaceWorker();
     startQaDebugWorker();
-    startControlledReleaseWorker();
+    startControlledReleaseSafetyWorker();
     startPortfolioHeartbeat(port);
   });
 }
