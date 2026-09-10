@@ -636,6 +636,39 @@ async function unblockConfiguredBuilder(
       })
       .where(eq(buildJobsTable.id, job.id));
   }
+
+  // A Build blocked at a metered/unknown provider boundary may take a
+  // separately configured, contractually zero-cash path without acquiring
+  // spend authority. This does not resume the blocked paid Gateway run; it
+  // only makes the Build eligible for the verified zero-cash adapter.
+  if (adapter.costMode !== "ZERO_CASH") return;
+  const financiallyBlocked = await db
+    .select()
+    .from(buildJobsTable)
+    .where(
+      and(
+        eq(buildJobsTable.status, "BLOCKED"),
+        inArray(buildJobsTable.blockedReason, [
+          "PROVIDER_RUN_MAXIMUM_COST_NOT_ENFORCEABLE",
+          "SHARED_MONEY_SAFETY_RESERVATION_REQUIRED",
+          "ENTITLEMENT_PAYG_FALLBACK_NOT_FAIL_CLOSED",
+          "ENTITLEMENT_ENFORCEMENT_UNVERIFIED",
+          "BUILDER_PROVIDER_FINANCIAL_SAFETY_BLOCKED",
+        ]),
+      ),
+    );
+  for (const job of financiallyBlocked) {
+    const gate = await betAllowsDispatch(job);
+    if (!gate.allowed) continue;
+    await db
+      .update(buildJobsTable)
+      .set({
+        status: "READY_FOR_BUILDER",
+        blockedReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(buildJobsTable.id, job.id));
+  }
 }
 
 async function unblockEligibleBets(): Promise<void> {
