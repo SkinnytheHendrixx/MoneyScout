@@ -355,7 +355,7 @@ export const assetRemediationRunsTable = pgTable(
     uniqueIndex("asset_remediation_runs_qa_key_unique").on(table.qaIdempotencyKey),
     uniqueIndex("asset_remediation_runs_preview_key_unique").on(table.previewIdempotencyKey),
     uniqueIndex("asset_remediation_runs_production_key_unique").on(table.productionIdempotencyKey),
-    index("asset_remediation_runs_asset_idx").on(table.assetId, table.createdAt),
+    index("asset_remediation_runs_asset_idx").on(table.assetId, table.startedAt),
     index("asset_remediation_runs_status_idx").on(table.status, table.updatedAt),
   ],
 );
