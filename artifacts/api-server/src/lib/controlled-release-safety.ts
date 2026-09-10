@@ -40,6 +40,10 @@ function nextStatusAfterSpendUnlock(job: typeof releaseJobsTable.$inferSelect) {
     : "READY_FOR_PREVIEW" as const;
 }
 
+function previewSafetyRetryKey(job: typeof releaseJobsTable.$inferSelect): string {
+  return `build-${job.buildJobId}:release:preview:safety-retry-${job.previewDispatchAttemptCount + 1}`.slice(0, 500);
+}
+
 async function recordSafetyEvent(input: {
   releaseJobId: number;
   buildJobId: number;
@@ -217,6 +221,116 @@ export async function authorizeReleaseSpendSafely(input: {
   return updated ?? job;
 }
 
+export async function retryPrivatePreviewAfterSafetyCorrection(input: {
+  releaseJobId: number;
+  attestedBy?: string;
+}) {
+  const [job] = await db
+    .select()
+    .from(releaseJobsTable)
+    .where(eq(releaseJobsTable.id, input.releaseJobId));
+  if (!job) throw new Error("RELEASE_JOB_NOT_FOUND");
+  if (job.status !== "BLOCKED" || job.blockedReason !== "PREVIEW_VISIBILITY_SAFETY_VIOLATION") {
+    throw new Error("PREVIEW_SAFETY_RETRY_NOT_ELIGIBLE");
+  }
+  if (job.productionProviderRunId || job.productionFinishedAt || job.publicReleaseAuthorizedAt) {
+    throw new Error("PREVIEW_SAFETY_RETRY_NOT_ELIGIBLE: production state already exists");
+  }
+  const now = new Date();
+  const [updated] = await db
+    .update(releaseJobsTable)
+    .set({
+      status: "READY_FOR_PREVIEW",
+      previewProviderRunId: null,
+      previewIdempotencyKey: previewSafetyRetryKey(job),
+      previewUrl: null,
+      previewVisibility: null,
+      previewHealthPassed: null,
+      previewFinishedAt: null,
+      blockedReason: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      updatedAt: now,
+    })
+    .where(eq(releaseJobsTable.id, job.id))
+    .returning();
+  await resolveScopedAction({
+    opportunityId: job.opportunityId,
+    actionType: "UNAUTHORIZED_PUBLIC_PREVIEW",
+    blockedStage: `CONTROLLED_RELEASE_PREVIEW_VISIBILITY:${job.id}`,
+    resolutionData: {
+      release_job_id: job.id,
+      corrected_at: now.toISOString(),
+      attested_by: input.attestedBy ?? "HUMAN_ATTESTATION",
+      next_action: "FRESH_PRIVATE_PREVIEW",
+    },
+  });
+  await recordSafetyEvent({
+    releaseJobId: job.id,
+    buildJobId: job.buildJobId,
+    opportunityId: job.opportunityId,
+    eventType: "PREVIEW_VISIBILITY_CORRECTED_RETRY_QUEUED",
+    summary: "Operator attested that unintended public preview exposure was corrected; a fresh private preview is queued with a new idempotency key.",
+    metadata: {
+      prior_preview_provider_run_id: job.previewProviderRunId,
+      attested_by: input.attestedBy ?? "HUMAN_ATTESTATION",
+    },
+  });
+  return updated ?? job;
+}
+
+export async function recheckProductionReleaseSafely(input: {
+  releaseJobId: number;
+  attestedBy?: string;
+}) {
+  const [job] = await db
+    .select()
+    .from(releaseJobsTable)
+    .where(eq(releaseJobsTable.id, input.releaseJobId));
+  if (!job) throw new Error("RELEASE_JOB_NOT_FOUND");
+  if (job.status !== "BLOCKED" || job.blockedReason !== "PRODUCTION_RELEASE_NOT_SAFELY_VERIFIED") {
+    throw new Error("PRODUCTION_RECHECK_NOT_ELIGIBLE");
+  }
+  if (!job.productionProviderRunId || !job.publicReleaseAuthorizedAt) {
+    throw new Error("PRODUCTION_RECHECK_NOT_ELIGIBLE: preserved production run and authority are required");
+  }
+  const now = new Date();
+  const [updated] = await db
+    .update(releaseJobsTable)
+    .set({
+      status: "PRODUCTION_DEPLOYING",
+      blockedReason: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      updatedAt: now,
+    })
+    .where(eq(releaseJobsTable.id, job.id))
+    .returning();
+  await resolveScopedAction({
+    opportunityId: job.opportunityId,
+    actionType: "PRODUCTION_RELEASE_NEEDS_INTERVENTION",
+    blockedStage: `CONTROLLED_RELEASE_PRODUCTION_HEALTH:${job.id}`,
+    resolutionData: {
+      release_job_id: job.id,
+      corrected_at: now.toISOString(),
+      attested_by: input.attestedBy ?? "HUMAN_ATTESTATION",
+      next_action: "RECHECK_EXISTING_PRODUCTION_RUN",
+    },
+  });
+  await recordSafetyEvent({
+    releaseJobId: job.id,
+    buildJobId: job.buildJobId,
+    opportunityId: job.opportunityId,
+    eventType: "PRODUCTION_RECHECK_QUEUED",
+    summary: "Operator attested that the production-side issue was corrected; Money Scout will recheck the preserved provider run without redispatching it.",
+    metadata: {
+      provider_run_id: job.productionProviderRunId,
+      attested_by: input.attestedBy ?? "HUMAN_ATTESTATION",
+    },
+  });
+  return updated ?? job;
+}
+
 async function createProviderContinuityAction(job: typeof releaseJobsTable.$inferSelect) {
   await createOrReuseHumanAction({
     opportunityId: job.opportunityId,
@@ -248,15 +362,23 @@ export async function enforceReleaseProviderContinuity(adapter: ReleaseAgentAdap
     .where(inArray(releaseJobsTable.status, ["PREVIEW_DEPLOYING", "PRODUCTION_DEPLOYING", "BLOCKED"]));
   let blocked = 0;
   for (const job of candidates) {
-    const previewInFlight = !!job.previewProviderRunId && !job.previewFinishedAt;
-    const productionInFlight = !!job.productionProviderRunId && !job.productionFinishedAt;
-    if (!previewInFlight && !productionInFlight) continue;
+    const genericAdapterBlock = job.status === "BLOCKED" && job.blockedReason === "DEPLOYMENT_AGENT_ACCESS_REQUIRED";
+    const continuityBlock = job.status === "BLOCKED" && job.blockedReason === "RELEASE_PROVIDER_CONTINUITY_REQUIRED";
+    const previewNeedsProvider = !!job.previewProviderRunId && (
+      job.status === "PREVIEW_DEPLOYING" ||
+      ((genericAdapterBlock || continuityBlock) && !job.productionProviderRunId)
+    );
+    const productionNeedsProvider = !!job.productionProviderRunId && (
+      job.status === "PRODUCTION_DEPLOYING" ||
+      genericAdapterBlock ||
+      continuityBlock
+    );
+    if (!previewNeedsProvider && !productionNeedsProvider) continue;
     if (job.releaseProvider === "UNCONFIGURED") continue;
 
-    const continuityBlock = job.status === "BLOCKED" && job.blockedReason === "RELEASE_PROVIDER_CONTINUITY_REQUIRED";
     if (job.releaseProvider === adapter.provider) {
       if (!continuityBlock) continue;
-      const resumeStatus = productionInFlight ? "PRODUCTION_DEPLOYING" as const : "PREVIEW_DEPLOYING" as const;
+      const resumeStatus = productionNeedsProvider ? "PRODUCTION_DEPLOYING" as const : "PREVIEW_DEPLOYING" as const;
       await db
         .update(releaseJobsTable)
         .set({
@@ -283,15 +405,13 @@ export async function enforceReleaseProviderContinuity(adapter: ReleaseAgentAdap
         buildJobId: job.buildJobId,
         opportunityId: job.opportunityId,
         eventType: "RELEASE_PROVIDER_CONTINUITY_RESTORED",
-        summary: "Original release provider access returned; Money Scout resumed polling the preserved in-flight run.",
+        summary: "Original release provider access returned; Money Scout resumed polling the preserved release run.",
         metadata: { provider: adapter.provider, resumed_status: resumeStatus },
       });
       continue;
     }
 
-    const genericAdapterBlock = job.status === "BLOCKED" && job.blockedReason === "DEPLOYMENT_AGENT_ACCESS_REQUIRED";
     if (job.status !== "PREVIEW_DEPLOYING" && job.status !== "PRODUCTION_DEPLOYING" && !genericAdapterBlock && !continuityBlock) continue;
-
     await db
       .update(releaseJobsTable)
       .set({
@@ -308,12 +428,38 @@ export async function enforceReleaseProviderContinuity(adapter: ReleaseAgentAdap
       buildJobId: job.buildJobId,
       opportunityId: job.opportunityId,
       eventType: "RELEASE_PROVIDER_CONTINUITY_BLOCKED",
-      summary: "Configured release provider differs from the provider that owns an in-flight external run; replay was blocked.",
+      summary: "Configured release provider differs from the provider that owns an existing external run; replay was blocked.",
       metadata: { expected_provider: job.releaseProvider, configured_provider: adapter.provider },
     });
     blocked += 1;
   }
   return blocked;
+}
+
+function withTerminalCostReplayGuard(adapter: ReleaseAgentAdapter | null): ReleaseAgentAdapter | null {
+  if (!adapter) return null;
+  return {
+    provider: adapter.provider,
+    costMode: adapter.costMode,
+    dispatch: (input) => adapter.dispatch(input),
+    async getStatus(providerRunId) {
+      const result = await adapter.getStatus(providerRunId);
+      if (result.externalCostCents <= 0) return result;
+      const runColumn = result.stage === "PRODUCTION"
+        ? releaseJobsTable.productionProviderRunId
+        : releaseJobsTable.previewProviderRunId;
+      const [job] = await db
+        .select()
+        .from(releaseJobsTable)
+        .where(eq(runColumn, providerRunId))
+        .limit(1);
+      if (!job) return result;
+      const alreadyAccounted = result.stage === "PRODUCTION"
+        ? job.productionFinishedAt != null
+        : job.previewFinishedAt != null;
+      return alreadyAccounted ? { ...result, externalCostCents: 0 } : result;
+    },
+  };
 }
 
 export async function surfacePreviewVisibilityViolations(): Promise<number> {
@@ -330,11 +476,11 @@ export async function surfacePreviewVisibilityViolations(): Promise<number> {
       actionType: "UNAUTHORIZED_PUBLIC_PREVIEW",
       title: "Restrict an unintended public preview",
       whyNeeded: "The release backend made a preview publicly reachable before public-release authority existed. Money Scout stopped production, but the unintended public exposure itself requires immediate correction.",
-      instructions: "Restrict or remove the unintended public preview at the hosting provider. Do not authorize production until the exposure is corrected and a private preview can be verified again.",
+      instructions: "Restrict or remove the unintended public preview at the hosting provider, then use the private-preview retry control. Money Scout will create a fresh private preview before asking for public-release authority again.",
       blockedStage: `CONTROLLED_RELEASE_PREVIEW_VISIBILITY:${job.id}`,
       requiredCapabilityKey: null,
       provider: job.releaseProvider,
-      verificationMode: "HUMAN_ATTESTATION",
+      verificationMode: "AUTOMATED_CHECK",
       urgency: "CRITICAL",
       resumeAction: "NO_AUTOMATIC_RESUME",
       resumePayload: {
@@ -353,7 +499,7 @@ export async function runControlledReleaseTickSafely(
 ): Promise<{ createdReleaseJobs: number; processedReleaseJobId: number | null; providerContinuityBlocks: number; previewSafetyActions: number }> {
   const adapter = adapterOverride === undefined ? configuredReleaseAdapter() : adapterOverride;
   const providerContinuityBlocks = await enforceReleaseProviderContinuity(adapter);
-  const result = await runControlledReleaseTick(adapter);
+  const result = await runControlledReleaseTick(withTerminalCostReplayGuard(adapter));
   const previewSafetyActions = await surfacePreviewVisibilityViolations();
   return { ...result, providerContinuityBlocks, previewSafetyActions };
 }
