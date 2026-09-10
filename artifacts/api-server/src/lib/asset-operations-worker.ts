@@ -332,16 +332,20 @@ export async function activateAssetsFromCompletedReleases(): Promise<number> {
   return activated;
 }
 
-function outageIncidentKey(assetId: number): string {
-  return `asset-${assetId}:availability-outage`;
+function outageIncidentKey(asset: typeof assetsTable.$inferSelect): string {
+  const anchor = asset.lastHealthyAt ?? asset.activatedAt;
+  return `asset-${asset.id}:availability-outage:${anchor.getTime()}`;
 }
 
 async function resolveAvailabilityIncident(asset: typeof assetsTable.$inferSelect): Promise<void> {
-  const key = outageIncidentKey(asset.id);
   const [open] = await db
     .select()
     .from(assetIncidentsTable)
-    .where(and(eq(assetIncidentsTable.incidentKey, key), eq(assetIncidentsTable.status, "OPEN")));
+    .where(and(
+      eq(assetIncidentsTable.assetId, asset.id),
+      eq(assetIncidentsTable.incidentType, "AVAILABILITY"),
+      eq(assetIncidentsTable.status, "OPEN"),
+    ));
   if (!open) return;
   const now = new Date();
   await db.update(assetIncidentsTable).set({ status: "RESOLVED", resolvedAt: now, updatedAt: now }).where(eq(assetIncidentsTable.id, open.id));
@@ -365,8 +369,21 @@ async function openAvailabilityIncident(
   asset: typeof assetsTable.$inferSelect,
   evidence: Record<string, unknown>,
 ): Promise<void> {
-  const key = outageIncidentKey(asset.id);
   const now = new Date();
+  const [existingOpen] = await db
+    .select()
+    .from(assetIncidentsTable)
+    .where(and(
+      eq(assetIncidentsTable.assetId, asset.id),
+      eq(assetIncidentsTable.incidentType, "AVAILABILITY"),
+      eq(assetIncidentsTable.status, "OPEN"),
+    ));
+  if (existingOpen) {
+    await db.update(assetIncidentsTable).set({ evidence, updatedAt: now }).where(eq(assetIncidentsTable.id, existingOpen.id));
+    return;
+  }
+
+  const key = outageIncidentKey(asset);
   const [incident] = await db.insert(assetIncidentsTable).values({
     assetId: asset.id,
     incidentKey: key,
@@ -379,7 +396,7 @@ async function openAvailabilityIncident(
     updatedAt: now,
   }).onConflictDoUpdate({
     target: assetIncidentsTable.incidentKey,
-    set: { status: "OPEN", severity: "HIGH", evidence, resolvedAt: null, updatedAt: now },
+    set: { status: "OPEN", severity: "HIGH", evidence, resolvedAt: null, detectedAt: now, updatedAt: now },
   }).returning();
 
   await recordAssetEvent({
