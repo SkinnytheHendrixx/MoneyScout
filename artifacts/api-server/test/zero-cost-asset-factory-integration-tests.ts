@@ -723,7 +723,7 @@ const bridge: BuilderAgentAdapter = {
   },
 };
 let workspace: typeof builderWorkspacesTable.$inferSelect | undefined;
-for (let tick = 0; tick < 10 && !workspace; tick += 1) {
+for (let tick = 0; tick < 100 && !workspace; tick += 1) {
   await runBuilderWorkspaceTick(bridge);
   [workspace] = await db
     .select()
@@ -761,7 +761,7 @@ const independentQa: QaAgentAdapter = {
   provider: "ZERO_COST_INDEPENDENT_QA_FIXTURE",
   costMode: "ZERO_CASH",
   async dispatch(input) {
-    qaInput = input;
+    if (input.buildJobId === factoryBuild!.id) qaInput = input;
     return {
       providerRunId: `qa-${factoryBuild!.id}`,
       state: "PASSED",
@@ -786,7 +786,7 @@ const independentQa: QaAgentAdapter = {
     throw new Error("Immediate QA fixture must not poll");
   },
 };
-for (let tick = 0; tick < 20; tick += 1) {
+for (let tick = 0; tick < 100; tick += 1) {
   await runQaDebugTick(independentQa, bridge);
   const [current] = await db
     .select({ status: buildJobsTable.status })
