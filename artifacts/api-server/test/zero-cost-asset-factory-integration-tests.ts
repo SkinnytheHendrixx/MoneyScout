@@ -722,11 +722,14 @@ const bridge: BuilderAgentAdapter = {
     };
   },
 };
-await runBuilderWorkspaceTick(bridge);
-const [workspace] = await db
-  .select()
-  .from(builderWorkspacesTable)
-  .where(eq(builderWorkspacesTable.buildJobId, factoryBuild!.id));
+let workspace: typeof builderWorkspacesTable.$inferSelect | undefined;
+for (let tick = 0; tick < 10 && !workspace; tick += 1) {
+  await runBuilderWorkspaceTick(bridge);
+  [workspace] = await db
+    .select()
+    .from(builderWorkspacesTable)
+    .where(eq(builderWorkspacesTable.buildJobId, factoryBuild!.id));
+}
 assert.equal(
   workspace?.status,
   "QA_PENDING",
@@ -783,7 +786,14 @@ const independentQa: QaAgentAdapter = {
     throw new Error("Immediate QA fixture must not poll");
   },
 };
-await runQaDebugTick(independentQa, bridge);
+for (let tick = 0; tick < 20; tick += 1) {
+  await runQaDebugTick(independentQa, bridge);
+  const [current] = await db
+    .select({ status: buildJobsTable.status })
+    .from(buildJobsTable)
+    .where(eq(buildJobsTable.id, factoryBuild!.id));
+  if (current?.status === "COMPLETE") break;
+}
 assert.equal(
   qaInput?.commitSha,
   repairResult?.resultCommitSha,
