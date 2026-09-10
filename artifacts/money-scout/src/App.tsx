@@ -19,6 +19,7 @@ import OpportunityDetail from '@/pages/opportunity-detail';
 import OpportunityEdit from '@/pages/opportunity-edit';
 import OpportunityRuns from '@/pages/opportunity-runs';
 import AssetsPage from '@/pages/assets';
+import BetsPage from '@/pages/bets';
 import Discovery from '@/pages/discovery';
 import Readiness from '@/pages/readiness';
 import NeedsYouPage from '@/pages/needs-you';
@@ -32,6 +33,7 @@ function Router({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
         <Switch>
           <Route path="/" component={OpportunitiesList} />
           <Route path="/assets" component={AssetsPage} />
+          <Route path="/bets" component={BetsPage} />
           <Route path="/needs-you" component={NeedsYouPage} />
           <Route path="/opportunities/new" component={OpportunityNew} />
           <Route path="/opportunities/:id/runs" component={OpportunityRuns} />

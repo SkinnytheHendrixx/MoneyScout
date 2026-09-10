@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import {
   db,
   executionJobEventsTable,
@@ -19,10 +19,11 @@ function intervalMs(): number {
   return DEFAULT_INTERVAL_MS;
 }
 
-const stillPlaceholderJob = (jobId: number) => and(
+const BET_WAIT_CODES = ["BUILD_ORCHESTRATOR_NOT_IMPLEMENTED", "APPROVED_BET_REQUIRED", "BET_NOT_ACTIVE", "BET_ENVELOPE_INVALID"] as const;
+const stillEligibleJob = (jobId: number) => and(
   eq(executionJobsTable.id, jobId),
   eq(executionJobsTable.status, "WAITING"),
-  eq(executionJobsTable.lastErrorCode, "BUILD_ORCHESTRATOR_NOT_IMPLEMENTED"),
+  inArray(executionJobsTable.lastErrorCode, [...BET_WAIT_CODES]),
 );
 
 async function markExecutionSucceeded(
@@ -42,7 +43,7 @@ async function markExecutionSucceeded(
       lastErrorMessage: null,
       updatedAt: now,
     })
-    .where(stillPlaceholderJob(job.id))
+    .where(stillEligibleJob(job.id))
     .returning({ id: executionJobsTable.id });
   if (!updated) return false;
 
@@ -65,6 +66,7 @@ async function processWaitingBuildOrchestratorJob(
     await markExecutionSucceeded(job, {
       status: "READY_FOR_BUILDER",
       build_job_id: result.buildJob.id,
+      bet_id: result.bet.id,
       product_shape: result.contract.product.primaryShape,
       builder_profile: result.contract.product.builderProfile,
       minimum_sellable_outcome: result.contract.product.minimumSellableOutcome,
@@ -72,6 +74,13 @@ async function processWaitingBuildOrchestratorJob(
       next_action: "BUILDER_WORKSPACE",
       reused: result.reused,
     });
+    return;
+  }
+
+  if (result.kind === "BET_REQUIRED" || result.kind === "BET_INACTIVE" || result.kind === "BET_ENVELOPE_INVALID") {
+    const code = result.kind === "BET_REQUIRED" ? "APPROVED_BET_REQUIRED" : result.kind === "BET_INACTIVE" ? "BET_NOT_ACTIVE" : "BET_ENVELOPE_INVALID";
+    const [updated] = await db.update(executionJobsTable).set({ lastErrorClass: "AUTHORIZATION_REQUIRED", lastErrorCode: code, lastErrorMessage: result.kind === "BET_REQUIRED" ? "A Build cannot begin until a separate Bet decision contract and resource allocation are explicitly approved." : result.kind === "BET_INACTIVE" ? "The selected Bet is not in an approved/active state." : "The Build Envelope exceeds the approved Bet allocation.", updatedAt: new Date() }).where(and(eq(executionJobsTable.id, job.id), eq(executionJobsTable.lastErrorCode, "BUILD_ORCHESTRATOR_NOT_IMPLEMENTED"))).returning({ id: executionJobsTable.id });
+    if (updated) await db.insert(executionJobEventsTable).values({ jobId: job.id, opportunityId: job.opportunityId, eventType: "JOB_WAITING_FOR_BET", summary: "Build orchestration stopped safely until a valid approved Bet exists.", metadata: { blocker_code: code, external_cost_cents: 0, authority_granted: false } });
     return;
   }
 
@@ -88,7 +97,7 @@ async function processWaitingBuildOrchestratorJob(
         lastErrorMessage: result.contract.blockers.join(" ").slice(0, 4_000),
         updatedAt: now,
       })
-      .where(stillPlaceholderJob(job.id))
+      .where(stillEligibleJob(job.id))
       .returning({ id: executionJobsTable.id });
     if (!updated) return;
 
@@ -121,7 +130,7 @@ async function processWaitingBuildOrchestratorJob(
       lastErrorMessage: "The opportunity no longer exists when the Build Orchestrator attempted to run.",
       updatedAt: now,
     })
-    .where(stillPlaceholderJob(job.id));
+    .where(stillEligibleJob(job.id));
 }
 
 export async function runBuildOrchestratorWorkerTick(): Promise<{ processedJobId: number | null }> {
@@ -135,7 +144,7 @@ export async function runBuildOrchestratorWorkerTick(): Promise<{ processedJobId
         and(
           eq(executionJobsTable.action, "RUN_BUILD_ORCHESTRATOR"),
           eq(executionJobsTable.status, "WAITING"),
-          eq(executionJobsTable.lastErrorCode, "BUILD_ORCHESTRATOR_NOT_IMPLEMENTED"),
+          inArray(executionJobsTable.lastErrorCode, [...BET_WAIT_CODES]),
         ),
       )
       .orderBy(asc(executionJobsTable.createdAt), asc(executionJobsTable.id))
