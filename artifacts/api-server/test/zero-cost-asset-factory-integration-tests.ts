@@ -1583,6 +1583,284 @@ assert.equal(
   "the row is left exactly as the new owner set it; the stale worker never touches it",
 );
 
+// Once a worker loses its execution lease, it may not mutate authoritative
+// Gateway execution state anywhere between initial claim and provider
+// dispatch -- not just at the dispatch CAS itself. Each scenario below
+// hijacks the row during a distinct earlier pre-provider window and
+// asserts the corresponding write becomes a no-op rather than mutating a
+// newer owner's row.
+
+// (a) Hijacked during worktree preparation, before the RUNNING transition:
+// the transition itself is CAS-guarded and must not overwrite the new
+// owner's leaseOwner/status/workspace path.
+const [runningRaceRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-race-running-${recoverySuffix}`,
+    provider: "ZERO_COST_RACE_RUNNING_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 509,
+    repairNumber: 0,
+    branchName: "money-scout/race-running",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let runningRaceDriverCalled = false;
+const runningRaceDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RACE_RUNNING_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    runningRaceDriverCalled = true;
+    throw new Error(
+      "must never be called once lease ownership is lost before RUNNING",
+    );
+  },
+};
+const runningRaceExecution = executeBuilderGatewayRun(
+  runningRaceRun!.id,
+  runningRaceDriver,
+);
+let runningHijacked = false;
+for (let attempt = 0; attempt < 5_000 && !runningHijacked; attempt += 1) {
+  const hijackAttempt = await db
+    .update(builderGatewayRunsTable)
+    .set({ leaseOwner: "hijacked-before-running", updatedAt: new Date() })
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, runningRaceRun!.id),
+        eq(builderGatewayRunsTable.status, "PREPARING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (hijackAttempt.length) {
+    runningHijacked = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  runningHijacked,
+  "test setup: expected to observe and hijack the PREPARING pre-provider window before the RUNNING transition",
+);
+await runningRaceExecution;
+assert.equal(
+  runningRaceDriverCalled,
+  false,
+  "a worker that lost lease ownership before RUNNING must never reach dispatch or call the driver",
+);
+const [runningRaceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, runningRaceRun!.id));
+assert.equal(
+  runningRaceResult?.status,
+  "PREPARING",
+  "a failed RUNNING-transition CAS must not advance status",
+);
+assert.equal(
+  runningRaceResult?.isolatedWorkspacePath,
+  null,
+  "a stale worker must not overwrite the workspace path of a row it no longer owns",
+);
+assert.equal(
+  runningRaceResult?.leaseOwner,
+  "hijacked-before-running",
+  "the row is left exactly as the new owner set it",
+);
+
+// (b) Hijacked after the RUNNING transition but before the final provider
+// gate is evaluated, with the final gate deterministically forced to
+// fail (the build's spend ceiling is pushed above the Bet's envelope
+// maximum -- a precondition set up front, not raced, so the final gate
+// reliably returns not-allowed regardless of exact timing): the
+// resulting pre-provider cancellation write is CAS-guarded and must not
+// cancel or clear a newer owner's lease.
+const [finalGateRaceRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-race-finalgate-${recoverySuffix}`,
+    provider: "ZERO_COST_RACE_FINALGATE_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 510,
+    repairNumber: 0,
+    branchName: "money-scout/race-finalgate",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let finalGateRaceDriverCalled = false;
+const finalGateRaceDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RACE_FINALGATE_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    finalGateRaceDriverCalled = true;
+    throw new Error(
+      "must never be called once lease ownership is lost before the final gate",
+    );
+  },
+};
+await db
+  .update(buildJobsTable)
+  .set({ externalSpendCeilingCents: 100_000, updatedAt: new Date() })
+  .where(eq(buildJobsTable.id, factoryBuild!.id));
+const finalGateRaceExecution = executeBuilderGatewayRun(
+  finalGateRaceRun!.id,
+  finalGateRaceDriver,
+);
+let finalGateHijacked = false;
+for (let attempt = 0; attempt < 5_000 && !finalGateHijacked; attempt += 1) {
+  const hijackAttempt = await db
+    .update(builderGatewayRunsTable)
+    .set({ leaseOwner: "hijacked-before-final-gate", updatedAt: new Date() })
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, finalGateRaceRun!.id),
+        eq(builderGatewayRunsTable.status, "RUNNING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (hijackAttempt.length) {
+    finalGateHijacked = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  finalGateHijacked,
+  "test setup: expected to observe and hijack the RUNNING pre-provider window before the final gate",
+);
+await finalGateRaceExecution;
+await db
+  .update(buildJobsTable)
+  .set({ externalSpendCeilingCents: 100, updatedAt: new Date() })
+  .where(eq(buildJobsTable.id, factoryBuild!.id));
+assert.equal(
+  finalGateRaceDriverCalled,
+  false,
+  "a worker that lost lease ownership before the final gate must never call the driver",
+);
+const [finalGateRaceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, finalGateRaceRun!.id));
+assert.notEqual(
+  finalGateRaceResult?.status,
+  "CANCELLED",
+  "a stale worker's failed final gate must not cancel the newer owner's run",
+);
+assert.equal(
+  finalGateRaceResult?.leaseOwner,
+  "hijacked-before-final-gate",
+  "the row is left exactly as the new owner set it",
+);
+assert.notEqual(
+  finalGateRaceResult?.leaseExpiresAt,
+  null,
+  "a stale worker must not clear the newer owner's lease",
+);
+
+// (c) Hijacked before an early pre-provider blocking path (here: the
+// unenforceable-cost money-safety block, which fires before any worktree
+// work begins): the block write is CAS-guarded and must not mutate a
+// newer owner's row.
+const [earlyBlockRaceRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-race-early-block-${recoverySuffix}`,
+    provider: "ZERO_COST_RACE_EARLY_BLOCK_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 511,
+    repairNumber: 0,
+    branchName: "money-scout/race-early-block",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let earlyBlockRaceDriverCalled = false;
+const earlyBlockRaceDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RACE_EARLY_BLOCK_FIXTURE",
+  billing: {
+    mode: "METERED",
+    enforceableMaximumIncrementalCostCents: null,
+    enforcementMechanism: null,
+    payAsYouGoFallbackPossible: true,
+  },
+  async run() {
+    earlyBlockRaceDriverCalled = true;
+    throw new Error(
+      "must never be called once lease ownership is lost before an early block",
+    );
+  },
+};
+const earlyBlockRaceExecution = executeBuilderGatewayRun(
+  earlyBlockRaceRun!.id,
+  earlyBlockRaceDriver,
+);
+let earlyBlockHijacked = false;
+for (let attempt = 0; attempt < 5_000 && !earlyBlockHijacked; attempt += 1) {
+  const hijackAttempt = await db
+    .update(builderGatewayRunsTable)
+    .set({
+      leaseOwner: "hijacked-before-early-block",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, earlyBlockRaceRun!.id),
+        eq(builderGatewayRunsTable.status, "PREPARING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (hijackAttempt.length) {
+    earlyBlockHijacked = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  earlyBlockHijacked,
+  "test setup: expected to observe and hijack the PREPARING pre-provider window before an early blocking path",
+);
+await earlyBlockRaceExecution;
+assert.equal(
+  earlyBlockRaceDriverCalled,
+  false,
+  "a worker that lost lease ownership before an early block must never call the driver",
+);
+const [earlyBlockRaceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, earlyBlockRaceRun!.id));
+assert.notEqual(
+  earlyBlockRaceResult?.status,
+  "BLOCKED",
+  "a stale worker's early blocking path must not mutate a newer owner's row",
+);
+assert.equal(
+  earlyBlockRaceResult?.leaseOwner,
+  "hijacked-before-early-block",
+  "the row is left exactly as the new owner set it",
+);
+
 // Two concurrent recovery ticks racing to reclaim and execute the same
 // expired pre-provider lease must never both succeed: the CAS predicate
 // (id + stale status + PRE_PROVIDER + stale lease owner/identity + stale

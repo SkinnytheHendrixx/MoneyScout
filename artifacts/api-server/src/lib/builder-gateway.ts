@@ -161,7 +161,41 @@ async function blockRunForCapability(input: {
   capabilityKey: string;
   provider: string;
   outcome?: BuilderTerminalOutcome;
+  // CAS guard: this call always fires from the pre-provider PREPARING
+  // window, before the RUNNING transition. If this worker's lease has
+  // already been reclaimed (recovery, or a fresh claim), it must not
+  // mutate the newer owner's row.
+  expectedLeaseOwner: string;
 }): Promise<void> {
+  const [updated] = await db
+    .update(builderGatewayRunsTable)
+    .set({
+      status: "BLOCKED",
+      terminalOutcome: input.outcome ?? "DEPENDENCY_BLOCKED",
+      actualExternalCashCostCents: null,
+      costProvenance: "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
+      resultSummary: input.code,
+      finishedAt: new Date(),
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, input.run.id),
+        eq(builderGatewayRunsTable.leaseOwner, input.expectedLeaseOwner),
+        eq(builderGatewayRunsTable.status, "PREPARING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (!updated) {
+    logger.warn(
+      { gatewayRunId: input.run.id },
+      "Builder Gateway pre-provider capability block skipped: lease ownership changed since observation",
+    );
+    return;
+  }
   await createOrReuseHumanAction({
     opportunityId: input.opportunityId,
     actionType: input.actionType,
@@ -180,20 +214,6 @@ async function blockRunForCapability(input: {
     },
     inherentlyHumanAuthority: true,
   });
-  await db
-    .update(builderGatewayRunsTable)
-    .set({
-      status: "BLOCKED",
-      terminalOutcome: input.outcome ?? "DEPENDENCY_BLOCKED",
-      actualExternalCashCostCents: null,
-      costProvenance: "BLOCKED_BEFORE_PROVIDER_SIDE_EFFECT",
-      resultSummary: input.code,
-      finishedAt: new Date(),
-      leaseOwner: null,
-      leaseExpiresAt: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(builderGatewayRunsTable.id, input.run.id));
 }
 
 async function blockRunForMissingMoneySafety(input: {
@@ -201,9 +221,11 @@ async function blockRunForMissingMoneySafety(input: {
   job: typeof buildJobsTable.$inferSelect;
   code: string;
   provider: string;
+  // CAS guard: see blockRunForCapability.
+  expectedLeaseOwner: string;
 }): Promise<void> {
   const now = new Date();
-  await db
+  const [updated] = await db
     .update(builderGatewayRunsTable)
     .set({
       status: "BLOCKED",
@@ -224,7 +246,22 @@ async function blockRunForMissingMoneySafety(input: {
       leaseExpiresAt: null,
       updatedAt: now,
     })
-    .where(eq(builderGatewayRunsTable.id, input.run.id));
+    .where(
+      and(
+        eq(builderGatewayRunsTable.id, input.run.id),
+        eq(builderGatewayRunsTable.leaseOwner, input.expectedLeaseOwner),
+        eq(builderGatewayRunsTable.status, "PREPARING"),
+        eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+      ),
+    )
+    .returning();
+  if (!updated) {
+    logger.warn(
+      { gatewayRunId: input.run.id },
+      "Builder Gateway pre-provider money-safety block skipped: lease ownership changed since observation",
+    );
+    return;
+  }
   await db
     .update(buildJobsTable)
     .set({ status: "BLOCKED", blockedReason: input.code, updatedAt: now })
@@ -790,7 +827,14 @@ export async function executeBuilderGatewayRun(
         leaseExpiresAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(builderGatewayRunsTable.id, run.id));
+      .where(
+        and(
+          eq(builderGatewayRunsTable.id, run.id),
+          eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
+          eq(builderGatewayRunsTable.status, "PREPARING"),
+          eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+        ),
+      );
     return;
   }
   if (!repository.repositoryUrl || !repository.baseCommitSha) {
@@ -806,6 +850,7 @@ export async function executeBuilderGatewayRun(
         "Connect or repair the narrow repository provisioner; do not give repository credentials to the coding agent.",
       capabilityKey: "ASSET_REPOSITORY_PROVISIONER_ACCESS",
       provider: repository.provider,
+      expectedLeaseOwner: leaseOwner,
     });
     return;
   }
@@ -823,6 +868,7 @@ export async function executeBuilderGatewayRun(
         "Configure a narrow repository credential in the Gateway secret store. Never place it in the repository, Build Contract, or coding-agent environment.",
       capabilityKey: "BUILDER_GATEWAY_REPOSITORY_ACCESS",
       provider: repository.provider,
+      expectedLeaseOwner: leaseOwner,
     });
     return;
   }
@@ -843,6 +889,7 @@ export async function executeBuilderGatewayRun(
         "Connect Codex through the Gateway secret store and declare whether execution uses a bounded paid API budget or an existing entitlement. Do not put the credential in an Asset repository.",
       capabilityKey: "CODEX_BUILDER_PROVIDER_ACCESS",
       provider: "OPENAI_CODEX_SDK",
+      expectedLeaseOwner: leaseOwner,
     });
     return;
   }
@@ -858,6 +905,7 @@ export async function executeBuilderGatewayRun(
       code:
         executionGate.blocker ?? "BUILDER_PROVIDER_FINANCIAL_SAFETY_BLOCKED",
       provider: driver.provider,
+      expectedLeaseOwner: leaseOwner,
     });
     return;
   }
@@ -895,20 +943,45 @@ export async function executeBuilderGatewayRun(
     );
     if (JSON.stringify(originals) !== JSON.stringify(authoritativeFiles))
       throw new Error("GATEWAY_REPOSITORY_MANIFEST_BASE_MISMATCH");
-    await db
+    // Once a worker loses its execution lease, it may not mutate
+    // authoritative Gateway execution state -- worktree preparation above
+    // involves real subprocess/filesystem I/O and is exactly where a lease
+    // can expire out from under a still-running worker. This transition to
+    // RUNNING is therefore itself CAS-guarded: it only applies if this
+    // worker still provably holds the exact lease it acquired at claim
+    // time. If lost, stop immediately without running the final provider
+    // gate, without calling the provider, and without any further row
+    // mutation.
+    const runningClaim = await db
       .update(builderGatewayRunsTable)
       .set({
         status: "RUNNING",
         isolatedWorkspacePath: worktree.repositoryPath,
         updatedAt: new Date(),
       })
-      .where(eq(builderGatewayRunsTable.id, run.id));
+      .where(
+        and(
+          eq(builderGatewayRunsTable.id, run.id),
+          eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
+          eq(builderGatewayRunsTable.status, "PREPARING"),
+          eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+          gt(builderGatewayRunsTable.leaseExpiresAt, new Date()),
+        ),
+      )
+      .returning();
+    if (runningClaim.length !== 1) {
+      logger.warn(
+        { gatewayRunId: run.id },
+        "Builder Gateway lost lease ownership during worktree preparation; stopping before the RUNNING transition",
+      );
+      return;
+    }
     const finalGate = await revalidateImmediatelyBeforeProviderSideEffect({
       jobId: job.id,
       driver,
     });
     if (!finalGate.allowed) {
-      await db
+      const finalGateCancel = await db
         .update(builderGatewayRunsTable)
         .set({
           status: "CANCELLED",
@@ -922,7 +995,20 @@ export async function executeBuilderGatewayRun(
           leaseExpiresAt: null,
           updatedAt: new Date(),
         })
-        .where(eq(builderGatewayRunsTable.id, run.id));
+        .where(
+          and(
+            eq(builderGatewayRunsTable.id, run.id),
+            eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
+            eq(builderGatewayRunsTable.status, "RUNNING"),
+            eq(builderGatewayRunsTable.executionPhase, "PRE_PROVIDER"),
+          ),
+        )
+        .returning();
+      if (!finalGateCancel.length)
+        logger.warn(
+          { gatewayRunId: run.id },
+          "Builder Gateway lost lease ownership before the final provider gate; skipped a stale pre-provider cancellation",
+        );
       return;
     }
     // Durably record that the external provider boundary is about to be
