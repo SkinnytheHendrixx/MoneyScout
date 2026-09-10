@@ -1,12 +1,14 @@
 import "./lib/anthropic-provider";
 import {
   pool,
+  prepareAssetOperationsSchema,
   prepareBuilderWorkspaceSchema,
   prepareControlledReleaseSchema,
   prepareQaDebugSchema,
   prepareRuntimeSchema,
 } from "@workspace/db";
 import app from "./app";
+import { startAssetOperationsWorker } from "./lib/asset-operations-worker";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
 import { startControlledReleaseSafetyWorker } from "./lib/controlled-release-safety";
@@ -37,6 +39,7 @@ async function startServer(): Promise<void> {
   const builderSchema = await prepareBuilderWorkspaceSchema(pool);
   const qaSchema = await prepareQaDebugSchema(pool);
   const releaseSchema = await prepareControlledReleaseSchema(pool);
+  const assetSchema = await prepareAssetOperationsSchema(pool);
   logger.info(
     {
       appliedRuntimeMigrations: [
@@ -44,12 +47,14 @@ async function startServer(): Promise<void> {
         ...builderSchema.appliedMigrationIds,
         ...qaSchema.appliedMigrationIds,
         ...releaseSchema.appliedMigrationIds,
+        ...assetSchema.appliedMigrationIds,
       ],
       requiredRuntimeTables: [
         ...schema.requiredTables,
         ...builderSchema.requiredTables,
         ...qaSchema.requiredTables,
         ...releaseSchema.requiredTables,
+        ...assetSchema.requiredTables,
       ],
       runtimePreflight,
     },
@@ -78,6 +83,7 @@ async function startServer(): Promise<void> {
     startBuilderWorkspaceWorker();
     startQaDebugWorker();
     startControlledReleaseSafetyWorker();
+    startAssetOperationsWorker();
     startPortfolioHeartbeat(port);
   });
 }
