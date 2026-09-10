@@ -42,7 +42,31 @@ const EMPTY_USAGE: BuilderUsage = {
   durationMs: null,
   entitlementUnits: null,
 };
-const activeAbortControllers = new Map<number, AbortController>();
+// Process-local cancellation bookkeeping, scoped to the exact lease
+// acquisition it was registered for -- not just the logical run ID. Two
+// workers (or a worker and a reconciler) can transiently coexist for the
+// same run ID during recovery/lease races; keying by run ID alone would let
+// a stale worker's cleanup delete or abort a newer worker's controller.
+// This is local bookkeeping only: the database lease remains the
+// authoritative ownership record.
+type GatewayControllerEntry = {
+  leaseOwner: string | null;
+  controller: AbortController;
+};
+const activeAbortControllers = new Map<number, GatewayControllerEntry>();
+
+function registerGatewayController(
+  runId: number,
+  leaseOwner: string | null,
+  controller: AbortController,
+): void {
+  activeAbortControllers.set(runId, { leaseOwner, controller });
+}
+
+function releaseGatewayController(runId: number, leaseOwner: string | null): void {
+  const entry = activeAbortControllers.get(runId);
+  if (entry && entry.leaseOwner === leaseOwner) activeAbortControllers.delete(runId);
+}
 
 type GatewayStartInput = {
   buildJobId: number;
@@ -295,6 +319,13 @@ async function blockRunForUncertainProviderOutcome(input: {
   // first) already changed the row, this write must no-op rather than
   // clobber whatever that actor recorded.
   expectedLeaseOwner: string | null;
+  // Set only when called from lease recovery, whose "expired" observation
+  // may be stale by the time this write executes: the still-alive worker
+  // could have renewed its lease (see the repository-finalization CAS in
+  // executeBuilderGatewayRun) in the gap between recovery's read and this
+  // write. Requiring the lease to still be expired *at write time* closes
+  // that race -- a renewal that lands first makes this write a no-op.
+  requireLeaseExpired?: boolean;
 }): Promise<void> {
   const now = new Date();
   const [updated] = await db
@@ -331,6 +362,9 @@ async function blockRunForUncertainProviderOutcome(input: {
           "RUNNING",
           "CANCELLING",
         ]),
+        ...(input.requireLeaseExpired
+          ? [lt(builderGatewayRunsTable.leaseExpiresAt, new Date())]
+          : []),
       ),
     )
     .returning();
@@ -405,6 +439,9 @@ async function reconcileKnownProviderRun(input: {
   // CAS guard: see blockRunForUncertainProviderOutcome. A stale reconciler
   // must never overwrite a row a newer owner has already moved on.
   expectedLeaseOwner: string | null;
+  // See blockRunForUncertainProviderOutcome. Set only when called from
+  // lease recovery.
+  requireLeaseExpired?: boolean;
 }): Promise<boolean> {
   if (!input.driver.reconcile || !input.run.providerRunId) return false;
   const [job] = await db
@@ -413,7 +450,7 @@ async function reconcileKnownProviderRun(input: {
     .where(eq(buildJobsTable.id, input.run.buildJobId));
   if (!job) return false;
   const controller = new AbortController();
-  activeAbortControllers.set(input.run.id, controller);
+  registerGatewayController(input.run.id, input.expectedLeaseOwner, controller);
   try {
     const result = await input.driver.reconcile({
       providerRunId: input.run.providerRunId,
@@ -480,6 +517,9 @@ async function reconcileKnownProviderRun(input: {
             "RUNNING",
             "CANCELLING",
           ]),
+          ...(input.requireLeaseExpired
+            ? [lt(builderGatewayRunsTable.leaseExpiresAt, new Date())]
+            : []),
         ),
       )
       .returning();
@@ -522,7 +562,7 @@ async function reconcileKnownProviderRun(input: {
     );
     return false;
   } finally {
-    activeAbortControllers.delete(input.run.id);
+    releaseGatewayController(input.run.id, input.expectedLeaseOwner);
   }
 }
 
@@ -920,7 +960,7 @@ export async function executeBuilderGatewayRun(
   // terminal).
   let providerBoundaryCrossed = false;
   const controller = new AbortController();
-  activeAbortControllers.set(run.id, controller);
+  registerGatewayController(run.id, leaseOwner, controller);
   try {
     const payload = run.requestPayload as {
       repair_defects?: PersistedQaDefect[];
@@ -1060,7 +1100,7 @@ export async function executeBuilderGatewayRun(
     if (result.terminalOutcome !== "IMPLEMENTATION_READY") {
       const gatewayStatus = gatewayStatusForOutcome(result.terminalOutcome);
       const factoryStatus = factoryStatusForOutcome(result.terminalOutcome);
-      await db
+      const nonReadyWrite = await db
         .update(builderGatewayRunsTable)
         .set({
           status: gatewayStatus,
@@ -1085,7 +1125,27 @@ export async function executeBuilderGatewayRun(
             eq(builderGatewayRunsTable.id, run.id),
             eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
           ),
+        )
+        .returning();
+      if (!nonReadyWrite.length) {
+        // Downstream effects derived from a worker's result may occur only
+        // after that worker has successfully committed authoritative
+        // ownership of that result. Ownership was lost between the
+        // dispatch CAS and this write; do not reconcile cost or mutate the
+        // Factory Run from a result this worker is no longer authoritative
+        // for. The real provider result (including any real cost) is
+        // logged but not attached to current economic state; it awaits
+        // future authoritative reconciliation of the row's actual owner.
+        logger.warn(
+          {
+            gatewayRunId: run.id,
+            terminalOutcome: result.terminalOutcome,
+            actualExternalCashCostCents: result.actualExternalCashCostCents,
+          },
+          "Builder Gateway lost lease ownership before recording a non-ready provider result; skipping cost reconciliation and Factory Run mutation",
         );
+        return;
+      }
       await reconcileObservedCashCost(
         job,
         run.id,
@@ -1155,6 +1215,44 @@ export async function executeBuilderGatewayRun(
     }
     if (!/^[0-9a-f]{40,64}$/i.test(resultCommitSha))
       throw new Error("GATEWAY_RESULT_COMMIT_SHA_INVALID");
+    // Once a worker loses its execution lease, it may not mutate the
+    // durable Asset repository either -- git push is the first irreversible
+    // external mutation past this point. A provider call can legitimately
+    // run long enough to outlive the original lease TTL with zero
+    // contention, so a plain "is my lease still fresh?" read is not
+    // sufficient (another worker could race between that read and the
+    // push). Instead, atomically re-claim exclusive ownership here: the CAS
+    // requires this worker's exact leaseOwner and status='RUNNING', so if
+    // lease recovery already decided this run is uncertain/blocked or
+    // reassigned it, the update affects zero rows and the push never
+    // happens. On success it also renews the lease, buying a fresh window
+    // to complete the push and final write without further contention.
+    // Recovery's own competing writes for this run are symmetrically
+    // guarded (they require the lease to still appear expired at write
+    // time, not just at an earlier read), so exactly one side of this race
+    // can ever win.
+    const finalizationClaim = await db
+      .update(builderGatewayRunsTable)
+      .set({
+        leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(builderGatewayRunsTable.id, run.id),
+          eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
+          eq(builderGatewayRunsTable.status, "RUNNING"),
+          eq(builderGatewayRunsTable.executionPhase, "PROVIDER_DISPATCH_ATTEMPTED"),
+        ),
+      )
+      .returning();
+    if (finalizationClaim.length !== 1) {
+      logger.warn(
+        { gatewayRunId: run.id },
+        "Builder Gateway lost lease ownership before repository finalization; refusing to push to the durable Asset repository",
+      );
+      return;
+    }
     await git(
       worktree.repositoryPath,
       ["push", "origin", `HEAD:refs/heads/${run.branchName}`],
@@ -1190,11 +1288,14 @@ export async function executeBuilderGatewayRun(
       )
       .returning();
     if (!successWrite.length) {
-      // Ownership changed between the dispatch CAS and this write (an
-      // extremely long-running provider call outliving the lease TTL with
-      // no other owner change is the only realistic path here). The commit
-      // was genuinely pushed; do not additionally claim it for a build job
-      // this worker is no longer authoritative for.
+      // The repository-finalization CAS immediately above already proved
+      // exclusive ownership and renewed the lease, so this should be
+      // unreachable in practice; it remains as defense in depth. Ownership
+      // derived downstream (Build Job, cost reconciliation) may occur only
+      // after this exact write wins its own CAS, so neither happens below
+      // when it doesn't. The commit was genuinely pushed; it is not
+      // additionally claimed for a build job this worker is no longer
+      // authoritative for.
       logger.warn(
         { gatewayRunId: run.id, resultCommitSha },
         "Builder Gateway lost lease ownership before recording a successful result; the pushed commit is not recorded against this row",
@@ -1235,7 +1336,7 @@ export async function executeBuilderGatewayRun(
         expectedLeaseOwner: leaseOwner,
       });
     } else {
-      await db
+      const terminalWrite = await db
         .update(builderGatewayRunsTable)
         .set({
           status: cancelled ? "CANCELLED" : "FAILED",
@@ -1265,25 +1366,43 @@ export async function executeBuilderGatewayRun(
             eq(builderGatewayRunsTable.id, run.id),
             eq(builderGatewayRunsTable.leaseOwner, leaseOwner),
           ),
+        )
+        .returning();
+      if (!terminalWrite.length) {
+        // Ownership was lost before this local terminal result could be
+        // durably recorded. Downstream effects derived from a worker's
+        // result may occur only after that worker has successfully
+        // committed authoritative ownership of that result: do not
+        // reconcile any observed cost from a write this worker's CAS did
+        // not win.
+        logger.warn(
+          {
+            err: error,
+            gatewayRunId: run.id,
+            actualExternalCashCostCents:
+              observedProviderResult?.actualExternalCashCostCents ?? null,
+          },
+          "Builder Gateway lost lease ownership before recording a local terminal result; skipping cost reconciliation",
         );
-      logger.warn(
-        { err: error, gatewayRunId: run.id },
-        "Builder Gateway run stopped safely",
-      );
+      } else {
+        logger.warn(
+          { err: error, gatewayRunId: run.id },
+          "Builder Gateway run stopped safely",
+        );
+        await reconcileObservedCashCost(
+          job,
+          run.id,
+          observedProviderResult?.actualExternalCashCostCents ?? null,
+        );
+      }
     }
-    await reconcileObservedCashCost(
-      job,
-      run.id,
-      observedProviderResult?.actualExternalCashCostCents ?? null,
-    );
   } finally {
-    activeAbortControllers.delete(run.id);
+    releaseGatewayController(run.id, leaseOwner);
     if (worktree) await rm(worktree.root, { recursive: true, force: true });
   }
 }
 
 export async function cancelBuilderGatewayRun(runId: number, reason: string) {
-  activeAbortControllers.get(runId)?.abort(reason);
   const [updated] = await db
     .update(builderGatewayRunsTable)
     .set({
@@ -1312,11 +1431,21 @@ export async function cancelBuilderGatewayRun(runId: number, reason: string) {
           .where(eq(builderGatewayRunsTable.id, runId))
       )[0] ?? null
     );
-  if (!activeAbortControllers.has(runId)) {
-    // The local controller is gone: this run may belong to a different
-    // worker/process, or that worker crashed. Cancellation intent alone is
-    // never proof that cancellation succeeded or that no provider side
-    // effect occurred.
+  // Cancellation must target the exact current acquisition, not an
+  // obsolete one: only abort the locally-registered controller if it still
+  // belongs to the lease owner this row was just observed under. A
+  // controller registered under a different (stale or not-yet-overwritten)
+  // leaseOwner is never aborted here.
+  const controllerEntry = activeAbortControllers.get(runId);
+  const hasCurrentController =
+    controllerEntry !== undefined &&
+    controllerEntry.leaseOwner === updated.leaseOwner;
+  if (hasCurrentController) controllerEntry.controller.abort(reason);
+  if (!hasCurrentController) {
+    // The local controller for this exact acquisition is gone: this run
+    // may belong to a different worker/process, or that worker crashed.
+    // Cancellation intent alone is never proof that cancellation succeeded
+    // or that no provider side effect occurred.
     if (updated.executionPhase === "PRE_PROVIDER") {
       const [cancelled] = await db
         .update(builderGatewayRunsTable)
@@ -1454,12 +1583,14 @@ async function recoverExpiredGatewayLeases(
             repository,
             driver,
             expectedLeaseOwner: run.leaseOwner,
+            requireLeaseExpired: true,
           });
       }
       if (!reconciled)
         await blockRunForUncertainProviderOutcome({
           run,
           expectedLeaseOwner: run.leaseOwner,
+          requireLeaseExpired: true,
         });
       continue;
     }
@@ -1517,12 +1648,14 @@ async function recoverExpiredGatewayLeases(
           repository,
           driver,
           expectedLeaseOwner: run.leaseOwner,
+          requireLeaseExpired: true,
         });
     }
     if (!reconciled)
       await blockRunForUncertainProviderOutcome({
         run,
         expectedLeaseOwner: run.leaseOwner,
+        requireLeaseExpired: true,
       });
   }
 }

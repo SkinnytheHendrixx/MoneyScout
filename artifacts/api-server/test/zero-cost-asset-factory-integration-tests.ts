@@ -1947,6 +1947,538 @@ const [normalResult] = await db
 assert.equal(normalResult?.status, "SUCCEEDED");
 assert.equal(normalResult?.executionPhase, "TERMINAL_RECONCILED");
 
+// ---------------------------------------------------------------------------
+// Final ownership audit: downstream effects derived from a worker's result
+// may occur only after that worker has durably committed authoritative
+// ownership of that result, process-local cancellation bookkeeping must be
+// scoped to the exact lease acquisition (not just the run ID), and a worker
+// that lost its lease may not mutate the durable Asset repository either.
+// ---------------------------------------------------------------------------
+
+// Requirements #1/#2: a stale worker whose CAS fails on a non-ready
+// provider result must not reconcile cost or mutate the Factory Run.
+// Hijack the row from *inside* the driver's own run() call, guaranteeing
+// (with no wall-clock race at all) that ownership changes before the
+// Gateway's terminal write executes.
+const [factoryRunBefore] = await db
+  .select()
+  .from(assetFactoryRunsTable)
+  .where(eq(assetFactoryRunsTable.id, readyRun!.id));
+const [nonReadyHijackRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-non-ready-hijack-${recoverySuffix}`,
+    provider: "ZERO_COST_NON_READY_HIJACK_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 514,
+    repairNumber: 0,
+    branchName: "money-scout/non-ready-hijack",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const nonReadyHijackDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_NON_READY_HIJACK_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    await db
+      .update(builderGatewayRunsTable)
+      .set({
+        leaseOwner: "hijacked-after-non-ready-result",
+        updatedAt: new Date(),
+      })
+      .where(eq(builderGatewayRunsTable.id, nonReadyHijackRun!.id));
+    return {
+      providerRunId: "non-ready-hijack-run",
+      terminalOutcome: "PROVIDER_FAILURE",
+      summary: "Fixture reports a real provider failure with a real cost.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 42,
+      costProvenance: "AUTHORITATIVE_FIXTURE_PROVIDER_TERMINAL_REPORT",
+      entitlementConsumption: {},
+    };
+  },
+};
+await executeBuilderGatewayRun(nonReadyHijackRun!.id, nonReadyHijackDriver);
+const [nonReadyHijackResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, nonReadyHijackRun!.id));
+assert.notEqual(
+  nonReadyHijackResult?.status,
+  "FAILED",
+  "a stale worker's non-ready result write must not overwrite a newer owner's row",
+);
+assert.equal(
+  nonReadyHijackResult?.leaseOwner,
+  "hijacked-after-non-ready-result",
+  "the row is left exactly as the new owner set it",
+);
+const nonReadyCostAttributions = await db
+  .select()
+  .from(betCostAttributionsTable)
+  .where(
+    and(
+      eq(betCostAttributionsTable.sourceType, "BUILDER_GATEWAY_RUN"),
+      eq(betCostAttributionsTable.sourceId, nonReadyHijackRun!.id),
+    ),
+  );
+assert.equal(
+  nonReadyCostAttributions.length,
+  0,
+  "a stale worker's real observed cost must never be reconciled once its terminal-write CAS fails",
+);
+const [factoryRunAfterNonReady] = await db
+  .select()
+  .from(assetFactoryRunsTable)
+  .where(eq(assetFactoryRunsTable.id, readyRun!.id));
+assert.equal(
+  factoryRunAfterNonReady?.status,
+  factoryRunBefore?.status,
+  "a stale worker's non-ready result must not mutate the Factory Run",
+);
+assert.equal(
+  factoryRunAfterNonReady?.blockerCode,
+  factoryRunBefore?.blockerCode,
+);
+
+// Requirement #3: a stale worker whose *local* terminal write (the catch
+// path, with an authoritative provider result already in hand) loses its
+// CAS must not reconcile cost either. Force a local validation failure
+// (the fixture makes no file changes and does not claim allowNoop) after
+// an authoritative IMPLEMENTATION_READY result carrying a real cost, and
+// hijack ownership from inside run() before that result can be recorded.
+const [catchHijackRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-catch-hijack-${recoverySuffix}`,
+    provider: "ZERO_COST_CATCH_HIJACK_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 515,
+    repairNumber: 0,
+    branchName: "money-scout/catch-hijack",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const catchHijackDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_CATCH_HIJACK_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    await db
+      .update(builderGatewayRunsTable)
+      .set({
+        leaseOwner: "hijacked-before-catch-write",
+        updatedAt: new Date(),
+      })
+      .where(eq(builderGatewayRunsTable.id, catchHijackRun!.id));
+    return {
+      providerRunId: "catch-hijack-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Fixture claims success without making any change.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 7,
+      costProvenance: "AUTHORITATIVE_FIXTURE_PROVIDER_TERMINAL_REPORT",
+      entitlementConsumption: {},
+    };
+  },
+};
+await executeBuilderGatewayRun(catchHijackRun!.id, catchHijackDriver);
+const [catchHijackResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, catchHijackRun!.id));
+assert.notEqual(
+  catchHijackResult?.status,
+  "FAILED",
+  "a stale worker's local terminal write must not overwrite a newer owner's row",
+);
+assert.equal(catchHijackResult?.leaseOwner, "hijacked-before-catch-write");
+const catchCostAttributions = await db
+  .select()
+  .from(betCostAttributionsTable)
+  .where(
+    and(
+      eq(betCostAttributionsTable.sourceType, "BUILDER_GATEWAY_RUN"),
+      eq(betCostAttributionsTable.sourceId, catchHijackRun!.id),
+    ),
+  );
+assert.equal(
+  catchCostAttributions.length,
+  0,
+  "a stale worker's local-terminal-path cost must never be reconciled once its terminal-write CAS fails",
+);
+
+// Requirements #4/#5: process-local cancellation bookkeeping must be
+// scoped to the exact lease acquisition, not just the run ID. A stale
+// worker's cleanup must not delete a newer owner's controller, and
+// cancellation must target the current acquisition.
+let releaseStaleWorker: (() => void) | null = null;
+const staleWorkerGate = new Promise<void>((resolve) => {
+  releaseStaleWorker = resolve;
+});
+const staleWorkerDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_STALE_CONTROLLER_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    await staleWorkerGate;
+    throw new Error(
+      "stale worker resolving long after being superseded by a newer owner",
+    );
+  },
+};
+const [controllerRaceRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-controller-race-${recoverySuffix}`,
+    provider: "ZERO_COST_STALE_CONTROLLER_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 516,
+    repairNumber: 0,
+    branchName: "money-scout/controller-race",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const staleWorkerExecution = executeBuilderGatewayRun(
+  controllerRaceRun!.id,
+  staleWorkerDriver,
+);
+let staleRegistered = false;
+for (let attempt = 0; attempt < 1_000 && !staleRegistered; attempt += 1) {
+  const [current] = await db
+    .select()
+    .from(builderGatewayRunsTable)
+    .where(eq(builderGatewayRunsTable.id, controllerRaceRun!.id));
+  if (
+    current?.status === "RUNNING" &&
+    current.executionPhase === "PROVIDER_DISPATCH_ATTEMPTED"
+  ) {
+    staleRegistered = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  staleRegistered,
+  "test setup: expected the stale worker to reach the dispatch phase",
+);
+// Simulate lease recovery reassigning this run while the stale worker is
+// still alive (stuck inside its provider call): force it back to a fresh
+// QUEUED/PRE_PROVIDER state exactly as Case A recovery would.
+await db
+  .update(builderGatewayRunsTable)
+  .set({
+    status: "QUEUED",
+    leaseOwner: null,
+    leaseExpiresAt: null,
+    executionPhase: "PRE_PROVIDER",
+    updatedAt: new Date(),
+  })
+  .where(eq(builderGatewayRunsTable.id, controllerRaceRun!.id));
+// A newer worker claims the freshly-requeued run for real, registering its
+// own controller under the same run ID -- this must overwrite, not merge
+// with, the stale worker's map entry.
+let releaseNewOwner: (() => void) | null = null;
+const newOwnerGate = new Promise<void>((resolve) => {
+  releaseNewOwner = resolve;
+});
+let newOwnerObservedAbort = false;
+const newOwnerDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_NEW_OWNER_CONTROLLER_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await newOwnerGate;
+    newOwnerObservedAbort = request.signal.aborted;
+    throw new Error("new owner observed cancellation");
+  },
+};
+const newOwnerExecution = executeBuilderGatewayRun(
+  controllerRaceRun!.id,
+  newOwnerDriver,
+);
+let newOwnerRegistered = false;
+for (let attempt = 0; attempt < 1_000 && !newOwnerRegistered; attempt += 1) {
+  const [current] = await db
+    .select()
+    .from(builderGatewayRunsTable)
+    .where(eq(builderGatewayRunsTable.id, controllerRaceRun!.id));
+  if (
+    current?.status === "RUNNING" &&
+    current.executionPhase === "PROVIDER_DISPATCH_ATTEMPTED"
+  ) {
+    newOwnerRegistered = true;
+    break;
+  }
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.ok(
+  newOwnerRegistered,
+  "test setup: expected the new owner to reach the dispatch phase",
+);
+// Release the stale worker now: it finally rejects and runs its cleanup.
+// This must not delete the new owner's controller registration.
+releaseStaleWorker!();
+await staleWorkerExecution;
+// Cancel the run. If the stale worker's cleanup had wrongly deleted the
+// new owner's controller, this would find no controller to abort and the
+// new owner's provider call would run to completion unaware of the
+// cancellation request.
+await cancelBuilderGatewayRun(
+  controllerRaceRun!.id,
+  "operator requested cancel targeting the current acquisition",
+);
+releaseNewOwner!();
+await newOwnerExecution;
+assert.equal(
+  newOwnerObservedAbort,
+  true,
+  "cancellation must abort the current acquisition's controller, proving a stale worker's cleanup did not delete it",
+);
+
+// Requirement #6: a worker whose provider call outlives its lease (and is
+// reassigned while still in flight) must not push to the durable Asset
+// repository, even after it produces a real, validated diff.
+const [pushRaceRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-push-race-${recoverySuffix}`,
+    provider: "ZERO_COST_PUSH_RACE_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 517,
+    repairNumber: 0,
+    branchName: "money-scout/push-race",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const pushRaceDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_PUSH_RACE_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "push-race.ts"),
+      "export const pushRace = true;\n",
+    );
+    // Simulate the provider call outliving the lease: by the time it
+    // returns, recovery has already reassigned this run to a fresh owner.
+    await db
+      .update(builderGatewayRunsTable)
+      .set({ leaseOwner: "hijacked-before-push", updatedAt: new Date() })
+      .where(eq(builderGatewayRunsTable.id, pushRaceRun!.id));
+    return {
+      providerRunId: "push-race-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Fixture implementation ready after outliving its lease.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: null,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+await executeBuilderGatewayRun(pushRaceRun!.id, pushRaceDriver);
+const [pushRaceResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, pushRaceRun!.id));
+assert.notEqual(
+  pushRaceResult?.status,
+  "SUCCEEDED",
+  "a worker that lost ownership before finalization must not record success",
+);
+assert.equal(
+  pushRaceResult?.resultCommitSha,
+  null,
+  "no commit is recorded against a row this worker lost ownership of",
+);
+assert.equal(pushRaceResult?.leaseOwner, "hijacked-before-push");
+await assert.rejects(
+  () =>
+    exec("git", ["rev-parse", `refs/heads/${pushRaceResult!.branchName}`], {
+      cwd: bareRepo,
+    }),
+  "a worker that lost ownership before finalization must never push to the durable Asset repository",
+);
+
+// Requirement #7: the authoritative (non-hijacked) worker must still
+// finalize and push normally -- the ownership CAS does not break the
+// common case.
+const [authoritativePushRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-authoritative-push-${recoverySuffix}`,
+    provider: "ZERO_COST_AUTHORITATIVE_PUSH_FIXTURE",
+    status: "QUEUED",
+    attemptNumber: 518,
+    repairNumber: 0,
+    branchName: "money-scout/authoritative-push",
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+const authoritativePushDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_AUTHORITATIVE_PUSH_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run(request) {
+    await mkdir(path.join(request.workingDirectory, "src"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(request.workingDirectory, "src", "authoritative-push.ts"),
+      "export const authoritativePush = true;\n",
+    );
+    return {
+      providerRunId: "authoritative-push-run",
+      terminalOutcome: "IMPLEMENTATION_READY",
+      summary: "Fixture implementation ready with uninterrupted ownership.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: null,
+      costProvenance: "FIXTURE_NO_EXTERNAL_PROVIDER",
+      entitlementConsumption: { fixture_units: 1 },
+    };
+  },
+};
+await executeBuilderGatewayRun(authoritativePushRun!.id, authoritativePushDriver);
+const [authoritativePushResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, authoritativePushRun!.id));
+assert.equal(
+  authoritativePushResult?.status,
+  "SUCCEEDED",
+  "the authoritative worker must still finalize and push normally",
+);
+assert.match(authoritativePushResult?.resultCommitSha ?? "", /^[0-9a-f]{40}$/);
+assert.equal(
+  (
+    await exec(
+      "git",
+      ["rev-parse", `refs/heads/${authoritativePushResult!.branchName}`],
+      { cwd: bareRepo },
+    )
+  ).stdout.trim(),
+  authoritativePushResult?.resultCommitSha,
+  "the authoritative worker's push reaches the durable Asset repository",
+);
+
+// Requirement #8: recovery's reconciliation write must not clobber a run
+// whose still-alive worker renewed its lease (via repository finalization)
+// between recovery's stale expired-lease observation and recovery's own
+// write. The renewal happens from inside driver.reconcile() to land
+// deterministically between recovery's read and its write.
+const [reconcileRenewalRun] = await db
+  .insert(builderGatewayRunsTable)
+  .values({
+    buildJobId: factoryBuild!.id,
+    assetRepositoryId: readyRun!.assetRepositoryId!,
+    idempotencyKey: `gateway-reconcile-renewal-${recoverySuffix}`,
+    provider: "ZERO_COST_RECONCILE_RENEWAL_FIXTURE",
+    status: "RUNNING",
+    executionPhase: "PROVIDER_RUN_CONFIRMED",
+    providerRunId: "reconcile-renewal-provider-run",
+    attemptNumber: 519,
+    repairNumber: 0,
+    branchName: "money-scout/reconcile-renewal",
+    leaseOwner: "reconcile-renewal-owner",
+    leaseExpiresAt: new Date(Date.now() - 60_000),
+    usage: leaseRow.usage,
+    actualExternalCashCostCents: null,
+    costProvenance: "UNKNOWN_UNTIL_PROVIDER_REPORTS",
+    entitlementConsumption: {},
+    requestPayload: {},
+  })
+  .returning();
+let reconcileRenewalCalls = 0;
+const reconcileRenewalDriver: BuilderProviderDriver = {
+  provider: "ZERO_COST_RECONCILE_RENEWAL_FIXTURE",
+  billing: fixtureDriver.billing,
+  async run() {
+    throw new Error("must not be called: this run is not QUEUED");
+  },
+  async reconcile(input) {
+    reconcileRenewalCalls += 1;
+    // Simulate the still-alive original worker renewing its lease (exactly
+    // as the repository-finalization CAS does) between recovery's expired-
+    // lease observation and this reconciliation write.
+    await db
+      .update(builderGatewayRunsTable)
+      .set({
+        leaseExpiresAt: new Date(Date.now() + 5 * 60_000),
+        updatedAt: new Date(),
+      })
+      .where(eq(builderGatewayRunsTable.id, reconcileRenewalRun!.id));
+    return {
+      providerRunId: input.providerRunId,
+      terminalOutcome: "PROVIDER_FAILURE",
+      summary: "Reconciled report arriving after a concurrent renewal.",
+      challenge: null,
+      allowNoop: false,
+      usage: fixtureDriverUsage,
+      actualExternalCashCostCents: 3,
+      costProvenance: "AUTHORITATIVE_RECONCILED_FIXTURE_REPORT",
+      entitlementConsumption: {},
+    };
+  },
+};
+await runBuilderGatewayTick(reconcileRenewalDriver);
+const [reconcileRenewalResult] = await db
+  .select()
+  .from(builderGatewayRunsTable)
+  .where(eq(builderGatewayRunsTable.id, reconcileRenewalRun!.id));
+assert.equal(
+  reconcileRenewalCalls,
+  1,
+  "reconciliation is still attempted based on the stale expired-lease observation",
+);
+assert.equal(
+  reconcileRenewalResult?.status,
+  "RUNNING",
+  "a lease renewed during reconciliation must not be overwritten by a now-stale recovery write",
+);
+assert.equal(reconcileRenewalResult?.leaseOwner, "reconcile-renewal-owner");
+assert.notEqual(
+  reconcileRenewalResult?.actualExternalCashCostCents,
+  3,
+  "a stale reconciliation write must not attach cost to a row it no longer authoritatively owns",
+);
+
 await db
   .delete(opportunitiesTable)
   .where(eq(opportunitiesTable.id, opportunity.id));
