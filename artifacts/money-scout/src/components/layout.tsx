@@ -1,7 +1,7 @@
 import { ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link, useLocation } from "wouter"
-import { Activity, BellRing, ShieldCheck, Target, Radar } from "lucide-react"
+import { Activity, BellRing, Box, ShieldCheck, Target, Radar } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AuthUser } from "@workspace/replit-auth-web"
 import { Button } from "@/components/ui/button"
@@ -34,6 +34,7 @@ export function Layout({
 
   const navItems = [
     { href: "/", label: "Opportunities", icon: Target },
+    { href: "/assets", label: "Assets", icon: Box },
     { href: "/needs-you", label: "Needs You", icon: BellRing, count: needsYouCount, urgentCount },
     { href: "/discovery", label: "Discovery Scout", icon: Radar },
     { href: "/readiness", label: "System Readiness", icon: Activity },
