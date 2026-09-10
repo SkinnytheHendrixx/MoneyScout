@@ -25,6 +25,7 @@ export type HumanActionResumeAction =
   | "EXECUTE_EXPERIMENT"
   | "RUN_RESOLUTION"
   | "RECHECK_MONETIZATION_PLAN"
+  | "RECHECK_COMMERCIAL_ACTIVATION"
   | "NO_AUTOMATIC_RESUME";
 
 export type HumanGateCandidate = {

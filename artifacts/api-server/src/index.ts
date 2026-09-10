@@ -11,6 +11,8 @@ import app from "./app";
 import { startAssetEconomicsWorker } from "./lib/asset-economics-worker";
 import { startAssetOperationsWorker } from "./lib/asset-operations-worker";
 import { startAssetRemediationWorker } from "./lib/asset-remediation-worker";
+import { startCommercialActivationWorker } from "./lib/commercial-activation-worker";
+import { registerCommercialPaymentAdapter, registerConfiguredCommercialHttpAdapter, createZeroCostCommercialFixtureAdapter } from "./lib/commercial-payment-adapter";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
 import { startControlledReleaseSafetyWorker } from "./lib/controlled-release-safety";
@@ -37,6 +39,8 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function startServer(): Promise<void> {
+  if (process.env.NODE_ENV === "test") registerCommercialPaymentAdapter(createZeroCostCommercialFixtureAdapter());
+  else registerConfiguredCommercialHttpAdapter();
   const schema = await prepareRuntimeSchema(pool);
   const builderSchema = await prepareBuilderWorkspaceSchema(pool);
   const qaSchema = await prepareQaDebugSchema(pool);
@@ -88,6 +92,7 @@ async function startServer(): Promise<void> {
     startAssetOperationsWorker();
     startAssetEconomicsWorker();
     startAssetRemediationWorker();
+    startCommercialActivationWorker();
     startPortfolioHeartbeat(port);
   });
 }

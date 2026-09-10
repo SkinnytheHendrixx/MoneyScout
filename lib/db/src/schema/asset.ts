@@ -110,6 +110,28 @@ export type AssetRemediationStatus =
   | "FAILED"
   | "CANCELLED";
 
+export type CommercialActivationStatus =
+  | "DRAFT"
+  | "BLOCKED_PRICE"
+  | "BLOCKED_MERCHANT_CAPABILITY"
+  | "BLOCKED_PRODUCTION_CREDENTIALS"
+  | "AWAITING_CHARGING_AUTHORITY"
+  | "PREPARING"
+  | "VERIFYING"
+  | "ACTIVE"
+  | "UNCERTAIN"
+  | "FAILED"
+  | "CANCELLED";
+
+export type CommercialPriceProvenance = {
+  schemaVersion: 1;
+  kind: "DIRECT_PROVIDER_PRICE" | "OBSERVED_COMPETITOR" | "BUYER_QUOTE" | "CONTRACT" | "MARKETPLACE_LISTING" | "BOUNDED_HYPOTHESIS";
+  sourceReference: string;
+  capturedAt: string;
+  evidence: string[];
+  rationale?: string;
+};
+
 export const assetsTable = pgTable(
   "assets",
   {
@@ -375,5 +397,81 @@ export const assetRemediationEventsTable = pgTable(
   (table) => [
     index("asset_remediation_events_run_idx").on(table.remediationRunId, table.occurredAt),
     index("asset_remediation_events_asset_idx").on(table.assetId, table.occurredAt),
+  ],
+);
+
+export const commercialActivationsTable = pgTable(
+  "commercial_activations",
+  {
+    id: serial("id").primaryKey(),
+    assetId: integer("asset_id").notNull().references(() => assetsTable.id, { onDelete: "cascade" }),
+    opportunityId: integer("opportunity_id").notNull().references(() => opportunitiesTable.id, { onDelete: "cascade" }),
+    idempotencyKey: text("idempotency_key").notNull(),
+    status: text("status").$type<CommercialActivationStatus>().notNull().default("DRAFT"),
+    planSnapshot: jsonb("plan_snapshot").$type<Record<string, unknown>>().notNull(),
+    planFingerprint: text("plan_fingerprint").notNull(),
+    provider: text("provider").notNull(),
+    currency: text("currency").notNull().default("USD"),
+    priceCents: integer("price_cents"),
+    priceProvenance: jsonb("price_provenance").$type<CommercialPriceProvenance | null>(),
+    checkoutReference: text("checkout_reference"),
+    transactionReady: boolean("transaction_ready").notNull().default(false),
+    preparationAttemptCount: integer("preparation_attempt_count").notNull().default(0),
+    providerOperationKey: text("provider_operation_key").notNull(),
+    chargingAuthorizedAt: timestamp("charging_authorized_at", { withTimezone: true }),
+    chargingAuthorizedBy: text("charging_authorized_by"),
+    productionCredentialsAuthorizedAt: timestamp("production_credentials_authorized_at", { withTimezone: true }),
+    productionCredentialsAuthorizedBy: text("production_credentials_authorized_by"),
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    lastErrorMessage: text("last_error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("commercial_activations_asset_unique").on(table.assetId),
+    uniqueIndex("commercial_activations_idempotency_unique").on(table.idempotencyKey),
+    uniqueIndex("commercial_activations_provider_operation_unique").on(table.providerOperationKey),
+    index("commercial_activations_status_idx").on(table.status, table.updatedAt),
+  ],
+);
+
+export const commercialActivationEventsTable = pgTable(
+  "commercial_activation_events",
+  {
+    id: serial("id").primaryKey(),
+    activationId: integer("activation_id").notNull().references(() => commercialActivationsTable.id, { onDelete: "cascade" }),
+    assetId: integer("asset_id").notNull().references(() => assetsTable.id, { onDelete: "cascade" }),
+    eventType: text("event_type").notNull(),
+    summary: text("summary").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("commercial_activation_events_activation_idx").on(table.activationId, table.occurredAt)],
+);
+
+export const paymentProviderEventsTable = pgTable(
+  "payment_provider_events",
+  {
+    id: serial("id").primaryKey(),
+    activationId: integer("activation_id").notNull().references(() => commercialActivationsTable.id, { onDelete: "cascade" }),
+    assetId: integer("asset_id").notNull().references(() => assetsTable.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    providerEventId: text("provider_event_id").notNull(),
+    providerTransactionId: text("provider_transaction_id"),
+    eventType: text("event_type").notNull(),
+    paymentStatus: text("payment_status").notNull(),
+    amountCents: integer("amount_cents"),
+    currency: text("currency"),
+    authoritative: boolean("authoritative").notNull().default(false),
+    signatureVerified: boolean("signature_verified").notNull().default(false),
+    processed: boolean("processed").notNull().default(false),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("payment_provider_events_provider_event_unique").on(table.provider, table.providerEventId),
+    index("payment_provider_events_asset_idx").on(table.assetId, table.occurredAt),
   ],
 );
