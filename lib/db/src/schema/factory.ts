@@ -212,7 +212,7 @@ export const assetFactoryRunsTable = pgTable(
     ),
     betId: integer("bet_id")
       .notNull()
-      .references(() => betsTable.id, { onDelete: "restrict" }),
+      .references(() => betsTable.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
     status: text("status").$type<FactoryRunStatus>().notNull(),
     inputSnapshot: jsonb("input_snapshot")
@@ -254,7 +254,7 @@ export const productDefinitionsTable = pgTable(
       .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
     betId: integer("bet_id")
       .notNull()
-      .references(() => betsTable.id, { onDelete: "restrict" }),
+      .references(() => betsTable.id, { onDelete: "cascade" }),
     previousDefinitionId: integer("previous_definition_id"),
     version: integer("version").notNull(),
     status: text("status").$type<ProductDefinitionStatus>().notNull(),
@@ -418,13 +418,13 @@ export const architecturePlansTable = pgTable(
       .references(() => assetFactoryRunsTable.id, { onDelete: "cascade" }),
     productDefinitionId: integer("product_definition_id")
       .notNull()
-      .references(() => productDefinitionsTable.id, { onDelete: "restrict" }),
+      .references(() => productDefinitionsTable.id, { onDelete: "cascade" }),
     requirementGraphId: integer("requirement_graph_id")
       .notNull()
-      .references(() => requirementGraphsTable.id, { onDelete: "restrict" }),
+      .references(() => requirementGraphsTable.id, { onDelete: "cascade" }),
     betId: integer("bet_id")
       .notNull()
-      .references(() => betsTable.id, { onDelete: "restrict" }),
+      .references(() => betsTable.id, { onDelete: "cascade" }),
     previousPlanId: integer("previous_plan_id"),
     version: integer("version").notNull(),
     status: text("status").notNull(),
@@ -494,7 +494,7 @@ export const assetRepositoriesTable = pgTable(
       .references(() => opportunitiesTable.id, { onDelete: "cascade" }),
     betId: integer("bet_id")
       .notNull()
-      .references(() => betsTable.id, { onDelete: "restrict" }),
+      .references(() => betsTable.id, { onDelete: "cascade" }),
     assetKey: text("asset_key").notNull(),
     internalSlug: text("internal_slug").notNull(),
     provider: text("provider").notNull(),
@@ -534,7 +534,7 @@ export const builderGatewayRunsTable = pgTable(
       .references(() => buildJobsTable.id, { onDelete: "cascade" }),
     assetRepositoryId: integer("asset_repository_id")
       .notNull()
-      .references(() => assetRepositoriesTable.id, { onDelete: "restrict" }),
+      .references(() => assetRepositoriesTable.id, { onDelete: "cascade" }),
     idempotencyKey: text("idempotency_key").notNull(),
     provider: text("provider").notNull(),
     providerRunId: text("provider_run_id"),

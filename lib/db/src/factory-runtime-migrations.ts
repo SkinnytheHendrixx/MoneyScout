@@ -14,11 +14,16 @@ export const REQUIRED_FACTORY_RUNTIME_TABLES = [
 ] as const;
 
 const MIGRATION_ID = "2026-09-10-asset-factory-builder-gateway-v1";
+const OWNERSHIP_MIGRATION_ID =
+  "2026-09-10-asset-factory-owned-record-cascades-v2";
 
-async function applied(client: PoolClient): Promise<boolean> {
+async function applied(
+  client: PoolClient,
+  migrationId: string,
+): Promise<boolean> {
   const result = await client.query(
     "SELECT id FROM runtime_schema_migrations WHERE id = $1",
-    [MIGRATION_ID],
+    [migrationId],
   );
   return Boolean(result.rowCount);
 }
@@ -37,7 +42,7 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
     await client.query(
       "CREATE TABLE IF NOT EXISTS runtime_schema_migrations (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     );
-    if (!(await applied(client))) {
+    if (!(await applied(client, MIGRATION_ID))) {
       const prerequisites = await client.query<{
         opportunities: string | null;
         bets: string | null;
@@ -64,7 +69,7 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
           id SERIAL PRIMARY KEY,
           opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
           evaluation_cycle_id INTEGER REFERENCES evaluation_cycles(id) ON DELETE SET NULL,
-          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE RESTRICT,
+          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE CASCADE,
           idempotency_key TEXT NOT NULL,
           status TEXT NOT NULL,
           input_snapshot JSONB NOT NULL,
@@ -87,7 +92,7 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
           id SERIAL PRIMARY KEY,
           factory_run_id INTEGER NOT NULL REFERENCES asset_factory_runs(id) ON DELETE CASCADE,
           opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
-          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE RESTRICT,
+          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE CASCADE,
           previous_definition_id INTEGER,
           version INTEGER NOT NULL,
           status TEXT NOT NULL,
@@ -158,9 +163,9 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
         CREATE TABLE IF NOT EXISTS architecture_plans (
           id SERIAL PRIMARY KEY,
           factory_run_id INTEGER NOT NULL REFERENCES asset_factory_runs(id) ON DELETE CASCADE,
-          product_definition_id INTEGER NOT NULL REFERENCES product_definitions(id) ON DELETE RESTRICT,
-          requirement_graph_id INTEGER NOT NULL REFERENCES requirement_graphs(id) ON DELETE RESTRICT,
-          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE RESTRICT,
+          product_definition_id INTEGER NOT NULL REFERENCES product_definitions(id) ON DELETE CASCADE,
+          requirement_graph_id INTEGER NOT NULL REFERENCES requirement_graphs(id) ON DELETE CASCADE,
+          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE CASCADE,
           previous_plan_id INTEGER,
           version INTEGER NOT NULL,
           status TEXT NOT NULL,
@@ -197,7 +202,7 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
         CREATE TABLE IF NOT EXISTS asset_repositories (
           id SERIAL PRIMARY KEY,
           opportunity_id INTEGER NOT NULL REFERENCES opportunities(id) ON DELETE CASCADE,
-          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE RESTRICT,
+          bet_id INTEGER NOT NULL REFERENCES bets(id) ON DELETE CASCADE,
           asset_key TEXT NOT NULL,
           internal_slug TEXT NOT NULL,
           provider TEXT NOT NULL,
@@ -222,7 +227,7 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
         CREATE TABLE IF NOT EXISTS builder_gateway_runs (
           id SERIAL PRIMARY KEY,
           build_job_id INTEGER NOT NULL REFERENCES build_jobs(id) ON DELETE CASCADE,
-          asset_repository_id INTEGER NOT NULL REFERENCES asset_repositories(id) ON DELETE RESTRICT,
+          asset_repository_id INTEGER NOT NULL REFERENCES asset_repositories(id) ON DELETE CASCADE,
           idempotency_key TEXT NOT NULL,
           provider TEXT NOT NULL,
           provider_run_id TEXT,
@@ -304,6 +309,40 @@ export async function prepareAssetFactorySchema(targetPool: Pool): Promise<{
         [MIGRATION_ID],
       );
       appliedMigrationIds.push(MIGRATION_ID);
+    }
+    if (!(await applied(client, OWNERSHIP_MIGRATION_ID))) {
+      await client.query(`
+        ALTER TABLE asset_factory_runs DROP CONSTRAINT IF EXISTS asset_factory_runs_bet_id_bets_id_fk;
+        ALTER TABLE asset_factory_runs DROP CONSTRAINT IF EXISTS asset_factory_runs_bet_id_fkey;
+        ALTER TABLE asset_factory_runs ADD CONSTRAINT asset_factory_runs_bet_id_bets_id_fk FOREIGN KEY (bet_id) REFERENCES bets(id) ON DELETE CASCADE;
+
+        ALTER TABLE product_definitions DROP CONSTRAINT IF EXISTS product_definitions_bet_id_bets_id_fk;
+        ALTER TABLE product_definitions DROP CONSTRAINT IF EXISTS product_definitions_bet_id_fkey;
+        ALTER TABLE product_definitions ADD CONSTRAINT product_definitions_bet_id_bets_id_fk FOREIGN KEY (bet_id) REFERENCES bets(id) ON DELETE CASCADE;
+
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_product_definition_id_product_definitions_id_fk;
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_product_definition_id_fkey;
+        ALTER TABLE architecture_plans ADD CONSTRAINT architecture_plans_product_definition_id_product_definitions_id_fk FOREIGN KEY (product_definition_id) REFERENCES product_definitions(id) ON DELETE CASCADE;
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_requirement_graph_id_requirement_graphs_id_fk;
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_requirement_graph_id_fkey;
+        ALTER TABLE architecture_plans ADD CONSTRAINT architecture_plans_requirement_graph_id_requirement_graphs_id_fk FOREIGN KEY (requirement_graph_id) REFERENCES requirement_graphs(id) ON DELETE CASCADE;
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_bet_id_bets_id_fk;
+        ALTER TABLE architecture_plans DROP CONSTRAINT IF EXISTS architecture_plans_bet_id_fkey;
+        ALTER TABLE architecture_plans ADD CONSTRAINT architecture_plans_bet_id_bets_id_fk FOREIGN KEY (bet_id) REFERENCES bets(id) ON DELETE CASCADE;
+
+        ALTER TABLE asset_repositories DROP CONSTRAINT IF EXISTS asset_repositories_bet_id_bets_id_fk;
+        ALTER TABLE asset_repositories DROP CONSTRAINT IF EXISTS asset_repositories_bet_id_fkey;
+        ALTER TABLE asset_repositories ADD CONSTRAINT asset_repositories_bet_id_bets_id_fk FOREIGN KEY (bet_id) REFERENCES bets(id) ON DELETE CASCADE;
+
+        ALTER TABLE builder_gateway_runs DROP CONSTRAINT IF EXISTS builder_gateway_runs_asset_repository_id_asset_repositories_id_fk;
+        ALTER TABLE builder_gateway_runs DROP CONSTRAINT IF EXISTS builder_gateway_runs_asset_repository_id_fkey;
+        ALTER TABLE builder_gateway_runs ADD CONSTRAINT builder_gateway_runs_asset_repository_id_asset_repositories_id_fk FOREIGN KEY (asset_repository_id) REFERENCES asset_repositories(id) ON DELETE CASCADE;
+      `);
+      await client.query(
+        "INSERT INTO runtime_schema_migrations (id) VALUES ($1)",
+        [OWNERSHIP_MIGRATION_ID],
+      );
+      appliedMigrationIds.push(OWNERSHIP_MIGRATION_ID);
     }
     await client.query("COMMIT");
   } catch (error) {
