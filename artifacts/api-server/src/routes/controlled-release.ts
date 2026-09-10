@@ -2,9 +2,9 @@ import { asc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import { db, releaseEventsTable, releaseJobsTable } from "@workspace/db";
 import {
-  authorizePublicRelease,
-  authorizeReleaseSpend,
-} from "../lib/controlled-release-worker";
+  authorizePublicReleaseSafely,
+  authorizeReleaseSpendSafely,
+} from "../lib/controlled-release-safety";
 
 const router: IRouter = Router();
 
@@ -63,7 +63,7 @@ router.post("/release-jobs/:releaseJobId/authorize-public", async (req, res): Pr
     return;
   }
   try {
-    const release = await authorizePublicRelease({
+    const release = await authorizePublicReleaseSafely({
       releaseJobId,
       authorizedBy: typeof req.body?.authorized_by === "string"
         ? req.body.authorized_by.slice(0, 200)
@@ -103,7 +103,7 @@ router.post("/release-jobs/:releaseJobId/authorize-spend", async (req, res): Pro
     return;
   }
   try {
-    const release = await authorizeReleaseSpend({
+    const release = await authorizeReleaseSpendSafely({
       releaseJobId,
       ceilingCents,
       authorizedBy: typeof req.body?.authorized_by === "string"
