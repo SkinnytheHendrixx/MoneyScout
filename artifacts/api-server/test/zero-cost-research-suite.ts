@@ -35,4 +35,7 @@ await import("./zero-cost-asset-operations-tests");
 await import("./zero-cost-asset-autonomous-operations-tests");
 await import("./zero-cost-commercial-activation-tests");
 await import("./zero-cost-bet-integration-tests");
+await import("./zero-cost-asset-factory-domain-tests");
+await import("./zero-cost-asset-factory-integration-tests");
+await import("./zero-cost-capability-catalog-aggregate-tests");
 await import("./zero-cost-runtime-migration-tests");

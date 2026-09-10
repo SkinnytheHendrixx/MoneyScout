@@ -17,12 +17,15 @@ import candidateResearchHandoffRouter from "./candidate-research-handoff";
 import commercialBuildRouter from "./commercial-build";
 import monetizationPlanRouter from "./monetization-plan";
 import betsRouter from "./bets";
+import assetFactoryRouter from "./asset-factory";
 import buildOrchestratorRouter from "./build-orchestrator";
 import builderWorkspacesRouter from "./builder-workspaces";
 import qaDebugRouter from "./qa-debug";
 import controlledReleaseRouter from "./controlled-release";
 import assetsRouter from "./assets";
-import commercialActivationRouter, { commercialWebhookRouter } from "./commercial-activation";
+import commercialActivationRouter, {
+  commercialWebhookRouter,
+} from "./commercial-activation";
 import autonomousResolutionRouter from "./autonomous-resolution";
 import portfolioLifecycleRouter from "./portfolio-lifecycle";
 import humanActionsRouter from "./human-actions";
@@ -32,6 +35,7 @@ import { requireMoneyScoutAccess } from "../middlewares/authorizationMiddleware"
 import { normalizeExecutionRecoveryResolutionProblem } from "../middlewares/executionRecoveryResolutionMiddleware";
 import { requireSafePaidResearchRuntime } from "../middlewares/paidResearchSafetyMiddleware";
 import { registerApifyExperimentAdapters } from "../lib/apify-experiment-adapters";
+import builderGatewayRouter from "./builder-gateway";
 
 registerApifyExperimentAdapters();
 
@@ -40,6 +44,7 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 router.use(commercialWebhookRouter);
+router.use(builderGatewayRouter);
 router.use(requireMoneyScoutAccess);
 router.use(requireSafePaidResearchRuntime);
 router.use(normalizeExecutionRecoveryResolutionProblem);
@@ -59,6 +64,7 @@ router.use(candidateResearchHandoffRouter);
 router.use(commercialBuildRouter);
 router.use(monetizationPlanRouter);
 router.use(betsRouter);
+router.use(assetFactoryRouter);
 router.use(buildOrchestratorRouter);
 router.use(builderWorkspacesRouter);
 router.use(qaDebugRouter);

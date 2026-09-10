@@ -265,7 +265,7 @@ No fake transaction should be used to claim this operational gate is complete.
 
 ---
 
-# #76 Bet & Capital Allocation Kernel — CURRENT
+# #76 Bet & Capital Allocation Kernel — COMPLETE
 
 ## Purpose
 
@@ -293,7 +293,7 @@ Money Scout ultimately allocates capital, not just workflows. A strong Opportuni
 
 ## Build Envelope
 
-#76 must expose a machine-readable Build Envelope for the planned #77 Asset Factory. At minimum it should be capable of expressing:
+#76 exposes a machine-readable Build Envelope for #77 Asset Factory. It expresses:
 
 - maximum external build spend;
 - allowed external-service budget;
@@ -323,7 +323,7 @@ Every new downstream Build is attributable to an explicit approved Bet with boun
 
 ---
 
-# #77 Asset Factory & Real Builder Integration — PLANNED
+# #77 Asset Factory & Real Builder Integration — IMPLEMENTED IN FEATURE BRANCH, PENDING MERGE
 
 ## Purpose
 
@@ -489,6 +489,10 @@ Money Scout should remain provider-agnostic. The production coding backend may c
 Before selecting or implementing a specific Codex/OpenHands/other bridge, verify the provider's current programmatic interface rather than assuming one exists.
 
 Builder completion remains only a claim and must hand into existing #70 independent QA. Repair/retest semantics remain unchanged.
+
+The #77 implementation uses an official Codex SDK driver behind a provider-neutral Builder Gateway. The Gateway owns narrow Git credentials, gives the coding agent a sanitized secret-free environment and fresh disposable checkout, enforces frozen manifests, and records the exact pushed commit. It normalizes product/architecture challenges separately from dependency/resource/provider outcomes.
+
+Real metered execution is deliberately fail-closed. `UNKNOWN` cost is not zero, remaining Bet budget is not a run authorization, and neither human request-body identity text nor internal automation credentials can create spend authority. Before a paid provider side effect, Money Scout must have a provider-enforceable maximum incremental cost for that exact run and atomically reserve it against the applicable Bet/build envelope. The current shared financial layer cannot provide that atomic reservation, and the official SDK does not expose a trustworthy per-run cash ceiling, so the real-money path remains blocked while zero-cost test drivers exercise the contract. A verified entitlement may be eligible only if it cannot silently fall back to pay-as-you-go.
 
 ## Traceability
 

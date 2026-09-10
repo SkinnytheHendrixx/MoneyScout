@@ -36,7 +36,7 @@ export const builderWorkspaceStatusEnum = pgEnum("builder_workspace_status", [
   "CANCELLED",
 ]);
 
-export type PersistedBuildContract = {
+export type PersistedBuildContractV1 = {
   schemaVersion: 1;
   opportunityId: number;
   evaluationCycleId: number | null;
@@ -47,8 +47,75 @@ export type PersistedBuildContract = {
   acceptanceCriteria: string[];
   autonomy: Record<string, unknown>;
   nextGate: string;
-  investment?: { betId: number; buildEnvelope: BetBuildEnvelope; grantsDownstreamAuthority: false };
+  investment?: {
+    betId: number;
+    buildEnvelope: BetBuildEnvelope;
+    grantsDownstreamAuthority: false;
+  };
 };
+
+export type PersistedBuildContractV2 = {
+  schemaVersion: 2;
+  lineage: {
+    opportunityId: number;
+    evaluationCycleId: number | null;
+    betId: number;
+    buildEnvelopeFingerprint: string;
+    productDefinitionId: number;
+    productDefinitionVersion: number;
+    productDefinitionFingerprint: string;
+    architecturePlanId: number;
+    architecturePlanVersion: number;
+    architecturePlanFingerprint: string;
+    capabilitySnapshotFingerprint: string;
+  };
+  productObligation: {
+    targetBuyer: string;
+    validatedProblem: string;
+    promisedOutcome: string;
+    customerSurfaces: string[];
+    requiredWorkflows: string[];
+    commercialBehavior: Record<string, unknown>;
+  };
+  requirements: Array<{
+    id: string;
+    text: string;
+    role: string;
+    provenance: string;
+    acceptanceCondition: string;
+    architectureComponentIds: string[];
+  }>;
+  architecture: Record<string, unknown>;
+  capabilityBindings: Array<Record<string, unknown>>;
+  builderDiscretion: string[];
+  acceptanceMatrix: Array<{
+    id: string;
+    sourceRequirementId: string | null;
+    type: string;
+    criterion: string;
+    evidenceExpectation: string;
+  }>;
+  acceptanceCriteria: string[];
+  challengeProtocol: Record<string, unknown>;
+  investment: {
+    betId: number;
+    buildEnvelope: BetBuildEnvelope;
+    grantsDownstreamAuthority: false;
+  };
+  authority: {
+    providerSpendAuthorized: false;
+    customerChargingAllowed: false;
+    publicReleaseAllowed: false;
+    outboundAllowed: false;
+    advertisingAllowed: false;
+    productionCredentialsAllowed: false;
+    customDomainAllowed: false;
+  };
+  nextGate: "BUILDER_WORKSPACE";
+};
+
+export type PersistedBuildContract =
+  PersistedBuildContractV1 | PersistedBuildContractV2;
 
 export type PersistedQaAcceptanceResult = {
   criterion: string;
@@ -90,25 +157,46 @@ export const buildJobsTable = pgTable(
       () => evaluationCyclesTable.id,
       { onDelete: "set null" },
     ),
-    betId: integer("bet_id").references(() => betsTable.id, { onDelete: "restrict" }),
+    betId: integer("bet_id").references(() => betsTable.id, {
+      onDelete: "restrict",
+    }),
     idempotencyKey: text("idempotency_key").notNull(),
     status: buildJobStatusEnum("status").notNull().default("ORCHESTRATING"),
     productShape: text("product_shape").notNull(),
-    supportingShapes: jsonb("supporting_shapes").$type<string[]>().notNull().default([]),
+    supportingShapes: jsonb("supporting_shapes")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     builderProfile: text("builder_profile").notNull(),
     contract: jsonb("contract").$type<PersistedBuildContract>().notNull(),
-    externalSpendCeilingCents: integer("external_spend_ceiling_cents").notNull().default(0),
-    externalSpendUsedCents: integer("external_spend_used_cents").notNull().default(0),
+    externalSpendCeilingCents: integer("external_spend_ceiling_cents")
+      .notNull()
+      .default(0),
+    externalSpendUsedCents: integer("external_spend_used_cents")
+      .notNull()
+      .default(0),
     builderWorkspaceId: text("builder_workspace_id"),
+    factoryRunId: integer("factory_run_id"),
+    assetRepositoryId: integer("asset_repository_id"),
+    resultCommitSha: text("result_commit_sha"),
     blockedReason: text("blocked_reason"),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     uniqueIndex("build_jobs_idempotency_unique").on(table.idempotencyKey),
-    index("build_jobs_opportunity_idx").on(table.opportunityId, table.createdAt),
+    index("build_jobs_opportunity_idx").on(
+      table.opportunityId,
+      table.createdAt,
+    ),
     index("build_jobs_cycle_idx").on(table.evaluationCycleId, table.createdAt),
     index("build_jobs_bet_idx").on(table.betId, table.createdAt),
     index("build_jobs_status_idx").on(table.status, table.updatedAt),
@@ -132,9 +220,13 @@ export const builderWorkspacesTable = pgTable(
     workspaceKey: text("workspace_key").notNull(),
     provider: text("provider").notNull(),
     adapterKind: text("adapter_kind").notNull().default("GENERIC_HTTP"),
-    costMode: text("cost_mode").notNull().default("ZERO_CASH"),
-    status: builderWorkspaceStatusEnum("status").notNull().default("PROVISIONING"),
+    costMode: text("cost_mode").notNull().default("UNKNOWN"),
+    status: builderWorkspaceStatusEnum("status")
+      .notNull()
+      .default("PROVISIONING"),
     providerRunId: text("provider_run_id"),
+    gatewayRunId: integer("gateway_run_id"),
+    resultCommitSha: text("result_commit_sha"),
     repositoryUrl: text("repository_url"),
     branchName: text("branch_name"),
     workspaceUrl: text("workspace_url"),
@@ -142,18 +234,27 @@ export const builderWorkspacesTable = pgTable(
     statusSummary: text("status_summary"),
     lastErrorCode: text("last_error_code"),
     lastErrorMessage: text("last_error_message"),
-    dispatchAttemptCount: integer("dispatch_attempt_count").notNull().default(0),
+    dispatchAttemptCount: integer("dispatch_attempt_count")
+      .notNull()
+      .default(0),
     dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     uniqueIndex("builder_workspaces_build_job_unique").on(table.buildJobId),
     uniqueIndex("builder_workspaces_key_unique").on(table.workspaceKey),
     index("builder_workspaces_status_idx").on(table.status, table.updatedAt),
-    index("builder_workspaces_opportunity_idx").on(table.opportunityId, table.createdAt),
+    index("builder_workspaces_opportunity_idx").on(
+      table.opportunityId,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -169,12 +270,23 @@ export const builderWorkspaceEventsTable = pgTable(
       .references(() => buildJobsTable.id, { onDelete: "cascade" }),
     eventType: text("event_type").notNull(),
     summary: text("summary").notNull(),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
-    index("builder_workspace_events_workspace_idx").on(table.workspaceId, table.occurredAt),
-    index("builder_workspace_events_build_job_idx").on(table.buildJobId, table.occurredAt),
+    index("builder_workspace_events_workspace_idx").on(
+      table.workspaceId,
+      table.occurredAt,
+    ),
+    index("builder_workspace_events_build_job_idx").on(
+      table.buildJobId,
+      table.occurredAt,
+    ),
   ],
 );
 
@@ -198,31 +310,55 @@ export const qaRunsTable = pgTable(
     roundNumber: integer("round_number").notNull(),
     status: text("status").$type<QaRunStatus>().notNull().default("PENDING"),
     qaProvider: text("qa_provider").notNull().default("UNCONFIGURED"),
-    qaCostMode: text("qa_cost_mode").notNull().default("ZERO_CASH"),
+    qaCostMode: text("qa_cost_mode").notNull().default("UNKNOWN"),
     qaProviderRunId: text("qa_provider_run_id"),
     qaIdempotencyKey: text("qa_idempotency_key").notNull(),
     repositoryUrl: text("repository_url"),
     branchName: text("branch_name"),
-    acceptanceCriteria: jsonb("acceptance_criteria").$type<string[]>().notNull().default([]),
-    acceptanceResults: jsonb("acceptance_results").$type<PersistedQaAcceptanceResult[]>().notNull().default([]),
-    defects: jsonb("defects").$type<PersistedQaDefect[]>().notNull().default([]),
-    resultMetadata: jsonb("result_metadata").$type<Record<string, unknown>>().notNull().default({}),
+    commitSha: text("commit_sha"),
+    acceptanceCriteria: jsonb("acceptance_criteria")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    acceptanceResults: jsonb("acceptance_results")
+      .$type<PersistedQaAcceptanceResult[]>()
+      .notNull()
+      .default([]),
+    defects: jsonb("defects")
+      .$type<PersistedQaDefect[]>()
+      .notNull()
+      .default([]),
+    resultMetadata: jsonb("result_metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
     baselineChecksPassed: text("baseline_checks_passed"),
     repairProviderRunId: text("repair_provider_run_id"),
     repairIdempotencyKey: text("repair_idempotency_key"),
     repairAttemptCount: integer("repair_attempt_count").notNull().default(0),
-    qaDispatchAttemptCount: integer("qa_dispatch_attempt_count").notNull().default(0),
+    qaDispatchAttemptCount: integer("qa_dispatch_attempt_count")
+      .notNull()
+      .default(0),
     lastErrorCode: text("last_error_code"),
     lastErrorMessage: text("last_error_message"),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     qaFinishedAt: timestamp("qa_finished_at", { withTimezone: true }),
     repairStartedAt: timestamp("repair_started_at", { withTimezone: true }),
     repairFinishedAt: timestamp("repair_finished_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
-    uniqueIndex("qa_runs_build_round_unique").on(table.buildJobId, table.roundNumber),
+    uniqueIndex("qa_runs_build_round_unique").on(
+      table.buildJobId,
+      table.roundNumber,
+    ),
     uniqueIndex("qa_runs_idempotency_unique").on(table.qaIdempotencyKey),
     index("qa_runs_status_idx").on(table.status, table.updatedAt),
     index("qa_runs_build_job_idx").on(table.buildJobId, table.roundNumber),
@@ -242,8 +378,13 @@ export const qaRunEventsTable = pgTable(
       .references(() => buildJobsTable.id, { onDelete: "cascade" }),
     eventType: text("event_type").notNull(),
     summary: text("summary").notNull(),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
-    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    occurredAt: timestamp("occurred_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     index("qa_run_events_run_idx").on(table.qaRunId, table.occurredAt),
