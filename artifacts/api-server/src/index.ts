@@ -1,4 +1,5 @@
 import "./lib/anthropic-provider";
+import { pool, prepareRuntimeSchema } from "@workspace/db";
 import app from "./app";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startExecutionKernel } from "./lib/execution-kernel";
@@ -21,18 +22,33 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-void reconcileDiscoveryRunsOnStartup().then(() => app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
+async function startServer(): Promise<void> {
+  const schema = await prepareRuntimeSchema(pool);
+  logger.info(
+    {
+      appliedRuntimeMigrations: schema.appliedMigrationIds,
+      requiredRuntimeTables: schema.requiredTables,
+    },
+    "Runtime database schema ready",
+  );
 
-  logger.info({ port }, "Server listening");
-  startExecutionReconciler(port);
-  startExecutionKernel(port);
-  startBuildOrchestratorWorker();
-  startPortfolioHeartbeat(port);
-})).catch((error) => {
-  logger.error({ err: error }, "Failed to reconcile discovery runs on startup");
+  await reconcileDiscoveryRunsOnStartup();
+
+  app.listen(port, (err) => {
+    if (err) {
+      logger.error({ err }, "Error listening on port");
+      process.exit(1);
+    }
+
+    logger.info({ port }, "Server listening");
+    startExecutionReconciler(port);
+    startExecutionKernel(port);
+    startBuildOrchestratorWorker();
+    startPortfolioHeartbeat(port);
+  });
+}
+
+void startServer().catch((error) => {
+  logger.error({ err: error }, "API startup failed before workers were started");
   process.exit(1);
 });
