@@ -31,4 +31,5 @@ await import("./zero-cost-controlled-release-safety-tests");
 await import("./zero-cost-release-provider-recovery-tests");
 await import("./zero-cost-release-incident-recovery-tests");
 await import("./zero-cost-asset-operations-tests");
+await import("./zero-cost-asset-autonomous-operations-tests");
 await import("./zero-cost-runtime-migration-tests");
