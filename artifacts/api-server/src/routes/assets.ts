@@ -1,10 +1,14 @@
 import { asc, desc, eq } from "drizzle-orm";
 import { Router, type IRouter } from "express";
 import {
+  assetEconomicReviewsTable,
   assetEventsTable,
   assetHealthChecksTable,
   assetIncidentsTable,
   assetObservationsTable,
+  assetRemediationEventsTable,
+  assetRemediationRunsTable,
+  assetTelemetrySyncsTable,
   assetsTable,
   db,
   type AssetObservationProvenance,
@@ -28,65 +32,75 @@ router.get("/assets", async (_req, res): Promise<void> => {
 
 router.get("/opportunities/:opportunityId/asset", async (req, res): Promise<void> => {
   const opportunityId = positiveId(req.params.opportunityId);
-  if (!opportunityId) {
-    res.status(400).json({ error: "Invalid opportunity id" });
-    return;
-  }
+  if (!opportunityId) { res.status(400).json({ error: "Invalid opportunity id" }); return; }
   const [asset] = await db.select().from(assetsTable).where(eq(assetsTable.opportunityId, opportunityId));
-  if (!asset) {
-    res.status(404).json({ error: "Asset not found" });
-    return;
-  }
+  if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
   res.json({ asset });
 });
 
 router.get("/assets/:assetId", async (req, res): Promise<void> => {
   const assetId = positiveId(req.params.assetId);
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   const [asset] = await db.select().from(assetsTable).where(eq(assetsTable.id, assetId));
-  if (!asset) {
-    res.status(404).json({ error: "Asset not found" });
-    return;
-  }
-  const [incidents, recentHealth, recentObservations] = await Promise.all([
+  if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+  const [incidents, recentHealth, recentObservations, telemetrySyncs, economicReviews, remediationRuns] = await Promise.all([
     db.select().from(assetIncidentsTable).where(eq(assetIncidentsTable.assetId, assetId)).orderBy(desc(assetIncidentsTable.detectedAt)).limit(50),
     db.select().from(assetHealthChecksTable).where(eq(assetHealthChecksTable.assetId, assetId)).orderBy(desc(assetHealthChecksTable.checkedAt)).limit(25),
     db.select().from(assetObservationsTable).where(eq(assetObservationsTable.assetId, assetId)).orderBy(desc(assetObservationsTable.observedAt)).limit(50),
+    db.select().from(assetTelemetrySyncsTable).where(eq(assetTelemetrySyncsTable.assetId, assetId)).orderBy(desc(assetTelemetrySyncsTable.createdAt)).limit(25),
+    db.select().from(assetEconomicReviewsTable).where(eq(assetEconomicReviewsTable.assetId, assetId)).orderBy(desc(assetEconomicReviewsTable.createdAt)).limit(25),
+    db.select().from(assetRemediationRunsTable).where(eq(assetRemediationRunsTable.assetId, assetId)).orderBy(desc(assetRemediationRunsTable.startedAt)).limit(25),
   ]);
-  res.json({ asset, incidents, recent_health_checks: recentHealth, recent_observations: recentObservations });
+  res.json({ asset, incidents, recent_health_checks: recentHealth, recent_observations: recentObservations, telemetry_syncs: telemetrySyncs, economic_reviews: economicReviews, remediation_runs: remediationRuns });
 });
 
 router.get("/assets/:assetId/events", async (req, res): Promise<void> => {
   const assetId = positiveId(req.params.assetId);
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   const events = await db.select().from(assetEventsTable).where(eq(assetEventsTable.assetId, assetId)).orderBy(asc(assetEventsTable.occurredAt)).limit(500);
   res.json({ asset_id: assetId, events });
 });
 
 router.get("/assets/:assetId/health-checks", async (req, res): Promise<void> => {
   const assetId = positiveId(req.params.assetId);
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   const checks = await db.select().from(assetHealthChecksTable).where(eq(assetHealthChecksTable.assetId, assetId)).orderBy(desc(assetHealthChecksTable.checkedAt)).limit(200);
   res.json({ asset_id: assetId, health_checks: checks });
 });
 
 router.get("/assets/:assetId/observations", async (req, res): Promise<void> => {
   const assetId = positiveId(req.params.assetId);
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   const observations = await db.select().from(assetObservationsTable).where(eq(assetObservationsTable.assetId, assetId)).orderBy(desc(assetObservationsTable.observedAt)).limit(500);
   res.json({ asset_id: assetId, observations });
+});
+
+router.get("/assets/:assetId/telemetry-syncs", async (req, res): Promise<void> => {
+  const assetId = positiveId(req.params.assetId);
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
+  const syncs = await db.select().from(assetTelemetrySyncsTable).where(eq(assetTelemetrySyncsTable.assetId, assetId)).orderBy(desc(assetTelemetrySyncsTable.createdAt)).limit(200);
+  res.json({ asset_id: assetId, telemetry_syncs: syncs });
+});
+
+router.get("/assets/:assetId/economic-reviews", async (req, res): Promise<void> => {
+  const assetId = positiveId(req.params.assetId);
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
+  const reviews = await db.select().from(assetEconomicReviewsTable).where(eq(assetEconomicReviewsTable.assetId, assetId)).orderBy(desc(assetEconomicReviewsTable.createdAt)).limit(200);
+  res.json({ asset_id: assetId, economic_reviews: reviews });
+});
+
+router.get("/assets/:assetId/remediation-runs", async (req, res): Promise<void> => {
+  const assetId = positiveId(req.params.assetId);
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
+  const runs = await db.select().from(assetRemediationRunsTable).where(eq(assetRemediationRunsTable.assetId, assetId)).orderBy(desc(assetRemediationRunsTable.startedAt)).limit(100);
+  res.json({ asset_id: assetId, remediation_runs: runs });
+});
+
+router.get("/assets/:assetId/remediation-events", async (req, res): Promise<void> => {
+  const assetId = positiveId(req.params.assetId);
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
+  const events = await db.select().from(assetRemediationEventsTable).where(eq(assetRemediationEventsTable.assetId, assetId)).orderBy(desc(assetRemediationEventsTable.occurredAt)).limit(500);
+  res.json({ asset_id: assetId, remediation_events: events });
 });
 
 router.post("/assets/:assetId/observations", async (req, res): Promise<void> => {
@@ -96,56 +110,26 @@ router.post("/assets/:assetId/observations", async (req, res): Promise<void> => 
   const source = typeof req.body?.source === "string" ? req.body.source.trim() : "";
   const idempotencyKey = typeof req.body?.idempotency_key === "string" ? req.body.idempotency_key.trim() : "";
   const observedAt = new Date(req.body?.observed_at ?? Date.now());
-
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   if (!OBSERVATION_TYPES.has(observationType) || !PROVENANCE_TYPES.has(provenance) || !source || !idempotencyKey || Number.isNaN(observedAt.getTime())) {
-    res.status(400).json({ error: "observation_type, source, idempotency_key, valid observed_at, and valid provenance are required." });
-    return;
+    res.status(400).json({ error: "observation_type, source, idempotency_key, valid observed_at, and valid provenance are required." }); return;
   }
-
   try {
-    const result = await recordAssetObservation({
-      assetId,
-      observationType,
-      source,
-      idempotencyKey,
-      provenance,
-      amountCents: req.body?.amount_cents == null ? null : Number(req.body.amount_cents),
-      quantity: req.body?.quantity == null ? null : Number(req.body.quantity),
-      unit: typeof req.body?.unit === "string" ? req.body.unit : null,
-      externalReference: typeof req.body?.external_reference === "string" ? req.body.external_reference : null,
-      metadata: req.body?.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? req.body.metadata : {},
-      observedAt,
-    });
+    const result = await recordAssetObservation({ assetId, observationType, source, idempotencyKey, provenance, amountCents: req.body?.amount_cents == null ? null : Number(req.body.amount_cents), quantity: req.body?.quantity == null ? null : Number(req.body.quantity), unit: typeof req.body?.unit === "string" ? req.body.unit : null, externalReference: typeof req.body?.external_reference === "string" ? req.body.external_reference : null, metadata: req.body?.metadata && typeof req.body.metadata === "object" && !Array.isArray(req.body.metadata) ? req.body.metadata : {}, observedAt });
     res.status(result.created ? 201 : 200).json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to ingest observation";
-    if (message === "ASSET_NOT_FOUND") {
-      res.status(404).json({ error: message });
-      return;
-    }
+    if (message === "ASSET_NOT_FOUND") { res.status(404).json({ error: message }); return; }
     res.status(400).json({ error: message });
   }
 });
 
 router.post("/assets/:assetId/check-health", async (req, res): Promise<void> => {
   const assetId = positiveId(req.params.assetId);
-  if (!assetId) {
-    res.status(400).json({ error: "Invalid asset id" });
-    return;
-  }
+  if (!assetId) { res.status(400).json({ error: "Invalid asset id" }); return; }
   const [asset] = await db.select().from(assetsTable).where(eq(assetsTable.id, assetId));
-  if (!asset) {
-    res.status(404).json({ error: "Asset not found" });
-    return;
-  }
-  if (asset.status === "KILLED" || asset.status === "ARCHIVED") {
-    res.status(409).json({ error: "Asset is not eligible for health checks in its current status." });
-    return;
-  }
+  if (!asset) { res.status(404).json({ error: "Asset not found" }); return; }
+  if (asset.status === "KILLED" || asset.status === "ARCHIVED") { res.status(409).json({ error: "Asset is not eligible for health checks in its current status." }); return; }
   const health = await probeAssetHealth(asset);
   const [updated] = await db.select().from(assetsTable).where(eq(assetsTable.id, assetId));
   res.json({ health, asset: updated });

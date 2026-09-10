@@ -8,7 +8,9 @@ import {
   prepareRuntimeSchema,
 } from "@workspace/db";
 import app from "./app";
+import { startAssetEconomicsWorker } from "./lib/asset-economics-worker";
 import { startAssetOperationsWorker } from "./lib/asset-operations-worker";
+import { startAssetRemediationWorker } from "./lib/asset-remediation-worker";
 import { startBuildOrchestratorWorker } from "./lib/build-orchestrator-worker";
 import { startBuilderWorkspaceWorker } from "./lib/builder-workspace-worker";
 import { startControlledReleaseSafetyWorker } from "./lib/controlled-release-safety";
@@ -84,6 +86,8 @@ async function startServer(): Promise<void> {
     startQaDebugWorker();
     startControlledReleaseSafetyWorker();
     startAssetOperationsWorker();
+    startAssetEconomicsWorker();
+    startAssetRemediationWorker();
     startPortfolioHeartbeat(port);
   });
 }
