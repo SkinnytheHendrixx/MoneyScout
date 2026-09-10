@@ -12,7 +12,7 @@ paths = [ "/" ]
 localPort = 18193
 
 [services.development]
-run = "node scripts/runtime-bootstrap.mjs web"
+run = "node ../../scripts/runtime-bootstrap.mjs web"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/money-scout", "run", "build" ]
