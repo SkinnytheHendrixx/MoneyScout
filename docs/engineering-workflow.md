@@ -2,6 +2,8 @@
 
 GitHub `main` is the authoritative source of truth for Money Scout.
 
+Agent-to-agent engineering coordination uses the provider-neutral protocol in `docs/agent-coordination-protocol.md`. The owner must not be used as a transport layer for prompts, patches, review findings, or status between machine actors.
+
 ## Canonical engineering loop
 
 1. Read `/AGENTS.md`, `docs/CURRENT_STATE.md`, `docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, and `docs/PRODUCT_PRINCIPLES.md`.
@@ -16,6 +18,8 @@ GitHub `main` is the authoritative source of truth for Money Scout.
 10. The Money Scout runtime supervisor observes the exact green `main` push SHA, stages/preflights it, and autonomously promotes it to the Replit Project runtime.
 11. Verify live runtime health/freshness after consequential infrastructure changes.
 
+When a Work Item is routed through autonomous agent coordination, each machine actor must advance it directly to the next safe machine-executable state. Machine-fixable review or QA failures return directly to the builder. A work item stops with the owner only at a genuine human-only product, authority, credential, capital, legal, or irreversible-side-effect boundary.
+
 ## Roles
 
 - **Owner**: defines product intent and grants genuine human-only authority/capabilities.
@@ -24,6 +28,8 @@ GitHub `main` is the authoritative source of truth for Money Scout.
 - **GitHub Actions**: independent merge/deployment acceptance gate.
 - **Money Scout runtime supervisor**: autonomous promotion/rollback of exact green `main` SHAs.
 - **Replit Project**: active runtime/database/preview infrastructure, not the primary source editor.
+
+Logical agent roles may be mapped to Claude, ChatGPT/Codex, other coding providers, or future Money Scout-controlled agents without changing the durable GitHub work contract.
 
 ## CI expectations
 
