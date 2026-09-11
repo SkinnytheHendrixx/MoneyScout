@@ -1,311 +1,329 @@
-# WI-R5 — Independent Confirmation for Material Conclusions
+# WI-R5 — Require Independent Confirmation Before Material Autonomous Conclusions Close
 
-**Normalized node:** R5  
-**Historical finding:** C1-F4  
-**Severity:** MATERIAL  
-**Contract state:** CONFIRMED  
-**Artifact fidelity state:** `FIDELITY_SOURCE_INCOMPLETE / RECOVERY BLOCKED ON EXACT SOURCE DETAILS`  
-**Implementation:** NOT STARTED  
+**Normalized node:** R5
+
+**Workstream:** A. Decision Truth & Lineage
+
+**Historical finding:** C1-F4
+
+**Severity:** MATERIAL
+
+**Contract state:** CONFIRMED
+
+**Artifact fidelity state:** RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION
+
+**Implementation:** NOT STARTED
+
 **Closed:** NO
 
 ## Recovery provenance
 
-R5 recovery has begun from the confirmed adversarial-review record available in project context. The recoverable source is sufficient to preserve the normalized root, the canonical confirmation states, the materiality rule, the anti-self-certification invariant, legacy treatment, compound boundaries, and the independent-review requirement.
+This artifact is reconstructed directly from the WI-R5 adversarial-confirmation conversation record, including its confirmation-round amendments. It is not reconstructed from the compressed v1.0 remediation register and is not a fresh re-derivation from current code.
 
-However, the exact original R5 migration-child matrix, complete acceptance-fixture enumeration, and complete numbered closure-evidence list are not presently recoverable from the accessible source without invention. Under the fidelity-recovery discipline, those details are not being regenerated from the compressed register or inferred from neighboring nodes.
+The prior committed R5 artifact was explicitly left in `FIDELITY_SOURCE_INCOMPLETE / RECOVERY BLOCKED ON EXACT SOURCE DETAILS` state rather than guessed. This version supersedes that block. The recovered R5-M1 through R5-M8 migration matrix, the amended M8 `LEGACY_UNCONFIRMED` policy (including the explicitly rejected blanket re-confirmation alternative), R5-A1, the complete acceptance-fixture set, and the 20-item closure-evidence list are recovered here from the actual confirmation exchange.
 
-This artifact is therefore intentionally **not** a full recovered candidate yet.
+This file remains **not** **`FIDELITY_VERIFIED`** until an independent reviewer compares it against the original R5 confirmation exchange in full.
 
 ## 1. Frozen root and mission
 
-Historical finding **C1-F4 / MATERIAL** established that a model-generated material conclusion could effectively certify its own correctness/closure without materially independent confirmation.
+Historical finding **C1-F4 / MATERIAL**: the live Autonomous Resolution worker is instructed to return `RESOLVED` when its method believes it has settled the unresolved question well enough. The executor treats any single method returning `RESOLVED` as sufficient to set `resolvedInternally = true` and immediately stops running later methods — including later, stronger methods such as `ADVERSARIAL_REVIEW` that were never reached.
 
-R5 exists to prevent self-certification of material conclusions.
+The lifecycle route then records `AUTONOMOUS_RESOLUTION_RESOLVED` and marks the Opportunity activity as `RESOLUTION_COMPLETE` using that same latest worker result.
 
-> **Core rule:** a model-generated material conclusion may propose closure, but it may not be the sole evidence that closes itself.
+The current authority chain is effectively: model proposes conclusion → same model says `RESOLVED` → orchestrator accepts `RESOLVED` → resolution closes.
 
-The requirement is about confirmation authority, not merely running the same reasoning twice.
+> **Core rule:** A model-generated material conclusion may propose closure, but it may not be the sole evidence that closure is justified.
 
-## 2. Materiality rule
+R5 does not decide whether evidence is true, fresh, or sufficient for capital/execution authority. It prevents one autonomous reasoning execution from being both proposer and sole closer of a materially consequential conclusion.
 
-The confirmed R5 contract defaults conclusions to **material** unless they are explicitly classified as non-material under a bounded rule.
+## 2. This is not "always run every step"
 
-A material conclusion includes one whose correctness can materially affect, for example:
+R5 must not be implemented as "ignore `RESOLVED` and blindly execute all seven methods every time." That would confuse independence with mechanical repetition and would waste scarce resources.
 
-- whether an Opportunity/Bet progresses;
-- whether a Product/Architecture is accepted;
-- whether a remediation finding closes;
-- whether a consequential action becomes eligible;
-- whether commercial/economic authority is granted or retained;
-- whether a Human Action or successor obligation is considered satisfied.
+The real distinction is **candidate resolution** versus **confirmed resolution**. A worker may determine "I believe this question is resolved" — that produces something equivalent to `RESOLUTION_CANDIDATE`, not final closure when the conclusion is material. The orchestrator then asks an independent confirmation source to challenge the exact candidate. Only after confirmation may the material question become canonically `RESOLVED`.
 
-The implementation may define narrower materiality categories, but it may not use ambiguity to downgrade material work into a self-certifiable path.
+## 3. Materiality is a deterministic policy decision, not a prompt judgment
 
-## 3. Candidate versus confirmed conclusion
+R5 cannot depend on individual callers remembering whether a conclusion "feels important."
 
-R5 requires a durable distinction between a proposed/candidate material conclusion and a confirmed one.
+A Resolution result is material when accepting it can materially change or preserve one of these states without further independent adjudication: BUILD vs. do-not-BUILD posture; KILL/REJECT posture; removal of a validation/research blocker; acceptance of a commercial buyer/pricing/distribution thesis; conclusion that an economically important uncertainty no longer blocks progression; conclusion that further investigation is unnecessary where the result can affect Bet creation/approval or Product/Factory progression; any conclusion later used as affirmative evidence for capital, Build, release, commercial, or other consequential authority.
 
-A model-generated result can create or update the candidate conclusion. That is not enough to close the underlying material question.
+Presumptively material examples from the current recommendation enum include `BUILD_SUPPORTED`, `KILL_SUPPORTED`, and any `RETURN_TO_*`/resolved conclusion that clears a blocking uncertainty and allows progression. `PLAN_EXPERIMENT` need not necessarily be treated as material closure because it can explicitly preserve the unresolved question. `WATCH_FOR_DELTA` may similarly be a temporal disposition rather than closure, though its trigger validity belongs to R11/R12. The exact decision table can be implemented declaratively, but materiality itself cannot remain an unstructured prompt judgment.
 
-The confirmed outcome family is:
+**Frozen materiality default (confirmed amendment):**
 
-- `CONFIRMED`
-- `CHALLENGED`
-- `INCONCLUSIVE`
+> Any autonomous conclusion type, recommendation, disposition, or blocker-removal effect that is not explicitly classified by the materiality policy defaults to MATERIAL and therefore requires independent confirmation before canonical closure. Only an explicit policy entry may downgrade a conclusion class to non-material.
 
-Only `CONFIRMED` may satisfy the independent-confirmation requirement for material closure.
+Evolution rule: new enum value / new conclusion shape / new recommendation → UNCLASSIFIED → MATERIAL BY DEFAULT → independent confirmation required → deliberate policy review may later classify it otherwise.
 
-`CHALLENGED` and `INCONCLUSIVE` remain unresolved states and must not be normalized into success.
+> **Unknown materiality must never be interpreted as non-material.**
 
-## 4. Independent confirmation source
+## 4. Independence standard
 
-Independent confirmation must come from either:
+For a model-generated material conclusion, independent confirmation must **not** be: the same model execution; the same response parsed twice; the same model under a different system prompt; the same provider/model family merely relabeled as "critic" if the governing independence policy requires cross-family review; a deterministic wrapper that simply checks schema validity.
 
-1. a materially independent model/provider family or reviewer source; or
-2. a deterministic authoritative verifier when the proposition is fully reducible to deterministic verification.
+The confirmation source must contribute materially independent judgment. The acceptable mechanism may vary by conclusion type:
 
-The following do **not** create sufficient independence merely by themselves:
+- **Model-adjudicable conclusion** → materially independent model/provider-family reviewer.
+- **Deterministically verifiable conclusion** → a deterministic verifier against authoritative facts may satisfy confirmation if the closure claim is fully reducible to those facts.
+- **Hybrid conclusion** → independent model challenge plus deterministic invariant checks where applicable.
 
-- a second prompt to the same model;
-- a different persona/system prompt on the same model;
-- a second turn in the same reasoning chain;
-- self-reflection by the original conclusion-producing agent;
-- restating the candidate conclusion in another format.
+R5 does not freeze a single provider implementation. It does freeze this rule: **independence is about decision source, not prompt role.**
 
-> **Independence is about a materially independent source of judgment/evidence, not cosmetic prompt variation.**
+## 5. The existing `ADVERSARIAL_REVIEW` method is not sufficient independence by itself
 
-## 5. Deterministic-verifier exception
+The existing ladder includes an `ADVERSARIAL_REVIEW` method whose prompt explicitly tries to disprove both the obstacle and optimistic interpretation. That is useful reasoning structure. But under the current architecture: it may never run because an earlier method can self-resolve; when it does run, it uses the same provider/model execution pathway; the same resolution system still interprets its own result as final.
 
-A deterministic verifier may replace cross-model judgment only when the material proposition is actually reducible to an authoritative deterministic check.
+R5 preserves `ADVERSARIAL_REVIEW` as an internal reasoning method, while adding a separate closure-confirmation boundary. **Internal adversarial reasoning and independent confirmation are not synonyms.**
 
-Examples may include exact schema/hash/identity/equality/constraint checks where the truth condition is fully mechanical.
+## 6. Confirmation outcome model
 
-A deterministic check must not be used to certify a proposition that still contains material judgment, interpretation, economic assessment, policy interpretation, or uncertain semantic equivalence.
+A material candidate reaches one of at least three confirmation outcomes:
 
-If material judgment remains, independent model/provider review is still required.
+- **`CONFIRMED`** — independent reviewer agrees the concrete closure test is satisfied.
+- **`CHALLENGED`** — reviewer identifies a concrete unresolved contradiction/failure scenario.
+- **`INCONCLUSIVE`** — reviewer cannot confirm or falsify closure with available evidence.
 
-## 6. Durable Resolution Confirmation Record
+Only `CONFIRMED` permits canonical material closure. `CHALLENGED` returns the issue to the resolution/revision path. `INCONCLUSIVE` preserves the unresolved state — it may feed further research, experiment, WATCH, or later exhaustion handling, but cannot be silently treated as confirmation. The candidate proposer cannot convert `CHALLENGED` or `INCONCLUSIVE` back to `CONFIRMED` by reassertion.
 
-R5 requires a durable Resolution Confirmation Record or equivalent object tying the confirmation to the exact material conclusion being reviewed.
+**Frozen symmetry (confirmed amendment):**
 
-The confirmed contract requires enough identity to establish, at minimum:
+> `INCONCLUSIVE` records that independent confirmation could not establish closure. R5 preserves the unresolved state and the confirmation evidence. It does not choose or execute the next research, experiment, WATCH, replan, or escalation step. Where further action is required, R11 or the applicable workflow owner selects and executes that successor path.
 
-- exact candidate/material conclusion identity;
-- originating actor/source;
-- materiality classification;
-- independent verifier/reviewer identity and independence basis;
-- confirmation outcome (`CONFIRMED`, `CHALLENGED`, `INCONCLUSIVE`);
-- evidence/reasoning reference sufficient for later audit;
-- timestamps/version/provenance;
-- exact lineage/context needed to prove the confirmation applies to the conclusion being closed.
+Likewise: `CHALLENGED` → R5 records challenge and blocks closure → R11 owns successor/revision path. `INCONCLUSIVE` → R5 records insufficiency and blocks closure → R11/applicable workflow owner owns next action. R5's boundary is symmetrical across both non-confirming outcomes.
 
-The physical schema is not frozen; the semantic linkage is.
+## 7. Confirmation must bind the exact candidate
 
-## 7. Legacy material conclusions
+Independent review must not review an amorphous "same topic." It must bind: Opportunity → exact Evaluation Lineage Reference where applicable → exact Resolution Problem → exact unresolved question → exact candidate conclusion → exact evidence/reference snapshot → exact candidate method/run → exact recommendation → candidate fingerprint.
 
-Legacy material conclusions that were previously treated as closed without independently provable confirmation must not be silently grandfathered as confirmed.
+If the candidate or its evidence materially changes after review, prior confirmation does not automatically apply. This is the R5/R4 seam: **R4 tells R5 which exact lineage/candidate is being reviewed. R5 tells R4 whether that exact candidate received independent confirmation.**
 
-The confirmed legacy state is:
+## 8. Exact known affected surfaces
 
-`LEGACY_UNCONFIRMED`
+| Surface Why it is in scope                                      |                                                                                                                                                                                                       |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `artifacts/api-server/src/lib/autonomous-resolution-workers.ts` | Any worker may currently return `RESOLVED`; `executeAutonomousResolutionAdvance()` immediately stops on that result.                                                                                  |
+| `artifacts/api-server/src/lib/autonomous-resolution-engine.ts`  | Defines the resolution ladder, including internal `ADVERSARIAL_REVIEW`, and Exhaustion Certificate semantics. Internal review must remain distinct from closure confirmation.                         |
+| `artifacts/api-server/src/routes/autonomous-resolution.ts`      | Persists worker conclusions and currently records `AUTONOMOUS_RESOLUTION_RESOLVED` directly when `resolvedInternally` is true.                                                                        |
+| Resolution persistence schema / `researchRunsTable` usage       | Current resolution state is stored as generic research-run notes. Confirmed vs. candidate vs. challenged closure needs durable identity/provenance rather than being inferred from text/status alone. |
+| Lifecycle-event consumers                                       | `AUTONOMOUS_RESOLUTION_RESOLVED` must mean independently confirmed material closure when materiality requires it, not merely "a worker returned `RESOLVED`."                                          |
 
-A legacy conclusion may be reconstructed as confirmed only when durable evidence proves that an independent confirmation meeting the R5 contract actually occurred.
+Other autonomous conclusion surfaces are not yet asserted as confirmed R5 defects. They belong in the mandatory decision-closure audit (R5-A1).
 
-Otherwise it remains `LEGACY_UNCONFIRMED` until re-reviewed through the governed confirmation path.
+## 9. Known migration matrix (R5-M1 through R5-M8)
 
-## 8. CHALLENGED / INCONCLUSIVE ownership
+### R5-M1 — Resolution result semantics
 
-`CHALLENGED` and `INCONCLUSIVE` do not close the material question.
+Separate "worker says `RESOLVED`" from "canonical issue is independently confirmed resolved." A worker `RESOLVED` becomes a candidate when materiality requires confirmation.
 
-Where further action is needed, the unresolved state must become an owned corrective obligation rather than a passive blocked flag.
+### R5-M2 — Resolution advance behavior
 
-R11 owns the durable successor/disposition mechanics.
+`executeAutonomousResolutionAdvance()` may stop the proposal ladder when a strong candidate exists, but it must transition to confirmation rather than canonical closure. It may not set final `resolvedInternally=true` for material closure solely from worker output.
 
-> **Independent review can reject or fail to resolve a conclusion; that uncertainty must remain explicit and owned.**
+### R5-M3 — Independent confirmation execution
 
-## 9. R5 × R11 boundary
+Add the independent review/verification step with explicit reviewer identity and independence validation.
 
-R5 owns whether a material conclusion has been independently confirmed.
+### R5-M4 — Confirmation persistence
 
-R11 owns the executable corrective path after `CHALLENGED` or `INCONCLUSIVE` where additional work is required.
+Persist candidate, reviewer, outcome, exact fingerprint/lineage/evidence reference, and challenge details durably.
 
-R5 must not convert challenge/inconclusive results directly into a convenient successor without the governed R11 path.
+### R5-M5 — Lifecycle outcome
 
-R11 must not treat the existence of a successor obligation as proof that the original conclusion was confirmed.
+`AUTONOMOUS_RESOLUTION_RESOLVED` and `RESOLUTION_COMPLETE` may be emitted for material conclusions only after qualifying confirmation. Before confirmation, state should be equivalent to `RESOLUTION_CONFIRMATION_PENDING`.
 
-## 10. R4 × R5 boundary
+### R5-M6 — Challenge behavior
 
-R4 exact lineage and R5 independent confirmation are parallel requirements.
+A `CHALLENGED` result preserves the original candidate and review evidence and reopens/reroutes the unresolved problem. It does not silently mutate the old candidate into a different answer.
 
-Correct lineage does not make a material conclusion independently confirmed.
+### R5-M7 — Inconclusive behavior
 
-Independent confirmation does not repair missing/wrong Evaluation Cycle lineage.
+`INCONCLUSIVE` remains unresolved. It may trigger further permissible resolution work but cannot be interpreted as weak confirmation.
 
-A material conclusion about an artifact/decision must be confirmed against the exact lineage/context it actually belongs to, not whichever current object looks equivalent later.
+### R5-M8 — Existing persisted resolutions
 
-## 11. R3 × R5 boundary
+**Frozen amended policy:**
 
-Evidence freshness and independent confirmation are distinct.
+> Every pre-R5 material autonomous resolution is `LEGACY_UNCONFIRMED` by default.
 
-A reviewer can independently agree with a conclusion that is still based on stale/inapplicable evidence; that does not make the conclusion safe.
+A legacy conclusion can leave that state only in one of two ways:
 
-Likewise, fresh evidence does not remove the need for independent confirmation when the resulting conclusion is material.
+1. **Historical proof** — durable evidence demonstrates that qualifying independent confirmation actually occurred against the exact conclusion/evidence/lineage under an independence standard equivalent to R5.
+2. **Re-confirmation** — the legacy candidate is reconstructed sufficiently to undergo a new qualifying independent confirmation.
 
-R3 and R5 must both hold where both apply.
+Until one of those succeeds: historical records remain intact; the conclusion may be displayed as historical/unconfirmed; it may not serve as affirmative authority for a new consequential action; it may not be grandfathered merely because it previously drove state.
 
-## 12. R5 × R20 boundary
+**Explicitly rejected alternative:** a blanket "re-confirm every legacy record immediately" policy. Old dormant conclusions need not consume resources until they are actually about to be reused. **The trigger is reuse as current authority, not mere existence.**
 
-R5 confirmation is not perpetual boundary authority.
+This is per-record evidence-based treatment under one global default, not a migration mode someone chooses arbitrarily.
 
-R20 may require the material conclusion to remain currently eligible/consistent at the consequential boundary where it is consumed.
+## 10. Mandatory decision-closure audit (R5-A1)
 
-R5 answers whether the conclusion obtained the required independent confirmation.
+**R5-A1 — Autonomous Material Closure Audit.** Audit every autonomous path capable of turning a model-generated conclusion into durable canonical state.
 
-R20 answers whether that confirmed conclusion may be consumed **now**, together with current lineage/lifecycle/resource/evidence/capability predicates.
+At minimum inspect: Research verdict changes; Demand Check conclusions; Validation/Underwriting verdicts; Kill-screen closure; Autonomous Resolution; Product/Architecture review closure; Bet recommendation/underwriting outputs; commercial-plan conclusions; remediation/recovery conclusions; any AI-generated conclusion that can remove a blocker or establish readiness.
 
-## 13. R5 × R7 secondary-work requirement
+Classify each: `NON_MATERIAL`, `INDEPENDENT_CONFIRMATION_ALREADY_PRESENT`, `DETERMINISTIC_VERIFICATION_SUFFICIENT`, `R5_DEFECT_DISCOVERED`, `UNCERTAIN_REQUIRES_ADJUDICATION`.
 
-Independent confirmation is safety-required work, but it is still work.
+R5-A1 closes only when the inventory is complete and every surface has evidence for its classification. **R5-A1 does not close defects it discovers.** Every `R5_DEFECT_DISCOVERED` becomes a numbered migration child starting at **R5-M9+**.
 
-Where reviewer/model/verifier activity consumes scarce cash, entitlement, quota, provider capacity, or concurrency, that confirmation work must itself consume R7 resource authority.
+This preserves: **`AUDITED` ≠ `DEFECT FOUND` ≠ `DEFECT FIXED`.**
 
-The fact that work exists to improve safety does not exempt it from governed resource admission.
+## 11. Independence policy and cost
 
-## 14. Confirmed acceptance semantics recoverable from source
+R5 must not silently weaken independence merely because a second review has cost. But it also must not force expensive review of every trivial inference. Therefore: materiality determination decides whether confirmation is mandatory. If mandatory, resource authority still applies to the confirmation execution. A required confirmation whose permitted resource is unavailable remains PENDING/BLOCKED, not self-confirmed.
 
-### A. Self-confirmation forbidden
+> **Lack of budget or entitlement for independent review cannot convert a self-certified material conclusion into a confirmed one.**
 
-Model A produces a material candidate conclusion and then reviews its own conclusion in a second prompt/turn/persona.
+R7 later governs reservation of the required review resource. R5 only preserves the requirement.
 
-Expected: material conclusion remains unconfirmed; same-model self-review does not satisfy independence.
+**Confirmed burst-composition amendment:**
 
-### B. Independent model/provider confirmation
+> Multiple candidate confirmation burst variant. Scenario: multiple Opportunities/candidates reach `RESOLUTION_CONFIRMATION_PENDING` → confirmation executions become runnable at roughly the same time, including after outage/recovery or backlog drain → each candidate independently requires a paid/scarce reviewer execution.
+>
+> Required invariant: independent-review necessity does not create resource authority. Every confirmation execution remains subject to R7's aggregate reservation discipline across cash, entitlement, provider, account, and shared-resource scopes.
 
-Model/provider family A produces the candidate; materially independent reviewer B evaluates the exact candidate/context and returns `CONFIRMED`.
+R5 determines that confirmation is required. R7 determines whether the required reviewer execution may reserve resources and dispatch. Lack of reservation leaves the candidate pending. The confirmation path must not bypass R7 because it is labeled "review," "critic," or "verification."
 
-Expected: independent-confirmation requirement may be satisfied.
+> **Reusable system rule:** Safety-required secondary work is still work. Review, confirmation, reconciliation, remediation, and verification do not become resource-free merely because their purpose is safety.
 
-### C. Challenge remains unresolved
+## 12. Start dependencies
 
-Independent reviewer returns `CHALLENGED`.
+None. R5 can begin now. It does not require R3, R4, R6, or R11 to be implemented before its confirmation primitive can be designed and locally tested.
 
-Expected: underlying material conclusion does not close; corrective ownership is required where further action is needed.
+## 13. Local closure dependencies
 
-### D. Inconclusive remains unresolved
+R5 local closure requires: candidate/final resolution semantics separated; deterministic materiality rule; independent confirmation contract implemented; independence identity inspectable; known M1–M8 migrations complete; R5-A1 complete; all M9+ discovered defects closed; challenged/inconclusive behavior implemented; legacy self-certified material resolutions handled; semantic sibling sweep returns empty.
 
-Independent reviewer returns `INCONCLUSIVE`.
+R4 need not be `CLOSED` for R5 local closure, but R5 must have a lineage-compatible interface so exact candidate binding can compose later.
 
-Expected: no closure; uncertainty remains explicit and owned.
+## 14. End-to-end certification dependencies
 
-### E. Deterministic authoritative verifier
+**R4 × R5 — correct candidate, independently confirmed.** R4 and R5 solve two independent questions: R4 — did this conclusion come from the correct Evaluation Cycle/evidence lineage? R5 — did an independent source confirm the material conclusion?
 
-Material proposition is fully reducible to a deterministic authoritative check.
+> Required invariant: independent confirmation of the wrong lineage is still wrong; exact lineage without independent confirmation is still unconfirmed.
 
-Expected: deterministic verifier may satisfy confirmation without a second model if and only if no material judgment remains.
+Scenario: Cycle A produces Candidate X → Cycle B begins → independent reviewer confirms Candidate X. The system may preserve Candidate X / Cycle A / `CONFIRMED` historically, but that does not automatically establish that Cycle A remains eligible for new progression. R4 governs current lineage eligibility. R5 governs confirmation of Candidate X itself.
 
-### F. Deterministic verifier misuse
+**R3 × R5 — fresh evidence and independent confirmation are orthogonal.** A reviewer may independently confirm a conclusion based on stale/temporally-unknown evidence. That does not make the evidence fresh. Likewise, fresh evidence does not satisfy independent confirmation.
 
-Proposition still requires material interpretation/judgment, but implementation tries to certify it with a narrow mechanical check.
+> Required invariant: freshness cannot substitute for independence, and independence cannot substitute for freshness.
 
-Expected: confirmation fails; deterministic check cannot launder judgment into mechanical certainty.
+**R5 × R11 — challenged conclusion must have an executable owner.** R5 can produce `CHALLENGED`. It should not invent the successor/replan mechanism. R11 owns the executable route for challenge/revision where applicable. R5 may locally close before R11 exists, provided `CHALLENGED` fails closed instead of being silently accepted.
 
-### G. Legacy unconfirmed
+**R5 × R20 — confirmation freshness at consequential boundaries.** A candidate may have been validly confirmed earlier, while the underlying authority/evidence/lifecycle state changes later. R5's confirmation is historical fact. R20 decides whether that confirmation remains sufficient at the next consequential boundary.
 
-Legacy material conclusion lacks durable proof of qualifying independent confirmation.
+> R5 must not imply: CONFIRMED ONCE = AUTHORIZED FOREVER.
 
-Expected: `LEGACY_UNCONFIRMED`, not `CONFIRMED`.
+**R5 × R7 — confirmation executions consume reservation authority just like any other scarce execution workload, including burst conditions** (see §11).
 
-### H. Exact-lineage confirmation
+## 15. Vocabulary compatibility checkpoints
 
-Candidate conclusion was generated for lineage/context A; current context B exists later.
+**R4 ↔ R5:** agree on candidate lineage; reviewed snapshot; candidate fingerprint; superseded cycle; historical confirmation; current eligibility.
 
-Expected: confirmation must bind to A's exact conclusion/context. Review of B does not retroactively confirm A.
+**R3 ↔ R5:** agree on evidence quality; freshness; confirmation; challenge. A confirmation result cannot silently overwrite R3 freshness.
 
-### I. Freshness/confirmation independence
+**R5 ↔ R11:** agree on `CHALLENGED`; `INCONCLUSIVE`; unresolved; successor; replan/revision. R11 must not treat "review exists" as "confirmation passed."
 
-Independent reviewer confirms a conclusion whose current-state evidence is stale under R3.
+**R5 ↔ R20:** agree on `confirmed_at`; confirmation fingerprint; authority fence; revalidation.
 
-Expected: R5 may record confirmation, but stale R3 predicate still prevents current-condition eligibility where required.
+## 16. Parallel-not-merged boundaries
 
-### J. Resource-governed confirmation burst
+- **R5 vs R3:** R3 establishes temporal applicability. R5 establishes independent confirmation.
+- **R5 vs R4:** R4 establishes lineage. R5 establishes independent closure.
+- **R5 vs R6:** R6 determines whether a capability/verifier is strong enough for a claimed capability state. R5 determines whether a material reasoning conclusion received independent confirmation. A strong capability verifier is not automatically an independent decision reviewer.
+- **R5 vs R11:** R5 detects confirmation failure/challenge. R11 owns executable correction/revision.
+- **R5 vs R20:** R5 records confirmed historical judgment. R20 governs future consequential adoption/revalidation.
 
-Many material conclusions require independent review concurrently.
+## 17. Design Inputs
 
-Expected: reviewer/provider usage remains governed by R7; safety work does not bypass scarce-resource limits.
+Design Input registry reviewed through: **DI-2** / Convergence Protocol v1.1 registry snapshot.
 
-## 15. Design Inputs
+**DI-1 — Capability identity under multi-provider/multi-account execution:** Reviewed: YES. Activation crossed by R5: NO. Required action: NOT ACTIVATED. Evidence: R5 defines decision-review independence, not simultaneous execution across multiple provider/account capability scopes. If future implementation adds multi-provider reviewer routing, DI-1 must be reevaluated at that work item's scope before design freeze.
 
-The recoverable R5 source reviewed the Design Input registry through DI-2.
+**DI-2 — Outbound Payment Reversal Execution:** Reviewed: YES. Activation crossed: NO. Required action: NOT ACTIVATED. Evidence: R5 adds no payment mutation or reversal capability.
 
-### DI-1 — provider/account identity plurality
+If DI-3+ exists before design freeze, the entry becomes schema-invalid until the complete registry is enumerated.
 
-**Disposition:** REVIEWED / NOT ACTIVATED GENERICALLY.
+## 18. Acceptance fixtures
 
-R5 reviewer independence may include provider/model-family identity, but that is not itself authorization to substitute provider accounts for execution. If an R5 implementation surface creates a true multi-account/provider identity authority problem, that exact scope activates DI-1 separately.
+**A. Canonical self-certification failure.** `DIRECT_RESEARCH` → worker returns `RESOLVED + BUILD_SUPPORTED + HIGH`. Expected: material candidate created; resolution does not become canonically complete; lifecycle does not emit material `AUTONOMOUS_RESOLUTION_RESOLVED`; independent confirmation required.
 
-### DI-2 — outbound payment reversal execution
+**B. Confirmation success.** Candidate X → independent reviewer confirms X against exact candidate/evidence/lineage. Expected: `CONFIRMED` → canonical resolution may close.
 
-**Disposition:** REVIEWED / NOT ACTIVATED.
+**C. Challenge.** Candidate X → independent reviewer provides concrete contradiction. Expected: `CHALLENGED` → X remains durable historical candidate; no closure; unresolved/challenge path persists; proposer cannot overwrite review by repeating X.
 
-R5 evaluates/records confirmation of material conclusions; it does not itself execute refunds, voids, cancellations, or reversals.
+**D. Inconclusive.** Reviewer cannot establish closure. Expected: `INCONCLUSIVE` → issue remains unresolved; no "weak pass."
 
-## 16. Dependency classes recoverable from source
+**E. Candidate mutation.** Candidate X confirmed. Candidate materially changes to X2 or evidence snapshot changes. Expected: prior confirmation does not confirm X2.
 
-### START
+**F. Independence identity.** Same model response reused as critic fails. Same execution under a "reviewer" role fails. A qualifying independent reviewer/verifier passes according to policy.
 
-R5 can begin once the material-conclusion surfaces to be confirmed are identifiable. It does not require R7/R11/R20 global closure merely to implement its own confirmation representation and local consumers.
+**G. Non-material outcome.** Worker proposes a reversible experiment while explicitly preserving unresolved question. Expected: no unnecessary final-closure confirmation merely to create the experiment proposal, assuming no separate material authority is granted.
 
-### LOCAL CLOSURE
+**H. Legacy.** Legacy material self-certified resolution cannot be reused as confirmed authority without qualifying treatment under M8.
 
-The recoverable R5 contract requires at minimum:
+**I. R3 composition.** Fresh but unconfirmed evidence fails R5 closure. Confirmed but stale evidence fails the appropriate R3/R20 eligibility path.
 
-- durable candidate-versus-confirmed conclusion semantics;
-- canonical `CONFIRMED / CHALLENGED / INCONCLUSIVE` outcomes;
-- materiality default implemented;
-- materially independent reviewer-source rule implemented;
-- deterministic-verifier exception implemented narrowly;
-- durable Resolution Confirmation Record implemented;
-- `LEGACY_UNCONFIRMED` migration behavior implemented;
-- challenged/inconclusive outcomes do not close material work;
-- every known R5 consumer migrated;
-- iterative semantic sibling sweep empty;
-- independent material closure review.
+**J. R4 composition.** Independent confirmation binds exact Cycle A candidate and cannot be transplanted to Cycle B.
 
-The exact original R5 migration matrix and complete closure-evidence enumeration remain unrecovered, so this section is insufficient to claim local closure or artifact fidelity.
+## 19. Semantic sibling sweep
 
-### E2E CERTIFICATION
+After M1–M8 complete, R5-A1 inventory completes, and all M9+ discovered migrations close, run the iterative semantic sweep.
 
-Recovered required compounds include:
+Search for patterns including: `status === "RESOLVED"` directly creating canonical readiness; model recommendation directly changing durable lifecycle state; same model execution acting as proposal and closure; "adversarial" prompt/persona being treated as independent confirmation; schema validation mistaken for conclusion confirmation; `BUILD_SUPPORTED`/`KILL_SUPPORTED` consumed without independent review; material blocker removed solely from one model result; legacy model conclusion reused as if independently confirmed.
 
-- R4×R5;
-- R3×R5;
-- R5×R11;
-- R5×R20;
-- R5×R7 for scarce confirmation work.
+Every new semantic instance becomes a migration child. Repeat until a complete pass finds none.
 
-## 17. Source gap blocking full reconstruction
+## 20. Explicit non-goals
 
-The following exact original R5 content remains unrecovered and blocks promotion to `RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION`:
+R5 must not: require two models for every trivial inference; force every resolution method to execute after a candidate is already strong enough for independent confirmation; define evidence freshness, which is R3; define evaluation lineage, which is R4; determine verifier strength for capabilities, which is R6; implement challenge/revision ownership, which is R11; grant capital/provider authority; equate "different prompt" with independent reviewer; let Human Action attestation stand in for independent factual confirmation unless the question is genuinely human judgment/authority; turn confirmation into permanent future authority.
 
-1. the literal R5-M1... migration-child labels and exact surface assignments;
-2. the exact known-consumer matrix frozen during R5 confirmation;
-3. the complete original acceptance-fixture grouping/order and any concrete examples not captured above;
-4. the complete numbered closure-evidence list;
-5. the exact sibling-sweep numbering convention for newly discovered R5 defects;
-6. any rejected alternatives/amendments whose exact wording was frozen but is not represented in the recoverable source above.
+## 21. Closure evidence required
 
-These details must be recovered from the original WI-R5 adversarial-confirmation record rather than regenerated from the compressed v1.0 matrix or current code.
+`WI-R5 = CLOSED` requires:
 
-## 18. Recovery gate
+1. implementation SHA;
+2. schema/migration SHA if applicable;
+3. M1–M8 individually PASS;
+4. complete R5-A1 audit;
+5. every M9+ discovered child PASS;
+6. before-fix fixture proving one worker `RESOLVED` stops the ladder and produces `RESOLUTION_COMPLETE`;
+7. after-fix candidate/confirmation fixture;
+8. challenged fixture;
+9. inconclusive fixture;
+10. candidate-mutation invalidation fixture;
+11. reviewer-independence fixture;
+12. non-material outcome fixture proving R5 does not over-confirm reversible intermediate work;
+13. legacy-resolution fixture;
+14. R3↔R5 compatibility PASS;
+15. R4↔R5 compatibility PASS;
+16. R5↔R11 compatibility PASS or `PENDING E2E`;
+17. R5↔R20 compatibility PASS or `PENDING E2E`;
+18. complete DI inventory/version evidence;
+19. final sibling sweep with zero new instances;
+20. independent cross-model/provider closure review of the R5 implementation itself.
 
-R5 remains `FIDELITY_SOURCE_INCOMPLETE` until the source gap in §17 is closed.
+## 22. Dependency result
 
-Until then:
+R5 remains locally parallel: R5 may start now and may locally close without R11/R20. Its important compositions are: R3 + R5 (freshness truth + independent judgment); R4 + R5 (correct lineage + independent judgment); R5 + R11 (challenge detection + executable correction); R5 + R20 (historical confirmation + future consequential revalidation).
 
-- do not call this the full R5 contract;
-- do not ask for final fidelity verification;
-- do not begin R6 recovery in the serialized recovery queue;
-- do not derive implementation batches from this partial artifact;
-- preserve the source gap as an owned recovery obligation.
+The live code makes the core defect direct: any worker method may return `RESOLVED`; `executeAutonomousResolutionAdvance()` immediately sets `resolvedInternally=true` and stops, and the lifecycle route then records `AUTONOMOUS_RESOLUTION_RESOLVED`/`RESOLUTION_COMPLETE` from that same result. So R5 is not "add an adversarial prompt." That prompt already exists. R5 is: **separate proposal from closure, require independent confirmation for material conclusions, and bind that confirmation to the exact candidate it actually reviewed.**
 
-> **The right failure mode is explicit incompleteness, not a plausible-looking reconstruction that silently drops the exact migration and closure obligations.**
+## 23. Fidelity-review checklist for this recovered artifact
+
+Before changing this artifact to `FIDELITY_VERIFIED`, the reviewer must compare it line-by-line against the original R5 confirmation exchange and specifically verify:
+
+- the exact R5-M1 through R5-M8 labels and scope assignments;
+- the amended M8 `LEGACY_UNCONFIRMED` policy and the explicitly rejected blanket re-confirmation alternative;
+- the materiality-default amendment ("unclassified → MATERIAL by default");
+- the `CONFIRMED`/`CHALLENGED`/`INCONCLUSIVE` outcome model and the amended INCONCLUSIVE/CHALLENGED symmetry (R5 records, R11 routes);
+- the R5-A1 audit classifications and M9+ numbering rule;
+- every acceptance fixture (A through J);
+- the R7 burst-composition amendment and its "safety-required work is still work" rule;
+- R3×R5, R4×R5, R5×R11, R5×R20 compound boundaries;
+- the complete 20-item closure-evidence list;
+- that no content was imported from the compressed v1.0 matrix as if it were original authority;
+- that no reconstructed wording narrows, expands, or infers beyond the confirmed root.
+
+Until that review passes, this file remains **RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION**.
