@@ -118,15 +118,15 @@ We do not need a second capability state merely to distinguish why verification 
 
 ## 10. Exact known affected surfaces
 
-| Surface Why it is in scope                                                      |                                                                                                                                                                                                                                           |
-| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/db/src/schema/human-actions.ts`                                            | Capability schema lacks typed verifier policy/strength/proof scope. `verificationMethod` is free text and capability key is globally unique.                                                                                              |
-| `artifacts/api-server/src/lib/human-gates.ts`                                   | `setCapabilityAvailable()` can grant `AUTOMATION_READY`; `capabilityIsUsable()` trusts readiness without verifying provenance.                                                                                                            |
+| Surface Why it is in scope | |
+| --- | --- |
+| `lib/db/src/schema/human-actions.ts` | Capability schema lacks typed verifier policy/strength/proof scope. `verificationMethod` is free text and capability key is globally unique. |
+| `artifacts/api-server/src/lib/human-gates.ts` | `setCapabilityAvailable()` can grant `AUTOMATION_READY`; `capabilityIsUsable()` trusts readiness without verifying provenance. |
 | `artifacts/api-server/src/routes/human-actions.ts` — Human Action resolve route | Correctly enforces action-specific `AUTOMATED_CHECK`/`CALLBACK` in one path, but human-attested capability resolution still grants automation-ready where human mode applies. Must consume canonical policy rather than local mode alone. |
-| Same file, generic `/capabilities/:capabilityKey/confirm` route                 | Confirmed bypass: arbitrary capability can become `AUTOMATION_READY` through human attestation without strongest-applicable verifier selection.                                                                                           |
-| Same file, `resolveOpenActionsForCapability()` / resume flow                    | Newly "available" capability can resolve blockers and queue automatic successor work, making verifier strength consequential.                                                                                                             |
-| `artifacts/api-server/src/lib/asset-factory.ts`                                 | Operational-capability selection trusts `AVAILABLE + AUTOMATION_READY` as canonical readiness.                                                                                                                                            |
-| Automated callers of `setCapabilityAvailable()`                                 | Some callers may already establish strong proof, such as successful provider operations. They must register evidence through R6 rather than being weakened into the same untyped string model. Exact inventory belongs to R6-A1.          |
+| Same file, generic `/capabilities/:capabilityKey/confirm` route | Confirmed bypass: arbitrary capability can become `AUTOMATION_READY` through human attestation without strongest-applicable verifier selection. |
+| Same file, `resolveOpenActionsForCapability()` / resume flow | Newly "available" capability can resolve blockers and queue automatic successor work, making verifier strength consequential. |
+| `artifacts/api-server/src/lib/asset-factory.ts` | Operational-capability selection trusts `AVAILABLE + AUTOMATION_READY` as canonical readiness. |
+| Automated callers of `setCapabilityAvailable()` | Some callers may already establish strong proof, such as successful provider operations. They must register evidence through R6 rather than being weakened into the same untyped string model. Exact inventory belongs to R6-A1. |
 
 The final row is intentionally an audit obligation, not a claimed defect.
 
@@ -338,7 +338,3 @@ Before changing this artifact to `FIDELITY_VERIFIED`, the reviewer must compare 
 - that no reconstructed wording narrows, expands, or infers beyond the confirmed root.
 
 Until that review passes, this file remains **RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION**.
-
----
-
-Every section above is reconstructed from content I actually have from this conversation's R6 confirmation rounds — nothing was marked `SOURCE_NOT_RECOVERABLE`. Send the immutable commit when it's ready.
