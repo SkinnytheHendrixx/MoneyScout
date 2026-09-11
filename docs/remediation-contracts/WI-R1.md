@@ -4,7 +4,7 @@
 **Historical finding:** C3-F2  
 **Severity:** MATERIAL  
 **Contract state:** CONFIRMED  
-**Artifact fidelity state:** RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION  
+**Artifact fidelity state:** RECOVERED CANDIDATE / AMENDED AFTER FAILED FIDELITY REVIEW / PENDING RE-VERIFICATION  
 **Implementation:** NOT STARTED  
 **Closed:** NO
 
@@ -12,7 +12,9 @@
 
 This artifact is reconstructed from the R1 adversarial-confirmation record preserved in the Money Scout conversation, not from the compressed v1.0 remediation matrix as normative authority. The v1.0 matrix was consulted only as a secondary consistency check after the recovery content was assembled.
 
-This file is **not `FIDELITY_VERIFIED`** until an independent reviewer compares it against the original R1 conversation sequence and confirms that every confirmed obligation, migration, acceptance fixture, Design Input disposition, and closure requirement is present without scope drift.
+The first committed recovery candidate failed adversarial fidelity verification. That review found substantial drift in the migration matrix and acceptance fixtures: most R1-M1 through R1-M8 children had been reassigned to invented or incorrectly generalized surfaces; the confirmed Bet reconciliation worker, Bet proposal/allocation validation, Controlled Release, Asset Operations/remediation, and existing-data migration children had been lost or renamed; QA/commercial/shared-pool children had been invented; and the acceptance fixtures omitted the confirmed exhaustion-correctness assertion and the frozen numeric commitment example. This amended version preserves that failure in Git history rather than rewriting it away.
+
+This file is **not `FIDELITY_VERIFIED`** until an independent reviewer compares this amended artifact against the original R1 conversation sequence and confirms that every confirmed obligation, migration, acceptance fixture, Design Input disposition, and closure requirement is present without scope drift.
 
 ## 1. Frozen root and mission
 
@@ -115,53 +117,51 @@ This gate later composes with the explicit **R1×R2×R7** certification: truthfu
 
 ## 6. Known migration matrix
 
-The original R1 review froze **R1-M1 through R1-M9** as known migration obligations. Recovery preserves the nine-child structure so none can be collapsed into a generic “resource primitive implemented” claim.
+The original R1 confirmation froze the following exact nine migration children. These names and surface assignments are normative for fidelity recovery and must not be generalized into different children.
 
-> **Fidelity warning:** the independent review of this recovered artifact must compare the child labels/surface assignments below against the original R1 confirmation transcript. If any label or surface mapping differs, that is artifact drift and must be corrected before `FIDELITY_VERIFIED`.
+### R1-M1 — Bet schema
 
-### R1-M1 — Canonical typed resource-attribution schema
+Migrate the Bet persistence/schema surface to carry the canonical typed resource-attribution semantics needed by downstream safety logic, including source/bucket/unit, committed/consumed distinction, temporal/provenance data, and explicit unknown handling.
 
-Introduce the shared typed representation carrying source, bucket, unit, committed, consumed, temporal/provenance, and explicit unknown semantics.
+### R1-M2 — Bet kernel
 
-### R1-M2 — Bet-kernel resource-state migration
+Migrate Bet-kernel resource calculations and state transitions so they consume and preserve the typed semantics rather than ambiguous numeric fields or local arithmetic assumptions.
 
-Migrate Bet-level resource/exposure state so later safety checks consume typed semantic resource facts rather than ambiguous numeric fields or local arithmetic assumptions.
+### R1-M3 — Bet reconciliation worker
 
-### R1-M3 — Build / Builder resource-state migration
+Migrate the Bet reconciliation worker that persists/updates resource attributions so reconciliation cannot collapse source/bucket identity, confuse committed with consumed, convert unknown to zero, or create optimistic remaining capacity.
 
-Migrate Builder/Build resource observations and provider-consumption fields to the canonical semantics, preserving provider ceilings/commitments separately from observed consumption.
+### R1-M4 — Bet proposal/allocation validation
 
-### R1-M4 — QA / review resource-state migration
+Migrate the proposal/allocation validation path that initializes or validates Bet resource buckets so the correct source/bucket/unit semantics exist before later commitments or consumption are recorded.
 
-Migrate QA/review resource consumers so entitlement/quota/cash/concurrency facts retain exact unit, source/bucket, and unknown semantics rather than inheriting a generic zero/default model.
+### R1-M5 — Build/Builder attribution
 
-### R1-M5 — Release / deployment resource-state migration
+Migrate Build/Builder resource attribution to the canonical semantics, preserving provider/source identity and commitments separately from observed consumption.
 
-Migrate preview/production release resource surfaces to the canonical representation, including provider/resource attribution needed by later R7/R8 safety.
+### R1-M6 — Controlled Release attribution
 
-### R1-M6 — Commercial / external-provider resource-state migration
+Migrate Controlled Release attribution for preview/production resource use so release resource facts preserve exact source/bucket/unit and committed/consumed semantics for later safety checks.
 
-Migrate consequential provider/resource consumers outside Build/QA/Release that currently expose ambiguous committed/consumed or source/bucket semantics.
+### R1-M7 — Asset Operations/remediation attribution
 
-### R1-M7 — Shared / portfolio / provider-pool resource-state migration
+Migrate Asset Operations and remediation resource attribution so autonomous maintenance/repair work uses the same semantic model and cannot inherit or create ambiguous bucket/commitment state.
 
-Ensure shared-provider, entitlement-pool, portfolio, and other non-Bet-local resource values use the same semantic model and do not silently collapse unknown attribution into a local bucket.
+### R1-M8 — Existing-data migration
 
-### R1-M8 — API/read-model/resource-consumer migration
+Migrate legacy pre-R1 attribution rows into the new semantic representation without fabricating facts that were never recorded. Historical rows whose source/bucket/unit/commitment/consumption cannot be proven must preserve explicit unknown/legacy uncertainty rather than being backfilled from current state or convenient defaults.
 
-Migrate API serialization, derived read models, and non-UI consumers so the canonical semantics survive transmission. No consumer may turn typed unknown into zero or discard unit/source/provenance needed by safety logic.
+### R1-M9 — Bets dashboard/reporting presentation
 
-### R1-M9 — Bets dashboard / UI migration
-
-Update the Bets dashboard and related resource UI so operators can distinguish:
+Migrate the Bets dashboard/reporting presentation that consumes `committed`, `consumed`, and `remaining` directly so operators can distinguish:
 
 - committed vs consumed;
 - known zero vs unknown;
 - source/bucket identity;
 - units;
-- provenance/observation status where needed.
+- unresolved/legacy attribution where applicable.
 
-The dashboard must not display unknown resource state as `0`, “unused,” or otherwise imply additional headroom that the underlying facts do not prove.
+The dashboard must not display unknown resource state as `0`, “unused,” “remaining,” or otherwise imply additional headroom that the underlying facts do not prove.
 
 ## 7. Iterative sibling-sweep discipline
 
@@ -177,7 +177,7 @@ A sibling sweep is semantic, not filename-based. It must search for every surfac
 - compares committed/consumed/remaining values;
 - defaults missing numeric resource data;
 - maps one provider/resource value into local buckets;
-- exposes resource state through API/UI;
+- exposes resource state through API/UI/reporting;
 - feeds later R7 admission/headroom logic.
 
 `AUDITED` is not `FIXED`. Any new defect becomes `R1-M10+` (or the next available durable child ID) and must be closed before R1 local closure.
@@ -204,61 +204,52 @@ No Design Input may be silently marked consumed simply because its fields are re
 
 ## 9. Acceptance fixtures
 
-At minimum, R1 must preserve the following confirmed failure distinctions.
+The original R1 confirmation froze five test categories. Recovery must preserve both the categories and the concrete assertions inside them.
 
-### A. Genuine zero vs missing
+### A. Resource classification
 
-Source reports `0` for a resource value in case A and omits/unreports the value in case B.
+Required assertions include:
 
-Expected: A = known zero; B = `UNKNOWN`. They must not serialize or render identically.
+- genuine provider/source-reported zero remains distinguishable from missing/unreported data;
+- missing/unreported resource state remains `UNKNOWN`, not zero;
+- unknown bucket/source attribution remains unresolved rather than being copied into every candidate bucket or assigned to a convenient one;
+- unit identity is preserved and numerically equal values in different units are not treated as interchangeable capacity.
 
-### B. Unknown bucket
+### B. Commitment semantics
 
-A value is known but its exact bucket/source attribution is not.
+Required assertions include:
 
-Expected: attribution remains unresolved; value is not copied into every candidate bucket and is not assigned to a convenient local bucket.
+- committed and consumed remain distinct;
+- a provider maximum/commitment may exceed eventual observed consumption without being rewritten to equal consumption;
+- **frozen numeric case:** allocation = 100, commitment = 100, consumption = 10 **cannot report 90 as new commitment authority** merely because only 10 has been consumed;
+- no unconsumed portion of a commitment becomes headroom until authoritative release/reconciliation owned elsewhere proves it.
 
-### C. Unit mismatch
+### C. Exhaustion correctness
 
-Two resource facts have numerically identical values but different units.
+Required assertions include:
 
-Expected: they are not combined or compared as equivalent capacity without an explicit canonical conversion rule owned elsewhere.
+- exhaustion is reported against the source/bucket actually attributed;
+- **BUILD exhaustion must not falsely report `PROVIDER_SERVICES` exhaustion unless that source was actually attributed there**;
+- unknown attribution cannot be converted into a confident exhaustion label for a different bucket/source;
+- later R7 safety logic receives the same truthful source/bucket semantics rather than a reclassified exhaustion state.
 
-### D. Commitment exceeds eventual consumption
+### D. Persistence / idempotency
 
-Provider maximum/commitment = 500 units; current observed consumption = 300.
+Required assertions include:
 
-Expected: both facts remain visible. R1 does not rewrite commitment to 300 merely because consumption is lower.
+- persistence and repeated reconciliation preserve the same source/bucket/unit semantics;
+- replay/retry of the same observation does not duplicate consumption or commitment;
+- API/read-model/reporting round trips do not flatten `UNKNOWN`, source identity, unit identity, or committed/consumed distinction;
+- repeated reconciliation cannot progressively drift one attribution into another bucket merely because current state differs.
 
-### E. No optimistic headroom from incomplete consumption
+### E. Migration
 
-Commitment = 500; consumption currently observed = 300; no authoritative release exists.
+Required assertions include:
 
-Expected: downstream headroom may not increase by 200 merely from the difference.
-
-### F. Provenance distinction
-
-Same numeric value arrives from an authoritative provider observation and from a local estimate.
-
-Expected: provenance remains distinct and later safety logic can tell them apart.
-
-### G. API preservation
-
-Typed unknown/source/unit/commitment/consumption passes through persistence/API/read-model round trip.
-
-Expected: no semantic field is flattened, defaulted, or lost.
-
-### H. Bets-dashboard rendering
-
-Known zero, unknown, committed, consumed, and unresolved attribution are rendered distinctly.
-
-Expected: UI never turns unknown into apparent zero/available headroom.
-
-### I. R1→R7 fail-closed compatibility
-
-R7 receives materially unknown resource state from an R1-migrated surface.
-
-Expected: R7 does not authorize new scarce-resource consumption using an optimistic interpretation.
+- legacy pre-R1 rows are migrated by R1-M8 without inventing missing source/bucket/unit/commitment/consumption facts;
+- historical rows with unprovable semantics remain explicitly unknown/legacy rather than being backfilled from current state;
+- Bets dashboard/reporting correctly distinguishes migrated unknown/legacy values from known zero and from available headroom;
+- every R1-M1 through R1-M9 surface passes the new semantic model after migration.
 
 ## 10. Vocabulary checkpoints
 
@@ -302,8 +293,8 @@ R1 local closure requires:
 - canonical typed resource semantics implemented;
 - R1-M1 through R1-M9 repaired and verified;
 - all R1-M10+ sibling defects closed;
-- Bets dashboard/UI semantics migrated;
-- API/read-model round-trip preservation;
+- Bets dashboard/reporting semantics migrated;
+- persistence/read-model/reporting round-trip preservation;
 - iterative sibling sweep empty;
 - independent material closure review.
 
@@ -327,55 +318,69 @@ Requires the **R1×R2×R7** compound gate and any later full-Fund/Factory scenar
 8. committed-vs-consumed distinction PASS;
 9. timestamp/temporal provenance PASS;
 10. provenance/source-of-truth preservation PASS;
-11. known-zero-vs-UNKNOWN fixture PASS;
-12. UNKNOWN-not-every-bucket fixture PASS;
-13. no optimistic headroom from unconsumed commitment PASS;
-14. R1-M1 PASS;
-15. R1-M2 PASS;
-16. R1-M3 PASS;
-17. R1-M4 PASS;
-18. R1-M5 PASS;
-19. R1-M6 PASS;
-20. R1-M7 PASS;
-21. R1-M8 PASS;
-22. R1-M9 Bets-dashboard/UI migration PASS;
-23. API/read-model semantic round-trip PASS;
-24. sibling-sweep evidence identifying every inspected resource consumer;
-25. every discovered R1-M10+ child CLOSED;
-26. final repeated sibling sweep finds no unresolved concrete R1 instance;
-27. R1→R7 compatibility gate PASS;
-28. R1×R2×R7 compound certification PASS for E2E status;
-29. DI registry reviewed through DI-2 with scope-correct dispositions recorded;
-30. DI-1 not implicitly activated/consumed by generic resource representation;
-31. DI-2 non-activation evidence unless an implementation child genuinely introduces reversal execution;
-32. independent cross-model/provider confirmation of material closure.
+11. known-zero-vs-UNKNOWN classification PASS;
+12. UNKNOWN-not-every-bucket classification PASS;
+13. frozen numeric commitment fixture `allocation=100 / commitment=100 / consumption=10` PASS, including proof that 90 is not treated as new commitment authority;
+14. exhaustion-correctness fixture PASS, including proof that BUILD exhaustion does not falsely report `PROVIDER_SERVICES` exhaustion absent that attribution;
+15. persistence/idempotency fixture PASS;
+16. migration/legacy-data fixture PASS;
+17. R1-M1 Bet schema PASS;
+18. R1-M2 Bet kernel PASS;
+19. R1-M3 Bet reconciliation worker PASS;
+20. R1-M4 Bet proposal/allocation validation PASS;
+21. R1-M5 Build/Builder attribution PASS;
+22. R1-M6 Controlled Release attribution PASS;
+23. R1-M7 Asset Operations/remediation attribution PASS;
+24. R1-M8 Existing-data migration PASS;
+25. R1-M9 Bets dashboard/reporting presentation PASS;
+26. persistence/API/read-model/reporting semantic round-trip PASS;
+27. sibling-sweep evidence identifying every inspected resource consumer;
+28. every discovered R1-M10+ child CLOSED;
+29. final repeated sibling sweep finds no unresolved concrete R1 instance;
+30. R1→R7 compatibility gate PASS;
+31. R1×R2×R7 compound certification PASS for E2E status;
+32. DI registry reviewed through DI-2 with scope-correct dispositions recorded;
+33. DI-1 not implicitly activated/consumed by generic resource representation;
+34. DI-2 non-activation evidence unless an implementation child genuinely introduces reversal execution;
+35. independent cross-model/provider confirmation of material closure.
 
 ## 14. Anti-cheat closure rule
 
 The following implementation does **not** close R1:
 
-1. add a generic `resource` object;
-2. keep old ambiguous numbers in existing workers;
-3. update one safety check to read the new object;
-4. leave UI/read models/default-zero paths unchanged;
+1. add a generic typed resource object;
+2. update the Bet kernel but leave the reconciliation worker or proposal/allocation initialization on old semantics;
+3. migrate new rows but leave legacy pre-R1 attribution rows ambiguous;
+4. update safety logic but leave Controlled Release, Asset Operations/remediation, Build/Builder, or dashboard/reporting consumers on old semantics;
 5. declare the primitive complete.
 
-R1 closes only when the semantic model is propagated through every known migration and the iterative semantic sibling sweep no longer demonstrates the original `C3-F2` failure shape.
+R1 closes only when the semantic model is propagated through every confirmed migration and the iterative semantic sibling sweep no longer demonstrates the original `C3-F2` failure shape.
 
 > **Primitive existence is not closure, and resource truth cannot be repaired downstream after an unsafe semantic interpretation has already been made.**
 
-## 15. Fidelity-review checklist for this recovered artifact
+## 15. Fidelity-review checklist for this amended recovered artifact
 
 Before changing this artifact to `FIDELITY_VERIFIED`, the reviewer must compare it line-by-line against the original R1 confirmation exchange and specifically verify:
 
-- the exact R1-M1 through R1-M9 labels and scope assignments;
-- the Bets-dashboard addition in R1-M9;
-- the iterative sibling-sweep rule and child-numbering behavior;
-- the exact Design Input registry/version wording and DI-1/DI-2 dispositions;
-- the R1→R7 compatibility gate wording and all required subtests;
-- every acceptance fixture;
-- the complete closure-evidence list;
-- that no content was imported from the compressed v1.0 matrix as if it were original authority;
-- that no reconstructed wording narrows or expands the confirmed root.
+- the exact R1-M1 through R1-M9 labels and scope assignments now match the frozen list:
+  - M1 Bet schema;
+  - M2 Bet kernel;
+  - M3 Bet reconciliation worker;
+  - M4 Bet proposal/allocation validation;
+  - M5 Build/Builder attribution;
+  - M6 Controlled Release attribution;
+  - M7 Asset Operations/remediation attribution;
+  - M8 Existing-data migration;
+  - M9 Bets dashboard/reporting presentation;
+- no invented QA/commercial/shared-pool migration children remain;
+- the iterative sibling-sweep rule and child-numbering behavior are preserved;
+- the exact Design Input registry/version wording and DI-1/DI-2 dispositions are preserved;
+- the R1→R7 compatibility gate wording and all required subtests remain correct;
+- the five frozen acceptance-test categories are present;
+- the BUILD-vs-`PROVIDER_SERVICES` exhaustion assertion is present;
+- the frozen `100 / 100 / 10` commitment example is present;
+- the complete closure-evidence list corresponds to actual confirmed requirements rather than plausible reconstruction;
+- no content is imported from the compressed v1.0 matrix as if it were original authority;
+- no reconstructed wording narrows or expands the confirmed root.
 
-Until that review passes, this file remains **RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION**.
+Until that review passes, this file remains **RECOVERED CANDIDATE / AMENDED AFTER FAILED FIDELITY REVIEW / PENDING RE-VERIFICATION**.
