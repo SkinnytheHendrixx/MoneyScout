@@ -1,7 +1,7 @@
 # WI-R11 — Durable Executable Corrective Obligations
 
 **Normalized node:** R11  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
+**Historical finding:** C1-F6 + C4-F2  
 **Severity:** MATERIAL  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
@@ -10,11 +10,13 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R11 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing historical finding IDs, exact enum ordinals, migration numbering, fixture labels/order, audit classification vocabulary, or closure-evidence numbering from compressed summaries.
+This artifact begins R11 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing exact enum ordinals, migration numbering, fixture labels/order, audit classification vocabulary, or closure-evidence numbering from compressed summaries.
 
 Where exact historical text is unavailable, the gap is marked explicitly rather than inferred.
 
 ## 2. Frozen root and mission
+
+R11 merges C1-F6 and C4-F2 because both exposed the same underlying failure: describing a repair path is not the same as durably owning an executable repair path.
 
 R11 exists because detecting a defect or failing closed is not sufficient if the resulting corrective work has no durable executable owner.
 
@@ -55,6 +57,33 @@ Every corrective obligation must durably preserve enough information to answer:
 - which later action is allowed if the obligation cannot converge.
 
 The successor scope must be explicit. “Try again” is not a sufficient corrective contract when the system cannot prove what may be retried, from which frozen authority, and under which gates.
+
+### 4.1 Successor scope must name what may change
+
+A successor obligation must define not only *what object class* it targets, but which dimensions of that object are authorized to change and which authority facts must remain invariant.
+
+Confirmed Product-vs-Architecture boundary:
+
+- a **Product repair** may change unresolved-requirement representation, acceptance-condition wording, or internal completeness defects;
+- a Product repair may **not** silently change target buyer, validated problem, promised outcome, or monetization truth unless the successor is explicitly a new Product-authority revision;
+- an **Architecture repair** may change implementation topology, component mapping, or operational details;
+- an Architecture repair may **not** remove or weaken Product requirements merely to make review pass.
+
+The purpose of this distinction is to prevent a narrower repair obligation from silently consuming authority that belongs to an upstream Product or Architecture revision.
+
+### 4.2 Per-class completion predicates
+
+Completion predicates define **what done means** for each obligation class. They are distinct from §8's confirmation process, which defines **who may authoritatively confirm that done has been reached**.
+
+Recovered class-specific completion requirements include:
+
+- **Product repair:** all identified fatal Product defects are closed, and commercial truth remains unchanged unless an explicitly authorized Product revision changed it;
+- **Architecture repair:** all identified fatal Architecture defects are closed, and frozen Product requirements remain preserved;
+- **integrity/source/artifact repair:** the exact applicable R9/R10 invariant is restored for the affected source/artifact lineage;
+- **capability-resume obligation:** R6 proves the exact required capability claim/state for the governed scope;
+- **reconciliation obligation:** R8 reaches a terminal authoritative external-execution outcome for the exact execution being reconciled.
+
+Other corrective classes may define additional predicates, but they must be explicit and testable. An obligation must not become complete merely because its executor stopped, returned success, or produced a plausible successor.
 
 ## 5. Repair vs redesign
 
@@ -97,6 +126,8 @@ The worker/executor that performs corrective work may propose completion, but a 
 Where R5 requires independent confirmation, R11 must consume that result before the obligation is treated as authoritatively complete.
 
 A challenged or inconclusive confirmation keeps the obligation open/owned under the governing fail-closed semantics.
+
+The applicable per-class completion predicate from §4.2 must be satisfied before completion can even be proposed; §8 then governs whether that proposed completion becomes authoritative.
 
 ## 9. Unknown successor scope becomes an adjudication obligation
 
@@ -145,6 +176,21 @@ R12 owns durable scheduling/execution-occurrence semantics for future/runnable o
 An R11 obligation must be representable durably even if no worker is currently alive. R12 later ensures due/runnable corrective work survives restart, timer loss, and scheduler replacement.
 
 R11 must not substitute process-local timers or in-memory queues for durable obligation ownership.
+
+### 12.1 R11 × R12 deterministic recovery compound
+
+Confirmed worked scenario:
+
+1. a Product blocker persists and R11 should derive an exact successor obligation;
+2. the process dies before that successor is fully materialized into runnable durable work;
+3. the runtime restarts;
+4. R11 deterministically re-derives the **same exact successor obligation** from the durable blocker/evidence state;
+5. R12 makes that obligation durably runnable/schedulable;
+6. no orphan blocker remains;
+7. no duplicate successor obligation is created;
+8. no manual relay is required to reconnect the blocker to its corrective work.
+
+> **Process death between detecting a persistent blocker and materializing its runnable successor must not orphan the blocker or duplicate the successor.**
 
 ## 13. R13 boundary — executor health
 
@@ -231,6 +277,8 @@ The available record confirms R11 migration scope includes, at minimum:
 - Builder/repair failure successor routing;
 - QA failure successor routing;
 - Product/Architecture challenge routing;
+- exact per-class successor scope constraints;
+- per-class completion predicates;
 - replan/kill-stage disposition;
 - capability corrective actions;
 - external-reconciliation obligations;
@@ -238,6 +286,7 @@ The available record confirms R11 migration scope includes, at minimum:
 - obligation completion proposal/confirmation;
 - deterministic duplicate-suppression / successor reconstruction;
 - downstream scheduling handoff into R12;
+- crash/restart recovery where successor ownership must be re-derived without duplication;
 - semantic audit of all fail-closed states that currently have no durable owner.
 
 Exact migration labels, ordinals, and original per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
@@ -249,8 +298,12 @@ Search for patterns including:
 - error/fail-closed state returned with no durable next-action owner;
 - worker logs “needs repair/review/replan” but no durable obligation is created;
 - repair and redesign collapsed into one generic retry path;
+- Product repair silently changes buyer/problem/promise/monetization without explicit Product-authority revision;
+- Architecture repair removes Product requirements merely to make review pass;
+- completion confirmation exists but no explicit per-class completion predicate defines what done means;
 - model-generated corrective classification immediately treated as authoritative without R5 where material;
 - duplicate corrective obligations created by repeated recovery/restart;
+- blocker persists but process death before successor materialization leaves no durable runnable obligation after restart;
 - obligation scope mutated in place rather than versioned/superseded;
 - `KILL_STAGE_REQUIRED` directly mutates lifecycle instead of creating governed termination request;
 - unknown successor scope defaults to broad repair/redesign rather than `ADJUDICATE_SUCCESSOR_SCOPE`;
@@ -269,9 +322,17 @@ At minimum, R11 closure must eventually prove:
 
 - every fail-closed condition in governed scope has a durable owner or explicit terminal disposition;
 - corrective obligation preserves exact scope, provenance, authority context, target, and completion rule;
+- Product and Architecture successors name what they may change and preserve what they may not silently alter;
+- per-class completion predicates are explicit and testable, distinct from who confirms completion;
+- Product repair closes identified fatal Product defects without changing commercial truth unless explicitly revised;
+- Architecture repair closes identified fatal Architecture defects while preserving Product requirements;
+- integrity repair restores the exact applicable R9/R10 invariant;
+- capability-resume obligation closes only when R6 proves the exact required capability state;
+- reconciliation obligation closes only when R8 reaches a terminal authoritative outcome;
 - repair is not silently promoted to redesign;
 - substantive Product/Architecture contradiction requires concrete evidence;
 - repeated recovery converges on one deterministic corrective obligation where the same condition implies the same successor;
+- R11×R12 crash/restart recovery leaves no orphan blocker, no duplicate successor, and no manual relay requirement;
 - `SUCCESSOR_SCOPE_UNKNOWN` becomes `ADJUDICATE_SUCCESSOR_SCOPE` rather than guessed execution;
 - `PROPOSED_COMPLETE` does not become `CONFIRMED_COMPLETE` without the governing confirmation requirement;
 - R5-challenged/inconclusive completion remains owned/unresolved;
@@ -292,7 +353,7 @@ R11 contract/schema work may proceed independently enough to define durable Corr
 
 ### LOCAL CLOSURE
 
-R11 may locally close when canonical obligation identity, exact successor scope/provenance, deterministic duplicate suppression/reconstruction, repair-vs-redesign routing, unknown-scope adjudication, completion proposal/confirmation, replan-cap disposition, Human boundaries, known migrations, audit children, and final sibling sweep are all complete.
+R11 may locally close when canonical obligation identity, exact successor scope/provenance, explicit Product-vs-Architecture mutation boundaries, per-class completion predicates, deterministic duplicate suppression/reconstruction, repair-vs-redesign routing, unknown-scope adjudication, completion proposal/confirmation, replan-cap disposition, Human boundaries, the R11×R12 crash/restart compound, known migrations, audit children, and final sibling sweep are all complete.
 
 R12/R13 need not be locally closed for R11 obligation semantics to exist, but durable scheduling/liveness certification remains pending without them. R5 need not be globally closed for R11 schema existence, but material successor/completion confirmation cannot be certified without the required R5-compatible path.
 
@@ -306,6 +367,9 @@ R11 must not:
 
 - treat fail-closed status as sufficient when no durable corrective owner exists;
 - grant consequential execution authority merely because an obligation exists;
+- let a Product repair silently change buyer/problem/promise/monetization truth without explicit Product-authority revision;
+- let an Architecture repair remove Product requirements merely to make review pass;
+- treat completion confirmation as a substitute for explicit per-class completion predicates;
 - collapse repair into Product/Architecture redesign without concrete evidence;
 - let a Builder/Git/artifact-integrity mistake masquerade as architectural contradiction;
 - self-certify material successor/completion claims where R5 requires independent confirmation;
@@ -315,21 +379,21 @@ R11 must not:
 - bypass R7 scarce-resource admission for corrective work;
 - bypass R20 boundary-time revalidation;
 - let exhausted replan limits silently authorize further continuation;
-- let unknown successor scope become guessed execution.
+- let unknown successor scope become guessed execution;
+- allow process death between blocker detection and successor materialization to orphan corrective work or create duplicate successors.
 
 ## 25. Source gaps and assurance status
 
 The following original R11 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID if separately frozen;
-2. exact enum names/storage representation for every corrective-obligation class beyond the specifically recovered states above;
-3. exact migration child labels and ordinals;
-4. exact audit name/classification vocabulary if separately frozen;
-5. exact acceptance-fixture labels/order;
-6. exact closure-evidence list;
-7. exact deterministic-key format for every obligation/successor class if separately frozen;
-8. exact amendment/rejected-alternative wording beyond the recovered invariants;
-9. any original worked examples or repository-path specifics not represented in the available record.
+1. exact enum names/storage representation for every corrective-obligation class beyond the specifically recovered states above;
+2. exact migration child labels and ordinals;
+3. exact audit name/classification vocabulary if separately frozen;
+4. exact acceptance-fixture labels/order beyond the recovered R11×R12 scenario;
+5. exact closure-evidence list;
+6. exact deterministic-key format for every obligation/successor class if separately frozen;
+7. exact amendment/rejected-alternative wording beyond the recovered invariants;
+8. any original worked examples or repository-path specifics not represented in the available record.
 
 Status remains:
 
@@ -337,6 +401,19 @@ Status remains:
 
 This state does **not** block recovery of R12, but it does not restore R11 implementation authority.
 
-## 26. Relay-contamination guard
+## 26. First source-level review disposition
+
+| Review item | Disposition |
+|---|---|
+| Historical finding ID | ACCEPTED CORRECTION — restored `C1-F6 + C4-F2` |
+| Product-vs-Architecture successor-scope boundary | PARTIALLY ACCEPTED → AMENDED |
+| Per-class completion predicates | PARTIALLY ACCEPTED → AMENDED |
+| R11×R12 crash/restart compound scenario | UNRESOLVED → RESTORED FROM SOURCE REVIEW |
+| Other reviewed core sections | ACCEPTED / unchanged |
+| Rejected claims | None |
+
+The review closed concrete omissions without changing the artifact's broader source-incomplete assurance state.
+
+## 27. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
