@@ -32,15 +32,21 @@ The system must not treat local process state, cancellation intent, lease loss, 
 
 Recovered outcome states include:
 
-- `PROVEN_NOT_DISPATCHED`
 - `DISPATCHED` / `IN_FLIGHT`
 - `SUCCEEDED`
 - `FAILED`
 - `CANCELLED`
 - `OUTCOME_UNCERTAIN_RECONCILABLE`
 - `OUTCOME_UNCERTAIN_UNRECONCILABLE`
+- `RECONCILED_NOT_DISPATCHED`
 
-Exact storage representation may differ, but these semantic distinctions must remain expressible.
+`RECONCILED_NOT_DISPATCHED` is the confirmed terminal state for a historical execution attempt that existed and entered uncertainty, but authoritative reconciliation later proved that the consequential provider boundary was never crossed for that exact attempt.
+
+It is not a reusable pre-dispatch state.
+
+> **Proof that the original attempt never crossed the boundary closes that attempt; it does not rewind it into a reusable pre-dispatch state. Any subsequent dispatch is a new execution attempt.**
+
+The explicitly rejected alternative is to reuse the reconciled execution record for a later provider call. That is forbidden because it would merge two historically distinct dispatch attempts and weaken reconciliation provenance.
 
 A cancellation request is **not** equivalent to authoritative `CANCELLED`.
 
@@ -57,7 +63,7 @@ The recovered safety ordering is:
 
 > **Identity must exist before the provider boundary, not be reconstructed after it.**
 
-If a new external call is made, it is a new execution identity. A previously reconciled `PROVEN_NOT_DISPATCHED` / equivalent terminal cannot be silently reused as authority for a later call.
+If a new external call is made, it is a new execution identity. A historical execution that reaches `RECONCILED_NOT_DISPATCHED` is closed and may not be silently reused as authority for a later call.
 
 ## 5. Pre-dispatch abandonment
 
@@ -100,11 +106,13 @@ A local failure does not imply the external action is safe to repeat.
 
 The system may retry only when one of the following is true:
 
-- authoritative evidence proves the prior attempt did not dispatch;
+- authoritative evidence proves the prior attempt did not dispatch and that historical attempt is closed under the exact execution identity;
 - the provider/API contract gives a replay-safe/idempotent mechanism bound to the exact execution identity;
 - reconciliation proves a terminal result for which a new successor execution is explicitly allowed.
 
 Where replay safety is unproved, the system must reconcile first rather than guessing.
+
+A later provider dispatch is a new execution attempt unless the provider contract itself provides a replay-safe/idempotent mechanism that preserves one exact attempt identity under its confirmed semantics.
 
 ## 9. Cancellation semantics
 
@@ -129,6 +137,14 @@ The two must not collapse into one state machine:
 - R8 dispatch cannot by itself prove financial settlement;
 - R8 non-dispatch proof may permit R7 release;
 - post-dispatch uncertainty keeps R7 exposure conservative until authoritative reconciliation permits movement.
+
+### R7 × R8 recovery-burst compound
+
+An outage can produce N simultaneously uncertain external operations. When recovery makes reconciliation work runnable again, urgency does not create new resource authority.
+
+> **A backlog of unresolved external uncertainty does not create emergency resource authority — reconciliation urgency does not bypass aggregate reservation.**
+
+Any reconciliation work that consumes scarce resources remains governed by R7 aggregate admission even when all N reconciliations are individually safety-required and time-sensitive.
 
 ## 11. R15 / R16 boundary
 
@@ -164,7 +180,15 @@ However, R8 must never reconcile an execution against a different provider/accou
 
 > **Generic resolution must not cross-account substitute when establishing historical execution truth.**
 
-If implementation changes capability identity semantics to permit such substitution, DI-1 activates at that scope and must be adjudicated separately.
+### R6 × R7 × R8 DI-1 scope-consistency checkpoint
+
+The confirmed three-node compatibility requirement is:
+
+> **R6, R7, and R8 must use the same notion of exact provider/account scope for the consequential operation. Capability proof, resource reservation, and reconciliation must refer to the same exact provider/account scope.**
+
+A capability proved for one provider/account cannot authorize reservation or reconciliation against another account merely because both satisfy the same logical capability key. Likewise, a reservation against one exact provider/account scope cannot be reconciled against another.
+
+If implementation changes capability identity semantics to permit substitution across provider/accounts, DI-1 activates at that exact scope and must be adjudicated separately.
 
 ## 15. DI-2 — outbound payment reversal execution
 
@@ -174,7 +198,25 @@ At that point the reversal must receive its **own** R8 execution identity and bo
 
 DI-2 is therefore dormant for generic R8, but activates in any future commercial-payment work that dispatches autonomous external reversals.
 
-## 16. Known migration surfaces recoverable from record
+## 16. Reconciliation capability taxonomy — source-unresolved exactness
+
+The adversarial source review recalls a confirmed reconciliation-capability taxonomy with the following candidate values:
+
+- `RECONCILABLE_BY_RUN_ID`
+- `RECONCILABLE_BY_RESOURCE_ID`
+- `IDEMPOTENT_REPLAY_ENFORCED`
+- `OBSERVABLE_BY_AUTHORITATIVE_STATE`
+- `UNRECONCILABLE`
+
+However, the reviewer explicitly did **not** certify the exact enum from source and requested direct source verification rather than memory-based promotion.
+
+Therefore the taxonomy's existence is preserved as a recovery obligation, but these exact labels remain:
+
+`SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD / NOT FROZEN AS NORMATIVE ENUM`
+
+Implementation must not derive an enum from this candidate list until source or later governed adjudication establishes the exact contract.
+
+## 17. Known migration surfaces recoverable from record
 
 The available record confirms R8 migration scope includes, at minimum:
 
@@ -188,7 +230,7 @@ The available record confirms R8 migration scope includes, at minimum:
 
 Exact migration labels, numbering, and original per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
 
-## 17. Semantic sibling sweep
+## 18. Semantic sibling sweep
 
 Search for semantic patterns including:
 
@@ -201,18 +243,22 @@ Search for semantic patterns including:
 - execution identity reconstructed from current job state after the provider call;
 - provider-side IDs stored without exact local execution linkage;
 - multiple provider calls reusing one execution identity;
+- `RECONCILED_NOT_DISPATCHED` attempt reused for a later provider call;
 - reconciled historical result overwritten by a later attempt;
 - provider/account substitution during reconciliation;
-- external uncertainty discarded during runtime replacement/handoff.
+- external uncertainty discarded during runtime replacement/handoff;
+- reconciliation work exempted from R7 because it is urgent or safety-required.
 
 Every genuine sibling becomes a durable migration child. Repeat until a complete repository-wide pass returns no new semantic instance.
 
-## 18. Acceptance semantics recoverable from source
+## 19. Acceptance semantics recoverable from source
 
 At minimum, R8 closure must eventually prove:
 
 - durable execution identity exists before provider dispatch;
-- authoritative proof of non-dispatch permits safe release;
+- authoritative reconciliation of a previously uncertain exact attempt can terminate as `RECONCILED_NOT_DISPATCHED`;
+- `RECONCILED_NOT_DISPATCHED` cannot be rewound/reused for a later provider call;
+- authoritative proof of non-dispatch permits safe release where R7 conditions are otherwise satisfied;
 - worker crash after possible dispatch does not auto-release or blindly retry;
 - cancellation request and provider-confirmed cancellation remain distinct;
 - missing callback leads to reconciliation, not guessed terminal state;
@@ -220,12 +266,14 @@ At minimum, R8 closure must eventually prove:
 - unreconcilable post-boundary uncertainty escalates to `EXPOSURE_COMMITTED_UNRECONCILABLE`;
 - a new provider call uses a new execution identity;
 - provider/account reconciliation never silently substitutes accounts;
+- R6/R7/R8 use one exact provider/account scope for capability proof, reservation, and reconciliation;
 - R14 replacement preserves ownership of unresolved external executions;
-- R15/R16 financial evidence remains attached to the exact R8 execution.
+- R15/R16 financial evidence remains attached to the exact R8 execution;
+- recovery-burst reconciliation work remains subject to R7 aggregate resource admission.
 
 The original fixture labels/order and complete numbered closure-evidence list are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` until recovered from the original confirmation exchange.
 
-## 19. Start / local closure / E2E dependency result
+## 20. Start / local closure / E2E dependency result
 
 ### START
 
@@ -233,7 +281,7 @@ R8 contract/schema work may proceed from the confirmed root. R7 reservation sema
 
 ### LOCAL CLOSURE
 
-R8 may locally close when exact execution identity, pre-boundary durable attempt state, provider identity/outcome persistence, reconciliation, retry/cancel semantics, legacy/uncertain-state handling, known migrations, audit children, and the sibling sweep are all complete.
+R8 may locally close when exact execution identity, pre-boundary durable attempt state, provider identity/outcome persistence, `RECONCILED_NOT_DISPATCHED` semantics, reconciliation, retry/cancel semantics, legacy/uncertain-state handling, known migrations, audit children, and the sibling sweep are all complete.
 
 R15/R16 need not be fully closed for R8's technical external-boundary truth to exist, but E2E financial-release certification remains pending without them where money/headroom depends on provider financial evidence.
 
@@ -241,9 +289,9 @@ R14 need not be closed for R8 local semantics, but replacement/handoff certifica
 
 ### E2E
 
-Final certification must compose at least with R7, R14, R15, R16, and R20 where relevant.
+Final certification must compose at least with R6/R7 provider-account scope consistency, R7 reservation/reconciliation burst handling, R14, R15, R16, and R20 where relevant.
 
-## 20. Explicit non-goals
+## 21. Explicit non-goals
 
 R8 must not:
 
@@ -256,9 +304,11 @@ R8 must not:
 - define generalized consequential boundary freshness, which is R20;
 - treat cancellation intent as cancellation truth;
 - treat local process failure as external failure;
-- permit account substitution while reconciling historical execution truth.
+- permit account substitution while reconciling historical execution truth;
+- turn `RECONCILED_NOT_DISPATCHED` into a reusable pre-dispatch state;
+- infer the unresolved reconciliation-capability taxonomy as a normative enum from memory.
 
-## 21. Source gaps and assurance status
+## 22. Source gaps and assurance status
 
 The following original R8 details are not yet recoverable from the available record and are not being invented:
 
@@ -267,7 +317,8 @@ The following original R8 details are not yet recoverable from the available rec
 3. exact acceptance-fixture labels/order;
 4. exact closure-evidence list;
 5. exact rejected alternatives/amendment wording beyond the invariants preserved above;
-6. any original worked examples/numeric scenarios not represented in the recoverable record.
+6. any original worked examples/numeric scenarios not represented in the recoverable record;
+7. exact reconciliation-capability taxonomy labels/semantics beyond the fact that such a taxonomy was recalled during adversarial source review but not source-certified.
 
 Status remains:
 
@@ -275,6 +326,17 @@ Status remains:
 
 This state does **not** block recovery of R9, but it does not restore R8 implementation authority.
 
-## 22. Relay-contamination guard
+## 23. Adversarial source-review disposition
+
+The first source-level adversarial review of the immutable recovered artifact classified findings as follows:
+
+- **ACCEPTED:** merged root; core outcome semantics; pre-boundary identity ordering; R7 release seam; post-dispatch uncertainty; unreconcilable escalation; retry safety; cancellation distinction; R6 boundary; source-gap discipline; relay-contamination guard.
+- **PARTIALLY ACCEPTED / AMENDED:** restore exact `RECONCILED_NOT_DISPATCHED` terminal semantics and explicit prohibition on reusing the historical execution record; restore R7×R8 reconciliation-burst compound.
+- **UNRESOLVED / AMENDED WITH EXPLICIT GAP:** restore the R6×R7×R8 provider/account scope-consistency checkpoint; preserve the recalled reconciliation-capability taxonomy as non-normative and `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` pending exact source.
+- **REJECTED:** none.
+
+The artifact remains source-incomplete after these amendments because the unresolved historical details in §22 are still missing.
+
+## 24. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
