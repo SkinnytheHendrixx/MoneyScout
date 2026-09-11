@@ -1,6 +1,6 @@
 # Money Scout — Cross-Reference Edge Inventory
 
-**Status:** AMENDED CANDIDATE / EXACT PINNING VERIFIED / PENDING SECOND ADVERSARIAL EDGE-SET VERIFICATION  
+**Status:** FROZEN PHASE C MECHANICAL INPUT / EXACT PINNING VERIFIED  
 **Governing phase:** Global Fidelity & Cross-Node Audit / Phase C preparation  
 **Implementation authority:** SUSPENDED  
 **Purpose:** enumerate the explicit R1–R20 cross-node references that Phase C must check for contradiction, semantic drift, ownership laundering, scope change, identity substitution, or missing composition.
@@ -48,7 +48,7 @@ Every blob SHA above was fetched directly and its full content inspected during 
 
 This verifies that the edge derivation below is tied to the exact listed content rather than mutable `main` or reviewer memory.
 
-## 3. Amended directed edge set
+## 3. Frozen directed edge set
 
 Each line means the left-hand pinned artifact contains an explicit normative reference to the right-hand node under the governing inclusion rule.
 
@@ -311,6 +311,19 @@ Exact-blob inspection found no sufficient normative declaring-artifact support u
 
 They are removed from §3. Their absence must not be interpreted as absence of a relationship in the architecture generally; it means the pinned declaring artifact does not itself create that directed edge under this inventory's definition.
 
+### 4.5 Verification Pass 2 spot-check result
+
+The second adversarial existence review reported no additional missing edge with confidence and narrowed its remaining over-inclusion concern to four directions. Exact pinned-blob inspection resolved all four as supported:
+
+- `R2 -> R18`: explicit R2 ownership boundary assigns exact frozen-binding lifecycle revalidation to R18.
+- `R2 -> R20`: explicit R2 ownership boundary assigns final boundary-time authority fencing to R20.
+- `R11 -> R13`: R11 contains a dedicated `R13 boundary — executor health` section and E2E composition requirement.
+- `R19 -> R18`: R19 explicitly requires final certification to compose with R18 where relevant.
+
+No edge was added or removed in Verification Pass 2.
+
+Full evidence is preserved in `CROSS_REFERENCE_EDGE_INVENTORY-VERIFICATION-2.md`.
+
 ## 5. Mandatory seed relationships from the governing audit
 
 The old manually identified relationships remain a mandatory seed set, never the universe:
@@ -358,24 +371,16 @@ Every verified edge must receive exactly one primary classification:
 
 A consistent edge may also carry relation tags such as `CONSUMES`, `COMPOSES`, `PARALLEL_NOT_MERGED`, `OWNERSHIP_BOUNDARY`, `HARD_CHAIN`, `CERTIFICATION_DEPENDENCY`, `CORROBORATES`, or `DI_HANDOFF`.
 
-## 7. Second adversarial edge-set verification requirement
+## 7. Edge-universe verification result
 
-The amended universe must receive one more adversarial edge-existence review before Phase C contradiction classifications begin.
+The directed edge universe has completed both required existence reviews:
 
-The verifier must focus on two questions:
+1. first adversarial review plus exact-blob reconciliation;
+2. second adversarial completeness/over-inclusion review plus exact-blob spot check of every remaining named objection.
 
-1. **Completeness:** Does any pinned R1–R20 artifact still contain an explicit normative R# reference omitted from §3, including E2E/certification lists, explicit ownership/non-goal statements, hard-chain text, and compatibility/dependency references?
-2. **Over-inclusion:** Does any §3 edge rely only on incidental/non-normative mention rather than a relationship that the declaring artifact actually uses to define scope, ownership, dependency, composition, compatibility, certification, or a prohibition?
+**Result:** `EDGE UNIVERSE ACCEPTED / FROZEN FOR PHASE C INPUT`.
 
-Return:
-
-- `EDGE_PRESENT_AND_SUPPORTED`
-- `EDGE_PRESENT_BUT_NON_NORMATIVE`
-- `EDGE_MISSING_FROM_INVENTORY`
-- `EDGE_INVENTED_OR_UNSUPPORTED`
-- `EDGE_DIRECTION_OR_SEMANTICS_NEEDS_CORRECTION`
-
-The second review should not begin contradiction classifications. Its sole purpose is to freeze the mechanical universe.
+This result freezes only edge existence for the pinned R1–R20 blobs. It does not assign or imply semantic consistency.
 
 ## 8. Blob-SHA invalidation rule
 
@@ -397,24 +402,25 @@ A provenance-only overlay change does not mechanically change the base WI blob, 
 
 `EDGE EXISTS` is not `EDGE CONSISTENT`.
 
-This inventory establishes only the candidate universe of checks. No Phase C contradiction classification has been assigned by this amendment.
+This inventory establishes only the frozen universe of checks. No Phase C contradiction classification has been assigned by this freeze.
 
 ## 10. Phase C readiness
 
-**Current result:** NOT YET READY FOR CONTRADICTION CLASSIFICATION.
+**Current result:** READY FOR CONTRADICTION CLASSIFICATION.
 
 Reasons:
 
-- exact endpoint pinning now passes;
-- the first adversarial review exposed material under-inclusion and has been reconciled;
-- the exact-blob rescan produced a materially expanded universe and removed four unsupported directions;
-- that amended universe has not yet received its required second adversarial edge-existence pass.
+- exact endpoint pinning passes for all R1–R20 blobs;
+- the first adversarial review's material under-inclusion was reconciled against exact pinned content;
+- unsupported directions were removed;
+- the materially expanded universe received the required second adversarial existence/over-inclusion pass;
+- every remaining named objection from that pass was resolved directly against the pinned declaring blob;
+- no unresolved edge-existence objection remains.
 
-If the second pass clears the edge universe, the inventory may be frozen as Phase C mechanical input. Only then should edge-by-edge contradiction classifications begin.
+Phase C may now begin edge-by-edge contradiction classification against the frozen endpoint pairs.
 
 ## 11. Standing constraints
 
-- Over-inclusion is preferable to silent omission at candidate stage, but unsupported edges must be removed before Phase C certification.
 - Pair existence must come from pinned artifact text, not architectural memory.
 - The old manual contradiction list is a seed set, never the universe.
 - Symmetric references remain two directed edges when both artifacts independently declare the relationship.
