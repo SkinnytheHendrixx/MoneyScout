@@ -1,23 +1,21 @@
 # Money Scout — Cross-Reference Edge Inventory
 
-**Status:** DERIVED CANDIDATE / PENDING ADVERSARIAL EDGE-SET VERIFICATION  
+**Status:** AMENDED CANDIDATE / EXACT PINNING VERIFIED / PENDING SECOND ADVERSARIAL EDGE-SET VERIFICATION  
 **Governing phase:** Global Fidelity & Cross-Node Audit / Phase C preparation  
 **Implementation authority:** SUSPENDED  
-**Purpose:** mechanically enumerate the explicit R1–R20 cross-node references that Phase C must check for contradiction, semantic drift, ownership laundering, scope change, identity substitution, or missing composition.
+**Purpose:** enumerate the explicit R1–R20 cross-node references that Phase C must check for contradiction, semantic drift, ownership laundering, scope change, identity substitution, or missing composition.
 
 ## 1. Governing rule
 
 This inventory is not a manually curated "important pairs" list. It is the corpus edge set used to prevent Phase C from checking only relationships someone happened to predict in advance.
 
-An edge exists when one node explicitly references another node in a boundary, dependency, compound, hard-chain, ownership, compatibility, certification, Design Input handoff, or other normative cross-node statement.
+An edge exists when one node explicitly references another node in a boundary, dependency, compound, hard-chain, ownership, compatibility, certification, Design Input handoff, acceptance/closure dependency, or other normative cross-node statement.
 
 **Edge direction:** `declaring artifact -> referenced artifact`.
 
-Direction in this file records where the reference is declared. It does **not** by itself mean authority flows in that direction. Phase C must classify the actual relationship semantics from the pinned source text.
+Direction records where the reference is declared. It does **not** by itself mean authority flows in that direction. Phase C must classify actual relationship semantics from the pinned source text.
 
-Every edge is pinned to immutable **Git blob SHAs** for both endpoints. A change to either endpoint blob invalidates every Phase C result attached to that edge until rerun.
-
-This candidate is intentionally conservative about inclusion. An edge may later be removed only if adversarial verification establishes that the supposed reference is not actually normative in the pinned artifact. Missing real references must be added before Phase C certification begins.
+Every node is pinned to an immutable Git blob SHA. A change to either endpoint blob invalidates every Phase C result attached to that edge until rerun.
 
 ## 2. Pinned node artifacts
 
@@ -44,40 +42,51 @@ This candidate is intentionally conservative about inclusion. An edge may later 
 | R19 | `WI-R19.md` | `8302b53a77d9e4d29ff4cfb2f2f53917e29e26e3` |
 | R20 | `WI-R20.md` | `d9d7788e4c5a8f4c0914cf845294b38386470333` |
 
-## 3. Derived directed edge set
+### 2.1 Pinning verification
 
-Each line means: the left-hand node contains an explicit normative cross-reference to the right-hand node in the current recovered corpus and therefore must be inspected in Phase C.
+Every blob SHA above was fetched directly and its full content inspected during Verification Pass 1. The pinning check is **PASS for all R1–R20 endpoints**.
 
-### R1 declares references to
+This verifies that the edge derivation below is tied to the exact listed content rather than mutable `main` or reviewer memory.
 
+## 3. Amended directed edge set
+
+Each line means the left-hand pinned artifact contains an explicit normative reference to the right-hand node under the governing inclusion rule.
+
+### R1
 `R1 -> R2`  
 `R1 -> R7`  
+`R1 -> R8`  
 `R1 -> R15`  
 `R1 -> R16`
 
-### R2 declares references to
-
+### R2
 `R2 -> R1`  
 `R2 -> R4`  
+`R2 -> R6`  
 `R2 -> R7`  
-`R2 -> R11`
+`R2 -> R11`  
+`R2 -> R18`  
+`R2 -> R20`
 
-### R3 declares references to
-
+### R3
 `R3 -> R4`  
+`R3 -> R5`  
 `R3 -> R7`  
 `R3 -> R20`
 
-### R4 declares references to
-
+### R4
 `R4 -> R2`  
 `R4 -> R3`  
+`R4 -> R5`  
+`R4 -> R6`  
 `R4 -> R9`  
+`R4 -> R10`  
 `R4 -> R11`  
+`R4 -> R17`  
+`R4 -> R19`  
 `R4 -> R20`
 
-### R5 declares references to
-
+### R5
 `R5 -> R3`  
 `R5 -> R4`  
 `R5 -> R6`  
@@ -85,94 +94,108 @@ Each line means: the left-hand node contains an explicit normative cross-referen
 `R5 -> R11`  
 `R5 -> R20`
 
-### R6 declares references to
-
+### R6
 `R6 -> R5`  
 `R6 -> R7`  
 `R6 -> R18`  
 `R6 -> R20`
 
-### R7 declares references to
-
+### R7
 `R7 -> R1`  
 `R7 -> R2`  
+`R7 -> R3`  
+`R7 -> R4`  
 `R7 -> R5`  
 `R7 -> R6`  
 `R7 -> R8`  
 `R7 -> R12`  
 `R7 -> R13`  
 `R7 -> R15`  
-`R7 -> R16`
+`R7 -> R16`  
+`R7 -> R20`
 
-### R8 declares references to
-
+### R8
 `R8 -> R6`  
 `R8 -> R7`  
+`R8 -> R12`  
+`R8 -> R13`  
 `R8 -> R14`  
 `R8 -> R15`  
 `R8 -> R16`  
 `R8 -> R20`
 
-### R9 declares references to
-
+### R9
 `R9 -> R4`  
 `R9 -> R7`  
 `R9 -> R8`  
 `R9 -> R10`  
+`R9 -> R11`  
 `R9 -> R17`  
+`R9 -> R19`  
 `R9 -> R20`
 
-### R10 declares references to
-
+### R10
+`R10 -> R4`  
 `R10 -> R7`  
 `R10 -> R8`  
 `R10 -> R9`  
 `R10 -> R11`  
 `R10 -> R14`  
 `R10 -> R17`  
+`R10 -> R19`  
 `R10 -> R20`
 
-### R11 declares references to
-
-`R11 -> R2`  
+### R11
 `R11 -> R4`  
 `R11 -> R5`  
+`R11 -> R6`  
 `R11 -> R7`  
+`R11 -> R8`  
+`R11 -> R9`  
+`R11 -> R10`  
 `R11 -> R12`  
+`R11 -> R13`  
 `R11 -> R14`  
 `R11 -> R20`
 
-### R12 declares references to
-
+### R12
+`R12 -> R3`  
+`R12 -> R4`  
+`R12 -> R5`  
+`R12 -> R6`  
 `R12 -> R7`  
+`R12 -> R8`  
 `R12 -> R11`  
-`R12 -> R13`
+`R12 -> R13`  
+`R12 -> R14`  
+`R12 -> R20`
 
-### R13 declares references to
-
+### R13
 `R13 -> R7`  
+`R13 -> R8`  
+`R13 -> R11`  
 `R13 -> R12`  
-`R13 -> R14`
+`R13 -> R14`  
+`R13 -> R20`
 
-### R14 declares references to
-
+### R14
+`R14 -> R7`  
 `R14 -> R8`  
 `R14 -> R10`  
 `R14 -> R11`  
-`R14 -> R18`  
-`R14 -> R19`  
+`R14 -> R12`  
+`R14 -> R13`  
 `R14 -> R20`
 
-### R15 declares references to
-
+### R15
 `R15 -> R7`  
 `R15 -> R8`  
+`R15 -> R11`  
 `R15 -> R16`  
 `R15 -> R19`  
 `R15 -> R20`
 
-### R16 declares references to
-
+### R16
 `R16 -> R7`  
 `R16 -> R8`  
 `R16 -> R11`  
@@ -180,18 +203,20 @@ Each line means: the left-hand node contains an explicit normative cross-referen
 `R16 -> R19`  
 `R16 -> R20`
 
-### R17 declares references to
-
+### R17
 `R17 -> R4`  
+`R17 -> R5`  
 `R17 -> R7`  
 `R17 -> R8`  
 `R17 -> R9`  
 `R17 -> R10`  
+`R17 -> R15`  
+`R17 -> R16`  
+`R17 -> R18`  
 `R17 -> R19`  
 `R17 -> R20`
 
-### R18 declares references to
-
+### R18
 `R18 -> R5`  
 `R18 -> R6`  
 `R18 -> R7`  
@@ -200,23 +225,23 @@ Each line means: the left-hand node contains an explicit normative cross-referen
 `R18 -> R14`  
 `R18 -> R20`
 
-### R19 declares references to
-
+### R19
 `R19 -> R4`  
 `R19 -> R7`  
+`R19 -> R8`  
 `R19 -> R9`  
 `R19 -> R10`  
+`R19 -> R11`  
 `R19 -> R14`  
 `R19 -> R15`  
 `R19 -> R16`  
 `R19 -> R17`  
+`R19 -> R18`  
 `R19 -> R20`
 
-### R20 declares references to
-
+### R20
 `R20 -> R3`  
 `R20 -> R4`  
-`R20 -> R5`  
 `R20 -> R6`  
 `R20 -> R7`  
 `R20 -> R8`  
@@ -224,13 +249,71 @@ Each line means: the left-hand node contains an explicit normative cross-referen
 `R20 -> R10`  
 `R20 -> R11`  
 `R20 -> R14`  
+`R20 -> R15`  
+`R20 -> R16`  
 `R20 -> R17`  
 `R20 -> R18`  
 `R20 -> R19`
 
-## 4. Mandatory seed relationships from the governing audit
+## 4. Verification Pass 1 reconciliation
 
-The following pairs are independently mandatory even if a future derivation bug accidentally omits them from §3:
+The first adversarial review classified the initial candidate `PARTIALLY ACCEPTED` and correctly identified that E2E/certification references were under-captured. An exact-blob rescan then reconciled the review against all twenty pinned artifacts.
+
+### 4.1 Missing edges accepted from adversarial review
+
+Accepted additions include:
+
+- `R4 -> R17`, `R4 -> R19`
+- `R7 -> R4`
+- `R9 -> R19`
+- `R11 -> R6`
+- `R12 -> R3`, `R5`, `R6`, `R8`, `R4`, `R20`
+- `R13 -> R8`
+- `R14 -> R7`, `R12`, `R13`
+- `R15 -> R11`
+- `R17 -> R5`, `R18`, `R15`, `R16`
+- `R19 -> R8`
+- `R20 -> R15`, `R16`
+
+### 4.2 Additional omissions found by exact-blob rescan
+
+The rescan also found further normative references omitted by both the initial derivation and first review:
+
+- `R1 -> R8`
+- `R2 -> R6`, `R18`, `R20`
+- `R3 -> R5`
+- `R4 -> R5`, `R6`, `R10`
+- `R7 -> R3`, `R20`
+- `R8 -> R12`, `R13`
+- `R9 -> R11`
+- `R10 -> R4`, `R19`
+- `R11 -> R8`, `R9`, `R10`, `R13`
+- `R12 -> R14`
+- `R13 -> R11`, `R20`
+- `R19 -> R11`, `R18`
+
+### 4.3 Initially questioned edges retained after exact-blob check
+
+The following were challenged in the first review but are supported by the pinned declaring artifact and therefore remain:
+
+- `R1 -> R15`
+- `R1 -> R16`
+- `R8 -> R20`
+
+### 4.4 Unsupported edges removed
+
+Exact-blob inspection found no sufficient normative declaring-artifact support under the governing edge rule for:
+
+- `R11 -> R2`
+- `R14 -> R18`
+- `R14 -> R19`
+- `R20 -> R5`
+
+They are removed from §3. Their absence must not be interpreted as absence of a relationship in the architecture generally; it means the pinned declaring artifact does not itself create that directed edge under this inventory's definition.
+
+## 5. Mandatory seed relationships from the governing audit
+
+The old manually identified relationships remain a mandatory seed set, never the universe:
 
 - R3 / R20
 - R4 / R9
@@ -254,13 +337,13 @@ The following pairs are independently mandatory even if a future derivation bug 
 - R18 / R20
 - R19 / R20
 
-The hard-chain certification remains separately mandatory:
+Hard-chain certification remains separately mandatory:
 
 `R4 -> R9 -> R10 -> R17 -> R19 -> R20`
 
-## 5. Phase C classification schema
+## 6. Phase C classification schema
 
-Every verified edge must receive exactly one primary classification from the governing contradiction taxonomy:
+Every verified edge must receive exactly one primary classification:
 
 - `CONSISTENT_CONSUMPTION`
 - `UPSTREAM_SEMANTIC_REDEFINED`
@@ -273,26 +356,18 @@ Every verified edge must receive exactly one primary classification from the gov
 - `ASSURANCE_OVERCLAIM`
 - `UNRESOLVED_CROSS_NODE_GAP`
 
-A consistent edge may also carry a narrower relation tag such as:
+A consistent edge may also carry relation tags such as `CONSUMES`, `COMPOSES`, `PARALLEL_NOT_MERGED`, `OWNERSHIP_BOUNDARY`, `HARD_CHAIN`, `CERTIFICATION_DEPENDENCY`, `CORROBORATES`, or `DI_HANDOFF`.
 
-`CONSUMES`, `COMPOSES`, `PARALLEL_NOT_MERGED`, `OWNERSHIP_BOUNDARY`, `HARD_CHAIN`, `CERTIFICATION_DEPENDENCY`, `CORROBORATES`, `DI_HANDOFF`.
+## 7. Second adversarial edge-set verification requirement
 
-## 6. Edge-verification requirement before Phase C certification
+The amended universe must receive one more adversarial edge-existence review before Phase C contradiction classifications begin.
 
-This inventory itself must be adversarially checked before its edge set is treated as exhaustive.
+The verifier must focus on two questions:
 
-The verifier must, for **every R1–R20 artifact**, inspect all explicit:
+1. **Completeness:** Does any pinned R1–R20 artifact still contain an explicit normative R# reference omitted from §3, including E2E/certification lists, explicit ownership/non-goal statements, hard-chain text, and compatibility/dependency references?
+2. **Over-inclusion:** Does any §3 edge rely only on incidental/non-normative mention rather than a relationship that the declaring artifact actually uses to define scope, ownership, dependency, composition, compatibility, certification, or a prohibition?
 
-- `R#` boundary sections;
-- `R# × R#` compounds;
-- hard-chain statements;
-- start/local/E2E dependency references;
-- ownership statements;
-- compatibility gates;
-- Design Input handoffs naming another remediation node;
-- acceptance/closure conditions that consume another node's result.
-
-For each discovered pair, compare against §3 and return:
+Return:
 
 - `EDGE_PRESENT_AND_SUPPORTED`
 - `EDGE_PRESENT_BUT_NON_NORMATIVE`
@@ -300,69 +375,53 @@ For each discovered pair, compare against §3 and return:
 - `EDGE_INVENTED_OR_UNSUPPORTED`
 - `EDGE_DIRECTION_OR_SEMANTICS_NEEDS_CORRECTION`
 
-The edge-set review must not infer "no edge" merely because a pair is absent from the old manually curated contradiction seed list.
+The second review should not begin contradiction classifications. Its sole purpose is to freeze the mechanical universe.
 
-## 7. Blob-SHA invalidation rule
+## 8. Blob-SHA invalidation rule
 
-Phase C results attach to the exact endpoint blob pair:
+Phase C results attach to:
 
 `edge_result = (declaring_node_blob_sha, referenced_node_blob_sha, relation, classification, evidence)`
 
-If either endpoint blob SHA changes:
+If either endpoint blob changes:
 
-1. mark every attached edge result `STALE_BY_ENDPOINT_CHANGE`;
+1. mark attached results `STALE_BY_ENDPOINT_CHANGE`;
 2. do not reuse the old contradiction verdict as certification;
-3. re-derive that node's outgoing references;
-4. rerun every affected pair/compound/hard-chain check;
-5. update overlays if a new contradiction implicates a node previously locally cleared.
+3. re-derive the changed node's outgoing references;
+4. rerun affected edge/compound/hard-chain checks;
+5. update overlays where required.
 
-A provenance-only overlay change does not change the base WI blob and therefore does not mechanically invalidate WI-to-WI edge results unless the overlay itself changes the assurance semantics consumed by the edge under review.
+A provenance-only overlay change does not mechanically change the base WI blob, but it may still invalidate an assurance-related edge conclusion if the overlay changes evidence semantics consumed by that conclusion.
 
-## 8. Distinguishing edge existence from edge correctness
-
-This inventory proves neither semantic compatibility nor authority correctness.
+## 9. Edge existence is not edge correctness
 
 `EDGE EXISTS` is not `EDGE CONSISTENT`.
 
-The inventory exists only to make the universe of required checks explicit before Phase C starts deciding whether those relationships are safe.
+This inventory establishes only the candidate universe of checks. No Phase C contradiction classification has been assigned by this amendment.
 
-## 9. Required adversarial review output
+## 10. Phase C readiness
 
-Return:
+**Current result:** NOT YET READY FOR CONTRADICTION CLASSIFICATION.
 
-### EDGE-SET RESULT
+Reasons:
 
-`ACCEPTED / PARTIALLY ACCEPTED / REJECTED / UNRESOLVED`
+- exact endpoint pinning now passes;
+- the first adversarial review exposed material under-inclusion and has been reconciled;
+- the exact-blob rescan produced a materially expanded universe and removed four unsupported directions;
+- that amended universe has not yet received its required second adversarial edge-existence pass.
 
-### MISSING EDGES
+If the second pass clears the edge universe, the inventory may be frozen as Phase C mechanical input. Only then should edge-by-edge contradiction classifications begin.
 
-Every explicit normative R# cross-reference found in a pinned artifact but missing from §3.
+## 11. Standing constraints
 
-### UNSUPPORTED EDGES
-
-Every §3 edge not actually supported by the pinned declaring artifact.
-
-### DIRECTION / RELATION CORRECTIONS
-
-Where pair existence is right but declaration direction or relation was represented incorrectly.
-
-### PINNING CHECK
-
-Confirm each WI-R1…WI-R20 blob SHA matches the reviewed content.
-
-### PHASE C READINESS
-
-State whether the inventory is complete enough to serve as the mechanical input to Phase C, without claiming any contradiction result yet.
-
-## 10. Standing constraints
-
-- Over-inclusion is preferable to silent omission at candidate stage, but unsupported edges must be removed before final Phase C certification.
-- Pair existence must come from artifact text, not memory of the architecture.
+- Over-inclusion is preferable to silent omission at candidate stage, but unsupported edges must be removed before Phase C certification.
+- Pair existence must come from pinned artifact text, not architectural memory.
 - The old manual contradiction list is a seed set, never the universe.
 - Symmetric references remain two directed edges when both artifacts independently declare the relationship.
-- One artifact changing invalidates only edges/compounds depending on the changed endpoint, not unrelated edge results.
+- One artifact changing invalidates only results depending on that endpoint, not unrelated results.
 - No Phase C contradiction result may restore implementation authority by itself.
+- Broad E2E lists, ownership statements, and explicit non-goals are edge-generating when they normatively assign or consume another node's responsibility; incidental prose mentions are not.
 
-## 11. Relay-contamination guard
+## 12. Relay-contamination guard
 
 This inventory terminates here. No conversational handoff text is part of the artifact.
