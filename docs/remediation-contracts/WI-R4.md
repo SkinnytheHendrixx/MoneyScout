@@ -1,288 +1,435 @@
-# WI-R4 — Preserve Exact Originating Evaluation-Cycle Lineage
+# WI-R4 — Exact Evaluation-Cycle Lineage, Not Reconstructed From Current State
 
-**Normalized node:** R4  
-**Historical finding:** C1-F3  
-**Severity:** MATERIAL  
-**Contract state:** CONFIRMED  
-**Artifact fidelity state:** `FIDELITY_SOURCE_INCOMPLETE / RECOVERY BLOCKED ON EXACT SOURCE DETAILS`  
-**Implementation:** NOT STARTED  
+**Normalized node:** R4
+
+**Workstream:** A. Decision Truth & Lineage
+
+**Historical finding:** C1-F3
+
+**Severity:** MATERIAL
+
+**Contract state:** CONFIRMED
+
+**Artifact fidelity state:** RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION
+
+**Implementation:** NOT STARTED
+
 **Closed:** NO
 
 ## Recovery provenance
 
-R4 recovery has begun from the original adversarial-confirmation conversation record, not from the compressed v1.0 remediation register and not from a fresh derivation from current code.
+This artifact is reconstructed directly from the WI-R4 adversarial-confirmation conversation record, including its confirmation-round amendments. It is not reconstructed from the compressed v1.0 remediation register and is not a fresh re-derivation from current code.
 
-The currently recoverable source preserves the confirmed root, amendments, authority behavior, lineage-state vocabulary, compound relationships, and the existence of the original R4-M1 through R4-M8 migration matrix plus R4-A1 consumer audit. However, the exact literal R4-M1 through R4-M8 labels/surface assignments and the complete original acceptance/closure enumeration are not presently recoverable from the accessible conversation record.
+The prior committed R4 artifact was explicitly left in `FIDELITY_SOURCE_INCOMPLETE / RECOVERY BLOCKED ON EXACT SOURCE DETAILS` state rather than guessed. This version supersedes that block. The recovered R4-M1 through R4-M8 migration matrix, the full acceptance-fixture set, the complete closure-evidence list, and every confirmed amendment (the stale-Bet fail-closed rule with its three explicitly rejected alternatives, the `EXACT_LINEAGE`/`NOT_APPLICABLE`/`UNKNOWN` Human Action model, and the `LINEAGE_UNKNOWN` fail-closed transition rule) are recovered here.
 
-Under the fidelity-recovery rule, those gaps **must not be filled from the compressed register, guessed from neighboring nodes, or regenerated from live code**. This artifact is therefore intentionally not a fidelity-review candidate yet.
+**One item is flagged rather than guessed:** the detailed "Bet A/Cycle A → Cycle B → Factory ambiguously progresses → repository revision frozen" scenario text under §13 is, per this record, most clearly attributable to WI-R9's own confirmed contract (which states "this is already promised by WI-R4 and should now become first-class"), cross-referencing R4 rather than necessarily being verbatim R4-original text. R4's own original text is confirmed to establish the R4→R9→R10 chain and its governing invariant; the fully worked compound scenario is preserved here as consistent with both nodes' confirmed content, with this provenance note attached rather than silently presented as unambiguously R4-original.
+
+This file remains **not** **`FIDELITY_VERIFIED`** until an independent reviewer compares it against the original R4 confirmation exchange in full.
 
 ## 1. Frozen root and mission
 
-Historical finding **C1-F3 / MATERIAL** established that downstream authority could be reconstructed from whichever Evaluation Cycle was current rather than preserving the exact Evaluation Cycle that actually produced the decision/approval/evidence lineage.
+Historical finding **C1-F3 / MATERIAL**: evaluation-cycle identity is sometimes persisted exactly and sometimes reconstructed from whatever cycle is currently active. This lets downstream objects, approvals, Human Actions, Factory runs, and eventually commercial/economic artifacts inherit a cycle that did not actually produce or justify them.
 
-R4 exists to make originating Evaluation Cycle identity durable and non-substitutable.
+The defect is **not** absence of cycle identity — Money Scout already has a durable Evaluation Cycle model (one `ACTIVE` cycle per Opportunity, prior cycles remain durable, lifecycle/runtime state tracks the active cycle separately, starting a materially new cycle closes the current one).
 
-> **Core rule:** preserve the exact originating Evaluation Cycle throughout downstream decision lineage. Never reconstruct authority from the current cycle merely because it is current.
+The defect is that **some downstream paths bind the originating cycle while others ask "what is active now?" later and substitute that answer.**
 
-A later cycle may supersede prior decision authority prospectively, but it does not rewrite which cycle produced historical evidence, approval, or downstream work.
+> **Core rule:** Carrying a cycle ID is not enough. The exact originating cycle must be propagated, and each authority transition must apply the correct eligibility rule to that exact lineage rather than substituting current mutable state.
 
-## 2. Canonical Evaluation Lineage Reference
+## 2. Confirmed live defect: the Bet approval path
 
-The confirmed R4 contract requires an **Evaluation Lineage Reference** or equivalent immutable lineage object that downstream records can carry rather than looking up the current Evaluation Cycle later.
+`createBetProposal()` is partially correct — it accepts an explicit `evaluationCycleId`, verifies the Decision Contract references the same ID, and verifies the cycle belongs to the same Opportunity.
 
-The recovered contract establishes that this reference must preserve enough exact identity to determine:
+Two gaps remain:
 
-- the originating Opportunity/decision context;
-- the exact Evaluation Cycle that produced the relevant authority/evidence/approval;
-- the Bet/decision object where applicable;
-- provenance sufficient to prove how the lineage was bound;
-- whether the exact lineage is known, not applicable, or unknown for a consumer that may legitimately lack it.
+1. That validation proves only *this cycle exists* and *belongs to this Opportunity* — not that it is still the eligible/current cycle for this exact proposal/approval boundary.
+2. `approveBet()` reloads the persisted Bet and may perform asynchronous capital-authority work, but never revalidates the Bet's evaluation cycle against the Opportunity's current eligible evaluation state before moving `PROPOSED → APPROVED`.
 
-The lineage reference is historical identity. It is not perpetual eligibility and it is not final boundary authority.
+**Canonical stale-approval scenario:**
 
-## 3. No current-cycle substitution
+```
+Cycle A ACTIVE
+→ Opportunity underwritten BUILD
+→ Bet A proposed from Cycle A
+→ Bet waits for approval/capital authority
+→ materially new evidence causes Cycle A to complete and Cycle B to become ACTIVE
+→ approveBet(A) runs
+→ no cycle/opportunity freshness check
+→ Bet A becomes APPROVED even though Cycle B now represents the Opportunity's current evaluation lineage
+```
 
-If Cycle A produced a decision and Cycle B later becomes current, downstream work descended from Cycle A remains explicitly descended from Cycle A unless a governed successor path creates new authority under B.
+That is the canonical C1-F3 failure.
 
-Forbidden behavior includes:
+## 3. Confirmed live defect: Factory demonstrates the opposite error
 
-- looking up `currentEvaluationCycle` at downstream execution time and substituting B for A;
-- rewriting historical lineage to whichever cycle is active now;
-- treating the existence of B as proof that work originally authorized by A is now authorized by B;
-- repairing missing historical lineage by attaching the current cycle.
+`startAssetFactoryRun()` selects an approved/active Bet, then separately calls `getActiveEvaluationCycle(opportunityId)`. It writes that currently-active cycle into the Factory input snapshot **and** the Factory Run's own `evaluationCycleId`, while also embedding the Bet, which may itself reference a different evaluation cycle.
 
-> **Current state is not historical provenance.**
+The live structure can represent:
 
-## 4. Stale Bet approval behavior
+```
+Bet.evaluationCycleId = A
+FactoryRun.evaluationCycleId = B
+```
 
-The confirmed amendment for stale Evaluation Cycle lineage is explicit.
+The input fingerprint contains **both** the top-level active `evaluationCycleId` and the nested `bet.evaluationCycleId`. Factory is not merely missing lineage — it can persist two conflicting cycle identities in one supposedly immutable input snapshot.
 
-If a Bet/approval was established under Cycle A and the governing current cycle has advanced such that Cycle A is no longer eligible for the contemplated downstream action:
+## 4. Confirmed live defect: Human Actions repeat the reconstruction shape
 
-- fail closed with `STALE_EVALUATION_LINEAGE` or equivalent;
-- preserve Cycle A as the actual historical lineage;
-- do not rewrite the Bet/approval onto Cycle B;
-- do not auto-create a Human Action merely to make the stale lineage resumable;
-- do not auto-create a successor/replan merely to make the workflow move;
-- do not represent the blocked state as success.
+`createOrReuseHumanAction()` does not accept the originating evaluation cycle from its caller. It calls `getActiveEvaluationCycle(opportunityId)` internally and stamps the returned cycle onto the Human Action, runtime state, and lifecycle event.
 
-Any required successor belongs to the governed corrective path owned by R11 or the lifecycle authority that actually owns the transition. R4 detects/preserves lineage; it does not self-authorize replacement lineage.
+A workflow that began under Cycle A can block, wait, and create a Human Action after Cycle B became active, producing: underlying blocked work = Cycle A, but Human Action = Cycle B.
 
-## 5. Human Action lineage states
+**The resolution path is better in one respect, and this is confirmed as the correct design principle to generalize:** `markHumanActionResolved()` records and resumes using the cycle already stored on the Human Action, rather than asking for the active cycle again.
 
-The original confirmation distinguished Human Action lineage state using the following semantics:
+> Once lineage is established, later steps should consume the persisted lineage, not rediscover it from current Opportunity state.
 
-- `EXACT_LINEAGE`
-- `NOT_APPLICABLE`
-- `UNKNOWN`
+R4 must apply that principle consistently across every surface, not just resolution.
 
-### `EXACT_LINEAGE`
+## 5. Lineage is immutable history; eligibility is evaluated state
 
-The Human Action is durably tied to the exact originating Evaluation Cycle/decision lineage required by the workflow.
+R4 must prevent a common modeling mistake by keeping three distinct facts separate:
 
-### `NOT_APPLICABLE`
+- **Originating cycle** — which Evaluation Cycle created or justified this artifact/action.
+- **Currently active cycle** — which Evaluation Cycle is active for the Opportunity now.
+- **Currently eligible lineage** — is an artifact derived from the originating cycle still allowed to progress at this exact boundary.
 
-The Human Action genuinely does not require Evaluation Cycle lineage for the action itself.
+A new cycle beginning does not rewrite the historical origin of an old Bet. R4 must never "fix" stale lineage by changing `Bet Cycle A → Cycle B`. The correct result is: Bet remains Cycle A, Cycle B is now active, and Bet A is stale/ineligible for the next relevant authority transition unless deliberately revalidated/superseded.
 
-`NOT_APPLICABLE` must **not** be used to resume a downstream workflow that does require exact lineage. Before such a workflow resumes, an explicit legitimate lineage binding must exist.
+> **Invariant:** Lineage is immutable history. Eligibility is evaluated state. Never repair one by rewriting the other.
 
-### `UNKNOWN`
+## 6. Canonical lineage chain
 
-The required originating lineage cannot be proven.
+R4 should establish an explicit lineage chain equivalent to:
 
-`UNKNOWN` fails closed for lineage-dependent progression. A human statement or current-cycle lookup cannot attest unknown history into existence.
+```
+Opportunity → Evaluation Cycle → underwriting/evidence snapshot → Bet proposal
+→ Bet approval → Product Definition / Factory revision → Architecture
+→ Build source/revision → Build → Release → Asset
+→ Commercial authority/session → economic events
+```
 
-## 6. Legacy and missing lineage
+R4 does not implement every downstream node in that chain. Its responsibility is to define and propagate the evaluation-lineage identity contract so R9/R10/R19/R20 can carry it further without reconstruction. At any point where the exact originating cycle is known, a later consumer may not replace it with `getActiveEvaluationCycle()`.
 
-Legacy rows/workflows whose exact originating Evaluation Cycle is missing must not be backfilled from current state.
+## 7. Canonical Evaluation Lineage Reference primitive
 
-Permitted recovery is limited to:
+R4 should introduce a canonical Evaluation Lineage Reference or equivalent immutable contract, conceptually:
 
-1. deterministic reconstruction from durable historical provenance that uniquely proves the original lineage; or
-2. creation of a genuinely new governed successor path with its own new authority where the system cannot prove the original lineage and continuation is still warranted.
+```
+opportunityId
+→ evaluationCycleId
+→ evaluationCycleNumber/version
+→ decision/evidence snapshot identity
+→ originating artifact identity
+→ capturedAt
+→ optional lineage fingerprint
+```
 
-If neither applies, lineage remains unknown and the lineage-dependent workflow remains blocked.
+The physical type is not frozen. The required properties are:
 
-> **Humans cannot attest unknown history into existence merely to bypass lineage proof.**
+- exact Opportunity and Evaluation Cycle identity;
+- immutable propagation after creation;
+- stable snapshot/reference identity where the decision depends on evaluated evidence;
+- no null/current-state substitution once a real cycle exists;
+- explicit legacy/unknown handling rather than silently binding to current;
+- deterministic comparison at later authority boundaries;
+- enough identity for R20 to say whether the exact original authority remains eligible;
+- enough identity for R19 commercial fingerprints to preserve exact originating evaluation lineage.
 
-## 7. R4-A1 — Evaluation Lineage Consumer Audit
+## 8. Creation-time and transition-time rules
 
-The confirmed contract includes **R4-A1**, a downstream Evaluation Lineage Consumer Audit.
+R4 needs two different kinds of checks.
 
-The audit must identify every downstream consumer that can currently:
+**Creation-time lineage binding:** when a new consequential artifact is derived from another artifact, it must inherit the parent's exact Evaluation Lineage Reference. Example: `Bet A → Factory Run` must mean `FactoryRun.evaluationCycleId = Bet.evaluationCycleId` unless there is an explicit re-evaluation/revision operation producing a new successor Bet or successor authority object. The implementation may not say `FactoryRun.evaluationCycleId = current active cycle`.
 
-- retain only Opportunity/Bet identity while dropping the exact originating Evaluation Cycle;
-- reconstruct lineage from a current-cycle pointer;
-- consume approval/evidence without an exact originating-cycle reference;
-- resume historical work after cycle change without proving the exact lineage;
-- propagate lineage into Build/Release/Commercial/Remediation surfaces incompletely.
+**Transition-time eligibility:** when an existing object crosses an authority or consequential state boundary, the system must compare the object's immutable lineage against current Opportunity/evaluation state. Examples: `PROPOSED Bet → APPROVED`; approved Bet → Factory start; Factory revision → Build authorization; later R20-controlled boundaries.
 
-The recovered source confirms that the audit spans downstream Factory lineage surfaces, including Bet proposal/approval, Factory orchestration, Human Actions, Product/Architecture/Build/QA/Release/Asset lineage, Commercial Activation/payment, and remediation consumers.
+R4 owns the lineage comparison semantics. R20 later generalizes the same discipline across all authority/lifecycle/resource/evidence fences.
 
-**Audit is not repair.** Every concrete defect discovered by R4-A1 must become durable migration work. The exact numbering/labels of those audit-discovered children are part of the unresolved source gap below and must not be guessed.
+## 9. Exact known affected surfaces
 
-## 8. Confirmed compound boundaries
+| Surface Why it is in scope                                                                 |                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/db/src/schema/lifecycle.ts`                                                           | Defines durable Evaluation Cycles, one-active-cycle constraint, and runtime active-cycle pointer.                                                                                           |
+| `artifacts/api-server/src/lib/lifecycle-state.ts`                                          | Creates/completes cycles and exposes `getActiveEvaluationCycle()`, legitimate for discovering current state but unsafe when used to reconstruct historical lineage.                         |
+| `lib/db/src/schema/bet.ts`                                                                 | Bet already stores `evaluationCycleId` and Decision Contract underwriting reference, making Bet the first durable downstream lineage object.                                                |
+| `artifacts/api-server/src/routes/bets.ts`                                                  | Proposal validates cycle ownership/reference, but approval does not perform stale-cycle eligibility revalidation before `APPROVED`.                                                         |
+| `artifacts/api-server/src/lib/asset-factory.ts`                                            | Reconstructs active cycle independently from Bet and can persist conflicting top-level vs. nested cycle identities in one Factory snapshot.                                                 |
+| `artifacts/api-server/src/lib/human-gates.ts`                                              | Human Action creation dynamically stamps the currently active cycle instead of receiving the blocked workflow's originating lineage.                                                        |
+| Product Definition / Architecture / Build Contract lineage consumers downstream of Factory | Must inherit the Factory/Bet originating lineage rather than reconstruct it later. Exact current defects must be confirmed during the R4 consumer audit before becoming migration children. |
+| Commercial Activation / payment lineage consumers                                          | Prior audit established loss of evaluation lineage downstream. Exact current live surfaces must be inventoried under the mandatory audit rather than assumed into known migration scope.    |
 
-### R3 × R4
+The last two rows intentionally follow the R3 rule: **known defect surfaces and mandatory discovery obligations are not the same thing.**
 
-R3 owns temporal adequacy/freshness. R4 owns exact originating Evaluation Cycle lineage.
+## 10. Known migration matrix (R4-M1 through R4-M8)
 
-Fresh evidence bound to the wrong cycle is invalid lineage. Correctly bound evidence may still be stale. Neither dimension repairs the other.
+### R4-M1 — Evaluation Lineage contract/schema
 
-### R2 × R4 × R11
+Define canonical immutable lineage reference usable across Bet/Factory/downstream artifacts.
 
-Capability-resolution uncertainty must remain attached to its exact originating decision lineage. If the lineage is stale/unknown and capability uncertainty remains unresolved, the system must not rebind to current cycle or flatten uncertainty to create a false-safe successor. R11 owns any governed corrective obligation.
+### R4-M2 — Bet proposal
 
-### R4 × R5
+Require exact originating evaluation lineage and snapshot reference. Creation must fail if: the cycle does not belong to the Opportunity; the Decision Contract cycle differs; required snapshot lineage differs; or the caller tries to supply "current" without an exact durable cycle where one should exist.
 
-Exact lineage and independent material conclusion/closure are distinct. Correct lineage does not self-certify a material conclusion, and R5 confirmation does not repair missing lineage.
+### R4-M3 — Bet approval freshness
 
-### R4 × R9
+Before `PROPOSED → APPROVED`, revalidate the persisted Bet's exact lineage. Canonical test: Bet proposed Cycle A → Cycle B begins → approve Bet A → must not approve as though A were still current.
 
-R9 Build Source Snapshot authority must consume the exact R4 Evaluation lineage that produced the Product/Architecture/Build decision. A Build may not use current Evaluation Cycle lineage to repair or replace missing/stale originating authority.
+**Frozen behavior (confirmed amendment):**
 
-This is a hard dependency seam in the confirmed chain:
+> A Bet whose originating Evaluation Cycle is no longer eligible at approval time must fail closed at the approval boundary, remain historically bound to its original cycle, and must not be automatically approved, rebound to the new cycle, or automatically converted into a Human Action.
 
-`R4 → R9 → R10 → R17 → R19 → R20`
+Concretely: `Bet A = PROPOSED / Cycle A → Cycle B becomes active → approveBet(A) → return STALE_EVALUATION_LINEAGE (or equivalent) → Bet A remains Cycle A → approval does not occur → durable blocker/reason is recorded → progression requires a newly validated successor path.`
 
-### R3 × R4 × R20
+**Three explicitly rejected alternatives:**
 
-At a consequential boundary, R20 must consume both current-enough R3 evidence truth and exact R4 lineage truth. It cannot substitute current cycle for original lineage or recent collection for current source truth.
+- **Rewrite A → B:** rejected because it corrupts historical lineage.
+- **Automatically create successor Bet B inside R4:** rejected because that crosses into R11/re-underwriting/revision ownership.
+- **Automatically create a Human Action:** rejected because stale lineage is machine-detectable and should not become a human bottleneck by default.
 
-## 9. Authority and successor boundary
+R4 owns detection + fail-closed transition behavior. R11 later owns the executable route that may produce a properly revalidated successor. If R11 is not yet implemented, the stale Bet simply remains blocked — which is acceptable and safer than inventing authority.
 
-R4 does not create new decision authority merely because old lineage is stale or unknown.
+### R4-M4 — Asset Factory lineage inheritance
 
-The following are distinct:
+Factory Run must derive evaluation lineage from the approved Bet/explicit validated successor authority, not independently from `getActiveEvaluationCycle()`. A Factory snapshot may not contain contradictory authoritative cycle identities.
 
-- preserving exact historical lineage;
-- deciding that historical lineage is no longer eligible;
-- owning a corrective successor obligation;
-- authorizing a new successor decision/workflow.
+### R4-M5 — Factory fingerprint
 
-> **Detection of stale lineage is not successor authority.**
+The immutable Factory fingerprint must bind the exact authoritative lineage once, not fingerprint two potentially conflicting cycle values.
 
-The blocked original record remains historically attached to its true originating cycle even when a new successor is later created.
+### R4-M6 — Human Action creation
 
-## 10. Design Inputs
+Callers that possess originating lineage must pass it into Human Action creation. `createOrReuseHumanAction()` must not silently replace known workflow lineage with the current active cycle.
 
-The recovered R4 confirmation does not establish a generic activation of DI-1 or DI-2.
+**Frozen lineage applicability model (confirmed amendment):**
 
-### DI-1
+> Human Actions must distinguish `EXACT_LINEAGE`, `NOT_APPLICABLE`, and `UNKNOWN`.
 
-Provider/account identity plurality is not activated merely by Evaluation Cycle lineage. If a concrete R4 migration/audit surface separately activates provider/account identity plurality, that scope must record and consume DI-1 independently.
+- **`EXACT_LINEAGE`:** action derives from a specific blocked workflow/artifact. Exact originating cycle is required and passed by caller.
+- **`NOT_APPLICABLE`:** genuinely Opportunity-level action with no originating evaluation artifact, such as connecting a general account/capability that is not itself resuming Cycle-bound work. `evaluationCycleId` may be null, but this is an explicit semantic state, not missing data.
+- **`UNKNOWN`:** lineage should exist but cannot be established. This is unsafe for lineage-required continuation.
 
-### DI-2
+**Restriction:**
 
-R4 lineage preservation does not itself execute outbound monetary reversals. DI-2 is not activated generically. If a concrete lineage-remediation child introduces autonomous refund/void/cancel/reversal execution, that scope activates DI-2 separately.
+> A Human Action with `NOT_APPLICABLE` lineage may not resume a lineage-bound workflow unless a later explicit transition binds it to a valid Evaluation Lineage Reference.
 
-## 11. Known acceptance semantics recovered
+### R4-M7 — Human Action resolution/resume
 
-The following acceptance behaviors are confirmed by the recoverable source and must survive the final artifact:
+Resolution must confirm that the stored Human Action lineage is still eligible for the requested resume action rather than assuming preservation of the original ID alone authorizes continuation. This is where R4 begins to compose with R20, without implementing general boundary fencing itself.
 
-### A. Exact origin survives current-cycle change
+### R4-M8 — Existing Bet/Factory/Human Action data
 
-Cycle A produces a decision/approval. Cycle B later becomes current.
+Legacy objects with ambiguous or conflicting cycle identity must be: deterministically reconstructed from authoritative durable provenance; marked `LINEAGE_UNKNOWN`/`AMBIGUOUS`; or superseded/rebuilt — but never silently assigned the currently-active cycle.
 
-Expected: historical/downstream records descended from A still reference A. No current-cycle substitution occurs.
+**Frozen transition rule (confirmed amendment):**
 
-### B. Stale approval fails closed without rewrite
+> If exact lineage is required at a later authority/consequential boundary, `LINEAGE_UNKNOWN` fails closed. It may proceed only after deterministic reconstruction from durable provenance or after creation of a newly validated successor object with known lineage.
 
-A Bet approved under Cycle A reaches a lineage-sensitive downstream action after A is stale/ineligible.
+It should **not** automatically route to a Human Action. A Human Action is allowed only if the applicable R11/exhaustion policy or an inherently-human-authority rule justifies one. Humans should not be invited to "attest" historical lineage the system itself cannot prove.
 
-Expected: `STALE_EVALUATION_LINEAGE` or equivalent; A remains recorded; no rewrite to B; no false success.
+**Complete amended state vocabulary:**
 
-### C. No automatic Human Action escape hatch
+- `STALE_LINEAGE` → known historical origin, currently ineligible → fail closed, preserve origin, successor/revalidation required.
+- `NOT_APPLICABLE` → lineage genuinely irrelevant to this object → allowed only for non-lineage-bound behavior.
+- `UNKNOWN` → lineage should matter but cannot be proven → fail closed where exact lineage is required.
+- `EXACT_LINEAGE` → immutable historical origin available → still subject to current eligibility checks.
 
-Stale/unknown lineage blocks progression.
+## 11. Mandatory downstream lineage audit (R4-A1)
 
-Expected: the system does not create a Human Action merely to bypass the lineage failure.
+**R4-A1 — Evaluation Lineage Consumer Audit.** Audit every object and workflow downstream of Evaluation Cycle creation that can: make/record a decision; freeze an artifact; create a successor artifact; grant/consume authority; perform a commercial/economic side effect; or resume delayed work.
 
-### D. Human Action `UNKNOWN` cannot resume lineage-dependent work
+At minimum inventory: Research/Validation outputs; Bet proposal/approval; Product Definition; Factory Run/revisions; Architecture; Build Contract; repository/build source; Build; QA; Release; Asset; Human Actions; Commercial Activation; checkout/session/payment artifacts; economic attribution/events; remediation/resolution paths.
 
-A Human Action exists but exact Evaluation Cycle lineage cannot be proven.
+Each inspected consumer is classified: `NO_CYCLE_LINEAGE_REQUIRED`, `EXACT_LINEAGE_ALREADY_PRESERVED`, `DEFECT_DISCOVERED`, `UNCERTAIN_REQUIRES_ADJUDICATION`.
 
-Expected: lineage-dependent workflow remains blocked.
+R4-A1 closes on complete evidenced inventory. **It does not close any defect it discovers.** Every `DEFECT_DISCOVERED` or adjudicated defective surface becomes a new numbered migration child beginning with **R4-M9+**. All M9+ children must locally pass before the final semantic sibling sweep begins.
 
-### E. Human Action `NOT_APPLICABLE` is narrow
+This directly carries forward the R3 rule: **`AUDITED` ≠ `DEFECT FOUND` ≠ `DEFECT FIXED`.**
 
-A Human Action legitimately does not need lineage for its own action.
-
-Expected: it may remain `NOT_APPLICABLE`, but a downstream lineage-dependent workflow cannot resume until exact lineage is legitimately bound.
-
-### F. Legacy lineage reconstruction requires durable proof
-
-Legacy row lacks exact originating cycle.
-
-Expected: deterministic reconstruction only from durable unique provenance. Current cycle or human memory is insufficient.
-
-### G. R4 × R9
-
-Build Source Snapshot is created for downstream work originating from Cycle A while Cycle B is current.
-
-Expected: R9 receives A's exact lineage or fails closed; it never substitutes B.
-
-### H. R3 × R4 × R20
-
-Evidence from Cycle A is stale/temporally unresolved and Cycle B is current at the consequential boundary.
-
-Expected: R20 blocks if either freshness is laundered into current truth or A is rebound to B. Passing one half is insufficient.
-
-## 12. Dependency classes recovered
+## 12. Dependency classes
 
 ### START
 
-R4 semantic/schema/audit work can begin from C1-F3 without requiring R9/R20 implementation merely to start.
+None. R4 can begin in parallel with R1–R3, R5, R6, R12, and R13. Its lineage contract is foundational for R9/R10/R19/R20 but does not require those nodes to exist before R4 implementation starts.
 
 ### LOCAL CLOSURE
 
-The recovered contract requires at minimum:
+No upstream R-node must be `CLOSED` before R4 can locally close. Local closure requires:
 
-- Evaluation Lineage Reference implemented;
-- exact originating cycle propagated rather than reconstructed from current state;
-- stale-lineage fail-closed behavior implemented;
-- Human Action `EXACT_LINEAGE / NOT_APPLICABLE / UNKNOWN` semantics implemented;
-- legacy/missing lineage handling implemented conservatively;
-- R4-A1 completed;
-- every concrete defect identified by R4-A1 repaired;
-- independent material closure review.
-
-The exact original named R4-M1 through R4-M8 migrations and full closure-evidence enumeration remain unrecovered, so this section is not sufficient to claim local closure or artifact fidelity.
+- canonical lineage reference defined;
+- known M1–M8 migrations complete;
+- R4-A1 inventory complete;
+- every defect discovered by A1 receives and closes its own M9+ migration child;
+- stale Bet approval blocked/revalidated correctly;
+- Factory no longer substitutes current cycle for Bet lineage;
+- Human Action creation no longer reconstructs known lineage from mutable current state;
+- legacy ambiguous lineage handled explicitly;
+- final semantic sibling sweep returns empty.
 
 ### E2E CERTIFICATION
 
-Recovered required compounds include:
+**R4 → R9 → R10** — the primary immutable-build dependency chain. R4 tells us which evaluation lineage justified the Bet/Factory authority. R9 freezes the exact repository/build-source revision governed by that Factory lineage. R10 carries the exact built artifact identity through QA and Release.
 
-- R3×R4;
-- R2×R4×R11;
-- R4×R5;
-- R4×R9;
-- R3×R4×R20;
-- downstream hard-chain certification through `R4 → R9 → R10 → R17 → R19 → R20` where applicable.
+> **Required invariant:** Exact artifact identity is not trustworthy if the decision lineage authorizing that artifact was reconstructed from a different evaluation cycle.
 
-## 13. Source gap blocking fidelity reconstruction
+R9/R10 do not redefine Evaluation Cycle semantics.
 
-The following exact original R4 content remains **unrecovered** and blocks promotion of this artifact to `RECOVERED CANDIDATE` or `FIDELITY_VERIFIED`:
+**R2 × R4 × R11** (already confirmed under WI-R2): Cycle A authority → Cycle B begins → unresolved capability/economic uncertainty also exists → system must neither use stale A authority nor erase uncertainty into custom-build zero → R11 must route/version the required challenge into a corrected successor. Responsibilities: R4 lineage, R2 uncertainty truth, R11 executable revision path. R4 may locally close before this compound gate can certify.
 
-1. the literal R4-M1 through R4-M8 migration labels;
-2. the exact surface assignment and normative description for each R4-M1 through R4-M8 child;
-3. the exact audit-discovered-child numbering convention following R4-A1;
-4. the complete original acceptance-fixture enumeration, including any concrete examples not present in the recoverable summary;
-5. the complete original numbered closure-evidence list;
-6. any rejected alternatives/amendments beyond the stale-Bet/Human-Action/R4×R9 amendments already recovered above.
+**R3 × R4 × R20** (already confirmed under WI-R3): R4 ensures the exact cycle remains historically correct. R3 determines whether its evidence is still temporally applicable. R20 decides whether the next consequential boundary may proceed. R4 may not "refresh" Cycle A by simply associating Cycle B's evidence with A.
 
-These details must be recovered from the original adversarial-confirmation record. The compressed v1.0 register is not an acceptable substitute.
+**R4 × R17 × R19 × R20** (commercial lineage path): R17 first binds authority to the exact offer/version. R19 then expands the fingerprint across offer + deployment/artifact + evaluation lineage + session/transaction. R20 revalidates that exact authority at each consequential boundary/adoption. R4's role is upstream and narrow:
 
-## 14. Recovery gate
+> The evaluation lineage inserted into the commercial fingerprint must be the immutable lineage that actually justified the Asset/offer, not whichever cycle is active when checkout or activation happens.
 
-R4 may advance from `FIDELITY_SOURCE_INCOMPLETE` only when the missing exact source content above is recovered and incorporated without invention.
+This E2E path cannot certify before R17/R19/R20 exist.
 
-Until then:
+**R4 × R9 compound certification** *(cross-referenced from WI-R9's own confirmed contract — see Recovery provenance note above)*: Bet A / Cycle A → Cycle B becomes current → Factory incorrectly or ambiguously progresses from A → repository/build-source revision is then frozen. The system must prove both: R4 — the Factory/Build authority still points to the exact eligible evaluation lineage that actually justified it; R9 — the repository/build-source snapshot frozen under that authority is immutable.
 
-- do not call this a full R4 contract artifact;
-- do not ask an independent reviewer to certify it as complete;
-- do not begin R5 recovery under the serialized fidelity queue;
-- do not derive R4 implementation batches from this document;
-- preserve this source gap as an owned recovery obligation.
+> **Required invariant:** An immutable repository revision does not legitimize stale decision authority, and correct decision lineage does not make a mutable repository revision safe. Both must be true simultaneously.
 
-> **A partially recovered contract is safer than a plausible completed reconstruction whose missing details were invented.**
+A perfectly immutable Build Source Snapshot under stale Cycle A authority is still invalid for new progression. Conversely, fresh Cycle B authority over a mutable source is still unsafe.
+
+## 13. Vocabulary compatibility checkpoints
+
+**R3 ↔ R4** (already frozen under WI-R3): `evaluation cycle` ≠ `evidence freshness`. A new cycle may exist with stale evidence. An old cycle may preserve historically valid evidence that is no longer eligible for current authority.
+
+**R4 ↔ R9:** Before R9 design freeze, agree on: factory revision; evaluation lineage; build source snapshot; superseding revision; originating authority. R9 must not invent a new evaluation lineage merely because repository state changed.
+
+**R4 ↔ R19:** Before commercial fingerprint design freeze, confirm R19 can consume R4 lineage directly.
+
+> Commercial authority must not reconstruct Evaluation Cycle from the current Asset/Opportunity after the fact.
+
+**R4 ↔ R20:** R4 exposes immutable lineage plus current lineage-eligibility state/identity. R20 consumes it at consequential fences. R20 must not create a second "current cycle" interpretation.
+
+**Additional confirmed vocabulary (amendment):** the four lineage-state distinctions — `STALE_LINEAGE`, `NOT_APPLICABLE`, `UNKNOWN`, `EXACT_LINEAGE` — are part of the canonical R4 vocabulary checkpoint, not merely internal Human Action states.
+
+## 14. Parallel-not-merged boundaries
+
+- **R4 vs R3:** R4 owns lineage identity. R3 owns temporal evidence applicability.
+- **R4 vs R11:** R4 can detect lineage invalidity. R11 owns executable challenge/revision routing.
+- **R4 vs R9:** R4 freezes evaluation origin. R9 freezes repository/build-source origin.
+- **R4 vs R19:** R4 supplies evaluation lineage. R19 composes it with offer/deployment/session economic lineage.
+- **R4 vs R20:** R4 says "this object came from Cycle A and A is/isn't eligible under the lineage rule." R20 says "this exact boundary must revalidate and may/may not progress."
+- **R4 vs R5:** Independent confirmation does not repair wrong lineage, and exact lineage does not satisfy independent-confirmation requirements.
+
+## 15. Design Inputs
+
+Design Input registry reviewed through: **DI-2** / Convergence Protocol v1.1 registry snapshot.
+
+**DI-1 — Capability identity under multi-provider/multi-account execution:** Reviewed: YES. Activation crossed: NO. Required action: NOT ACTIVATED. Evidence: R4 concerns evaluation-cycle lineage, not provider/account capability substitution.
+
+**DI-2 — Outbound Payment Reversal Execution:** Reviewed: YES. Activation crossed: NO. Required action: NOT ACTIVATED. Evidence: R4 adds no refund/cancel/void/reversal execution capability. Its lineage contract will later be consumable by DI-2 work if that Design Input activates.
+
+If DI-3+ exists before design freeze, this section becomes schema-invalid until the full registry is enumerated.
+
+## 16. Acceptance fixtures
+
+**A. Bet creation.** Cycle A Bet can be created with a Cycle A Decision Contract. Cycle ID belonging to another Opportunity fails. Decision Contract Cycle A plus Bet Cycle B fails. Missing lineage where exact cycle is required fails rather than silently selecting current.
+
+**B. Stale Bet approval (canonical C1-F3 test).** Cycle A active → propose Bet A → start Cycle B → approve Bet A. Expected: Bet A does not become `APPROVED` merely because capital authority is valid; Bet A remains historically bound to A; no code rewrites it to B.
+
+**C. Factory mismatch.** Bet A approved/eligible → Cycle B later active → start Factory from Bet A. Factory may reject/revalidate/supersede according to lineage policy, but may not persist `FactoryRun authoritative cycle = B` while `approved Bet = A` as though that were one coherent lineage.
+
+**D. Human Action.** Workflow under Cycle A blocks. Cycle B begins before Human Action creation. The Human Action must either retain Cycle A lineage, or be explicitly created as a new B-scoped successor action through a defined transition. It may not silently become B because B is current.
+
+**E. Resume.** Human Action A resolves while Cycle B is current. Stored Cycle A lineage remains A. Resume eligibility is evaluated explicitly. Resolution does not automatically authorize Cycle A work to continue.
+
+**F. Legacy.** Ambiguous legacy object does not get stamped with today's active cycle. Known lineage reconstructs only from durable provenance. Unresolvable lineage remains `UNKNOWN`/`AMBIGUOUS` and fails closed where exact authority is required.
+
+**G. Compound R2 gate.** Cycle A stale + unresolved capability uncertainty does not produce a clean successor Architecture without R2 truth preservation and R11 challenge routing.
+
+**H. Compound R3/R20 gate.** Cycle A exact lineage + later-stale evidence remains independently inspectable and cannot be relabeled into Cycle B authority.
+
+**I. Commercial future integration.** Commercial fingerprint tests, once R19 exists, prove exact Evaluation Cycle survives: Asset → Activation → checkout/session → payment event → refund/reversal lineage if DI-2 later activates.
+
+## 17. Semantic sibling sweep
+
+After M1–M8 pass, R4-A1 completes, and every M9+ discovered child closes, run the iterative sibling sweep.
+
+Search for semantic patterns including:
+
+- `getActiveEvaluationCycle()` used while an originating artifact already has a cycle ID;
+- `activeEvaluationCycleId` substituted into a successor object instead of inherited lineage;
+- cycle IDs omitted from immutable successor artifacts;
+- cycle IDs reconstructed from Opportunity current state at approval/resume/adoption time;
+- Bet/Factory/Build/Asset objects containing conflicting cycle identities;
+- current mutable Asset/Opportunity used to reconstruct historical commercial/economic lineage;
+- resume paths using current cycle rather than persisted blocked-work lineage;
+- code that rewrites an object's originating cycle to "refresh" it.
+
+Any new instance becomes the next M-number. The sweep repeats until a complete pass returns no new semantic instance.
+
+## 18. Explicit non-goals
+
+R4 must not:
+
+- decide whether evidence is fresh — that is R3;
+- independently confirm material conclusions — that is R5;
+- implement challenge/revision ownership — that is R11;
+- freeze repository source identity — that is R9;
+- carry SHA identity through QA/Release — that is R10;
+- bind exact commercial offer/deployment/session authority — that is R17/R19;
+- implement general consequential boundary fencing — that is R20;
+- automatically kill every artifact whose originating cycle is no longer active;
+- rewrite old artifacts to the new active cycle;
+- treat "ACTIVE cycle" as synonymous with "historically originating cycle."
+
+The goal is exact lineage and explicit eligibility, not automatic lifecycle policy.
+
+## 19. Closure evidence required
+
+`WI-R4 = CLOSED` requires:
+
+1. implementation SHA;
+2. schema/migration SHA if applicable;
+3. exact traceability to `C1-F3 / MATERIAL`;
+4. R4-M1 Evaluation Lineage contract/schema PASS;
+5. R4-M2 Bet proposal PASS;
+6. R4-M3 Bet approval freshness PASS, including the `STALE_EVALUATION_LINEAGE` fixture and proof none of the three rejected alternatives occurred;
+7. R4-M4 Asset Factory lineage inheritance PASS;
+8. R4-M5 Factory fingerprint PASS;
+9. R4-M6 Human Action creation PASS, including the `EXACT_LINEAGE` / `NOT_APPLICABLE` / `UNKNOWN` distinction and the `NOT_APPLICABLE` resume restriction;
+10. R4-M7 Human Action resolution/resume PASS;
+11. R4-M8 Existing data migration PASS, including the `LINEAGE_UNKNOWN` fail-closed rule and the no-automatic-Human-Action rule;
+12. complete R4-A1 audit report;
+13. every R4-M9+ defect child individually PASS;
+14. before-fix stale-Bet approval fixture PASS;
+15. before-fix Factory dual-cycle fixture (Bet A / top-level B) PASS;
+16. after-fix Bet approval lineage fixture PASS;
+17. after-fix Factory lineage inheritance fixture PASS;
+18. Human Action lineage creation/resume fixture PASS;
+19. legacy ambiguous-lineage fixture PASS;
+20. R3↔R4 vocabulary compatibility PASS;
+21. R4↔R9 interface compatibility PASS or `PENDING E2E` without blocking R4 local closure;
+22. R4↔R19 compatibility PASS or `PENDING E2E`;
+23. R4↔R20 compatibility PASS or `PENDING E2E`;
+24. complete Design Input inventory/version evidence;
+25. final iterative semantic sibling sweep with zero new instances;
+26. independent cross-model/provider confirmation;
+27. reviewer confirmation that no implementation "fixed" stale objects by rewriting their originating cycle.
+
+## 20. Dependency result
+
+R4's local path is independent: R4 may start now and may locally close without R9/R10/R11/R17/R19/R20. Its primary downstream chain remains **R4 → R9 → R10 → R17 → R19 → R20**, with R6 parallel where capability verification is relevant. Compound certification preserves both already-established gates: **R2 × R4 × R11** for stale lineage plus unresolved Architecture uncertainty, and **R3 × R4 × R20** for stale-evidence authority.
+
+The live code proves both halves of C1-F3 directly. Bets persist explicit evaluation lineage, but approval does not check whether that lineage has become stale; Factory then separately reads the currently active cycle and stores it alongside a Bet that can reference another cycle. Human Action creation independently repeats the same mutable-current-state pattern by looking up the active cycle at creation time rather than receiving the blocked workflow's lineage from its caller.
+
+That is exactly why R4 is not "add an `evaluationCycleId` field." The fields already exist. R4 is: **propagate the right lineage once, preserve it immutably, and evaluate eligibility without reconstructing history from current state.**
+
+## 21. Fidelity-review checklist for this recovered artifact
+
+Before changing this artifact to `FIDELITY_VERIFIED`, the reviewer must compare it line-by-line against the original R4 confirmation exchange and specifically verify:
+
+- the exact R4-M1 through R4-M8 labels and scope assignments;
+- the stale-Bet fail-closed behavior and all three explicitly rejected alternatives;
+- the complete `EXACT_LINEAGE` / `NOT_APPLICABLE` / `UNKNOWN` Human Action model and the `NOT_APPLICABLE` resume restriction;
+- the `LINEAGE_UNKNOWN` fail-closed transition rule and the no-automatic-Human-Action rule;
+- the R4-A1 audit and its `AUDITED ≠ DEFECT FOUND ≠ DEFECT FIXED` discipline with M9+ numbering;
+- every acceptance fixture (A through I);
+- the R2×R4×R11 and R3×R4×R20 compound gates as confirmed under their originating nodes;
+- the R4×R9 compound certification and its cross-referenced provenance;
+- the complete numbered closure-evidence list;
+- that no content was imported from the compressed v1.0 matrix as if it were original authority;
+- that no reconstructed wording narrows, expands, or infers beyond the confirmed root.
+
+Until that review passes, this file remains **RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION**.
