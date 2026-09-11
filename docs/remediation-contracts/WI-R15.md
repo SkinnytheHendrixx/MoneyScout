@@ -1,7 +1,7 @@
 # WI-R15 — Preserve Provider-Originating Financial Observations Before Interpretation
 
 **Normalized node:** R15  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
+**Historical finding:** C3-F4  
 **Severity:** MATERIAL  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
@@ -10,7 +10,9 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R15 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing historical finding IDs, exact enum/storage representation, migration ordinals, fixture labels/order, provider-specific schemas, audit vocabulary, or closure-evidence numbering from compressed summaries.
+This artifact begins R15 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing exact schema/storage representation, migration ordinals, fixture labels/order, provider-specific schemas, audit vocabulary, or closure-evidence numbering from compressed summaries.
+
+The historical finding `C3-F4` was restored from the source-level review. R15 and R16 split this same underlying root into two distinct contracts: R15 owns preservation of raw provider-originating financial evidence before normalization, while R16 owns interpretation and deterministic reconciliation of the complete evidence set.
 
 R15 is the raw-evidence half of the financial truth chain. It must preserve provider-originating financial facts before R16 interprets or reconciles them.
 
@@ -37,13 +39,14 @@ R15 requires a durable Provider Financial Observation or equivalent canonical ob
 - observation provenance sufficient to show how the system legitimately obtained the evidence;
 - raw provider payload or a lossless canonical representation of the financially relevant fields;
 - provider-reported amount/value without local clamping;
+- exact raw observation-state classification from §4 where applicable;
 - original currency/unit;
 - whether the observation is estimated, final, corrective, supplemental, or otherwise provider-qualified where the provider itself supplies that fact;
 - provider event/effective time where available;
 - provider created/issued time where available;
 - system received time;
 - canonical persisted time;
-- raw null/absence/unparseable distinctions;
+- durable redaction provenance where any financially relevant field must be redacted after observation;
 - source method / transport / response provenance where needed to establish observation legitimacy;
 - provider resource/run/request identifiers needed to bind the observation to the exact execution.
 
@@ -53,20 +56,49 @@ The exact database schema may differ, but the semantic information must remain r
 
 R15 must preserve distinctions that are easy to destroy during eager normalization.
 
-At minimum, the raw-observation layer must be able to distinguish:
+The confirmed raw observation-state family is:
 
-- explicit zero;
-- positive or negative numeric value;
-- `null`;
-- absent / field not supplied;
-- not applicable where the provider explicitly says so;
-- unknown where the system cannot determine meaning;
-- unparseable raw value;
-- provider-supplied string/structured value that has not yet been semantically interpreted.
+- `REPORTED_ZERO`
+- `REPORTED_VALUE`
+- `REPORTED_NULL`
+- `FIELD_ABSENT`
+- `NOT_APPLICABLE_BY_CONTRACT`
+- `UNPARSEABLE`
+- `UNKNOWN`
 
-A zero must not silently become “missing.” Missing must not silently become zero. Unparseable must not silently become unknown if the raw value can still be preserved.
+These states are semantically non-collapsible:
+
+- `REPORTED_ZERO` means the provider explicitly reported zero;
+- `REPORTED_VALUE` means the provider reported a concrete value, including positive or negative values and provider-supplied string/structured values whose exact raw representation must be preserved before later interpretation;
+- `REPORTED_NULL` means the provider explicitly supplied null;
+- `FIELD_ABSENT` means the field was not supplied at all;
+- `NOT_APPLICABLE_BY_CONTRACT` means the governing provider contract establishes that the field is not applicable;
+- `UNPARSEABLE` means a raw value was observed but cannot presently be parsed under the expected representation, so the raw value must still be preserved;
+- `UNKNOWN` means the system cannot currently determine the financial meaning/state from the available evidence without falsely substituting another state.
+
+A zero must not silently become `FIELD_ABSENT`. `FIELD_ABSENT` must not silently become `REPORTED_ZERO`. `REPORTED_NULL` must remain distinct from both. `UNPARSEABLE` must not silently become `UNKNOWN` merely because interpretation failed if the raw value is still known.
 
 > **Observation preservation comes before semantic convenience.**
+
+### 4.1 Durable redaction provenance
+
+Redaction is itself a durable evidence event, not permission to make an observed field indistinguishable from something never observed.
+
+When provider financial observation data must be redacted for compliance, PII, security, contractual, or other governed reasons, the system must preserve durable provenance sufficient to establish, at minimum where applicable:
+
+- that a value was observed before redaction;
+- which field or evidence element was redacted;
+- that the resulting absence is a governed redaction rather than `FIELD_ABSENT` or `REPORTED_NULL`;
+- the redaction policy/reason or policy reference;
+- when the redaction occurred;
+- which governed actor/process performed or authorized it;
+- the immutable observation/execution/provider/account provenance to which the redaction applies.
+
+A redacted value may become unavailable to downstream readers, but the historical fact that evidence existed and was later redacted must remain distinguishable from never having received the field.
+
+> **Redaction may hide content. It must not erase provenance or manufacture absence.**
+
+R15 does not require retention of content that policy requires to be removed. It requires retention of the governed redaction provenance necessary to preserve financial-evidence semantics without violating the redaction policy itself.
 
 ## 5. Original currency and unit must survive capture
 
@@ -277,6 +309,8 @@ A reversal observation must not retroactively erase the original execution or it
 The available record confirms R15 migration scope includes, at minimum:
 
 - canonical Provider Financial Observation schema;
+- exact seven-state raw observation classification (`REPORTED_ZERO`, `REPORTED_VALUE`, `REPORTED_NULL`, `FIELD_ABSENT`, `NOT_APPLICABLE_BY_CONTRACT`, `UNPARSEABLE`, `UNKNOWN`);
+- durable redaction-provenance representation distinct from absent/null states;
 - provider execution response capture;
 - provider reconciliation/fetch paths that can return financial evidence;
 - callback/webhook financial observation ingestion where applicable;
@@ -289,7 +323,7 @@ The available record confirms R15 migration scope includes, at minimum:
 - entitlement/non-cash financial observation capture;
 - financial logging paths that currently retain evidence only in ephemeral logs;
 - validation paths that currently reject or discard financially relevant provider facts before canonical persistence;
-- semantic audit of any provider adapter that normalizes, clamps, aggregates, or drops financial evidence before append-only capture.
+- semantic audit of any provider adapter that normalizes, clamps, aggregates, drops, or silently redacts financial evidence before append-only capture/provenance preservation.
 
 Exact migration labels, ordinals, and full per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
 
@@ -299,8 +333,11 @@ Search for patterns including:
 
 - provider cost/usage value is validated before raw evidence is durably stored;
 - provider amount is clamped to reservation/authorization ceiling;
-- zero is collapsed into null/missing;
-- null/missing/unparseable values are conflated;
+- `REPORTED_ZERO` is collapsed into `FIELD_ABSENT` or `REPORTED_NULL`;
+- `REPORTED_NULL`, `FIELD_ABSENT`, `NOT_APPLICABLE_BY_CONTRACT`, `UNPARSEABLE`, and `UNKNOWN` are conflated;
+- raw value observed as `UNPARSEABLE` is discarded rather than preserved;
+- redaction silently drops a field so that it becomes indistinguishable from `FIELD_ABSENT`;
+- redaction provenance/policy/actor/time is not durable even though observed financial evidence was removed from readable content;
 - original currency/unit is discarded after conversion;
 - provider event time is replaced by receive time;
 - later final/correction overwrites an earlier provider observation;
@@ -323,7 +360,9 @@ At minimum, R15 closure must eventually prove:
 
 - provider-originating financial facts are persisted before validation/normalization/aggregation can discard information;
 - exact R8 execution, provider, and provider-account provenance are preserved;
-- explicit zero, null, absent, N/A, unknown, and unparseable observations remain distinguishable where applicable;
+- the exact seven raw observation states remain representable and non-collapsible: `REPORTED_ZERO`, `REPORTED_VALUE`, `REPORTED_NULL`, `FIELD_ABSENT`, `NOT_APPLICABLE_BY_CONTRACT`, `UNPARSEABLE`, `UNKNOWN`;
+- governed redaction remains durably distinguishable from `FIELD_ABSENT` and `REPORTED_NULL`, with durable redaction provenance sufficient to explain what was redacted, under which policy/reason, when, by whom/what governed actor, and against which immutable observation lineage;
+- redaction does not require retaining content that governing policy requires to be removed;
 - original currency/unit survives capture;
 - provider effective/created, received, and persisted times remain distinguishable where available;
 - provider-native identity is preferred and synthetic fingerprint provenance is explicit;
@@ -347,7 +386,7 @@ R15 contract/schema work may proceed once exact R8 execution/provider/account id
 
 ### LOCAL CLOSURE
 
-R15 may locally close when canonical append-only observation identity, exact execution/provider/account provenance, raw value-shape preservation, original currency/unit, multi-time capture, provider-native/synthetic identity handling, stale-worker observation provenance, entitlement support, known migrations, audit children, and the final sibling sweep are complete.
+R15 may locally close when canonical append-only observation identity, exact execution/provider/account provenance, exact seven-state observation-shape preservation, durable redaction provenance, original currency/unit, multi-time capture, provider-native/synthetic identity handling, stale-worker observation provenance, entitlement support, known migrations, audit children, and the final sibling sweep are complete.
 
 R16 need not be locally closed for R15 evidence capture to exist, but canonical financial-state certification remains pending without R16 reconciliation. R7 headroom-release certification remains pending until R7/R8/R15/R16 compose correctly.
 
@@ -363,6 +402,9 @@ R15 must not:
 - decide release of reserved exposure, which belongs to R7 consuming authoritative downstream truth;
 - infer technical provider-boundary truth, which belongs to R8;
 - clamp provider evidence to authorization/reservation ceilings;
+- collapse the confirmed seven-value observation-state family into a smaller or more convenient representation;
+- treat governed redaction as `FIELD_ABSENT`, `REPORTED_NULL`, or silent deletion;
+- require preservation of redacted content when policy requires content removal, while still requiring durable redaction provenance;
 - erase earlier observations when a final/correction arrives;
 - convert missing evidence into zero cost;
 - let execution-ID possession alone authorize financial evidence creation;
@@ -376,10 +418,10 @@ R15 must not:
 
 The following original R15 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID if separately frozen;
-2. exact Provider Financial Observation schema/storage representation;
-3. exact provider-native/synthetic fingerprint algorithm where provider native ID is absent;
-4. exact observation-provenance envelope field names;
+1. exact Provider Financial Observation schema/storage representation beyond the confirmed semantic requirements and seven-state observation family;
+2. exact provider-native/synthetic fingerprint algorithm where provider native ID is absent;
+3. exact observation-provenance envelope field names;
+4. exact redaction-provenance schema/field names or provider-specific redaction mechanics beyond the confirmed durable-provenance requirement;
 5. exact migration child labels and ordinals;
 6. exact audit name/classification vocabulary if separately frozen;
 7. exact acceptance-fixture labels/order;
@@ -394,6 +436,16 @@ Status remains:
 
 This state does **not** block recovery of R16, but it does not restore R15 implementation authority.
 
-## 25. Relay-contamination guard
+## 25. First-pass source-review disposition
+
+| Review item | Disposition |
+|---|---|
+| Core R15 mission, append-only observation model, execution/provider/account provenance, timing, identity, stale-worker gap, R7/R8/R16 boundaries, DI review | ACCEPTED |
+| Historical finding | ACCEPTED CORRECTION → `C3-F4` |
+| Named seven-value raw observation-state family | PARTIALLY ACCEPTED → RESTORED |
+| Durable redaction provenance | PARTIALLY ACCEPTED → RESTORED AS DISTINCT REQUIREMENT |
+| False assertions requiring rejection | NONE |
+
+## 26. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
