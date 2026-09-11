@@ -1,8 +1,8 @@
 # WI-R14 — Governed Runtime Replacement, Quiescence, and Authority Handoff
 
 **Normalized node:** R14  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
-**Severity:** MATERIAL  
+**Historical finding:** C2-F4  
+**Severity:** MATERIAL, conditionally escalates to BLOCKER while C2-F1 / R8 runtime-replacement race remains unresolved  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
 **Implementation:** NOT STARTED  
@@ -10,7 +10,9 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R14 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing historical finding IDs, exact lifecycle enum/storage representation, migration ordinals, fixture labels/order, timeout values, audit vocabulary, or closure-evidence numbering from compressed summaries.
+This artifact begins R14 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing exact lifecycle enum/storage representation, migration ordinals, fixture labels/order, timeout values, audit vocabulary, or closure-evidence numbering from compressed summaries.
+
+The historical finding `C2-F4` and its severity relationship were restored from the source-level review. R14 is base-severity MATERIAL, but it conditionally escalates to BLOCKER while C2-F1 / R8's runtime-replacement race remains unresolved, because unresolved external-execution truth during replacement is the mechanism that converts this lifecycle gap into immediate consequential risk.
 
 R14 consumes already-recovered requirements from R8, R10, R12, and R13 rather than redefining them. In particular:
 
@@ -44,6 +46,8 @@ The semantic requirements are load-bearing even if exact storage representation 
 - `RETIRED`: incumbent no longer possesses execution authority for the transferred scope.
 
 R14 must not jump directly from ACTIVE to RETIRED merely because a successor process is available.
+
+The `DRAINING → QUIESCED` transition is itself bounded. Incumbent drain/quiescence must have a governed deadline or equivalent finite non-convergence rule symmetric to successor-readiness timeout semantics. A drain that never converges must not leave replacement permanently half-open.
 
 ## 4. Successor lifecycle
 
@@ -120,6 +124,8 @@ A replacement must not:
 - substitute a different provider/account when reconciling historical truth.
 
 > **Replacement changes who owns reconciliation. It does not change what happened externally.**
+
+The severity relationship in §1 is load-bearing here: while C2-F1 / R8 replacement-race truth remains unresolved, R14's base MATERIAL gap escalates to BLOCKER because replacement can otherwise strand or duplicate consequential external work.
 
 ## 8. R12 boundary — durable obligations survive handoff
 
@@ -209,23 +215,38 @@ A process being newer is not evidence that it is compatible.
 
 The exact original compatibility schema/field list, if more detailed, is `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` until confirmed.
 
-## 14. Bounded readiness and non-convergence
+## 14. Bounded readiness and bounded drain non-convergence
 
 Replacement cannot remain indefinitely in an ambiguous half-transferred state.
 
+### 14.1 Successor readiness timeout
+
 The successor-readiness process must be bounded by a governed timeout/deadline or equivalent finite non-convergence rule.
 
-If readiness does not converge within the bound, R14 must produce an R11-owned disposition rather than silently waiting forever or transferring authority anyway.
+The confirmed terminal state for failure to converge within that bound is:
 
-Recovered principle:
+`READINESS_TIMEOUT`
+
+`READINESS_TIMEOUT` must not silently wait forever, transfer authority anyway, or automatically restore incumbent execution authority.
+
+Once `READINESS_TIMEOUT` is reached, the confirmed bounded dispositions are:
+
+- an R11-owned `ABORT_REPLACEMENT`; or
+- routing to `HUMAN_BOUNDARY` where the unresolved non-convergence itself requires genuinely human judgment.
+
+### 14.2 Incumbent drain timeout symmetry
+
+The incumbent's `DRAINING → QUIESCED` path is subject to an equivalent bounded non-convergence rule. Drain/quiescence may not hang indefinitely while only successor readiness is bounded.
+
+If the incumbent cannot reach quiescence within the governed drain bound, R14 must enter an owned non-converged disposition rather than retire the incumbent, force transfer, or leave the system indefinitely half-drained. The same structural rule applies: the failure must route to a bounded R11-owned replacement disposition or `HUMAN_BOUNDARY` when genuinely required.
 
 > **A lifecycle transition is not fully specified until both success and non-convergence have bounded, owned dispositions.**
 
-The exact timeout values are source-unresolved unless recovered during source review.
+The exact readiness and drain timeout values remain source-unresolved unless recovered during source review.
 
 ## 15. Readiness timeout does not authorize incumbent resumption
 
-A failed or timed-out successor readiness attempt does **not** automatically authorize the incumbent to resume unrestricted consequential execution.
+`READINESS_TIMEOUT`, drain timeout, or any other replacement non-convergence does **not** automatically authorize the incumbent to resume unrestricted consequential execution.
 
 Before authority transfer, there may be cases where the replacement attempt can be safely aborted and the incumbent resumed, but only if the system can prove that:
 
@@ -245,6 +266,8 @@ Pre-transfer and post-transfer failure are not the same operation.
 ### 16.1 Pre-transfer abort
 
 Before the new authority epoch commits, a replacement attempt may be aborted and the incumbent resumed only under the proof requirements in §15.
+
+An R11-owned `ABORT_REPLACEMENT` disposition does not itself prove incumbent resumption is safe; it authorizes the governed abort path, after which the §15 proof requirements still determine whether incumbent consequential execution may resume.
 
 ### 16.2 Post-transfer failure
 
@@ -292,7 +315,11 @@ The available record confirms R14 migration scope includes, at minimum:
 
 - runtime/executor lifecycle representation;
 - incumbent drain/quiescence logic;
+- incumbent drain deadline/non-convergence handling;
 - successor readiness/admission path;
+- `READINESS_TIMEOUT` handling;
+- R11-owned `ABORT_REPLACEMENT` routing;
+- `HUMAN_BOUNDARY` routing where genuine human judgment is required;
 - authority epoch / fencing mechanism;
 - in-flight work disposition persistence;
 - unresolved R8 execution handoff;
@@ -303,7 +330,6 @@ The available record confirms R14 migration scope includes, at minimum:
 - stale-incumbent claim rejection;
 - pre-transfer abort handling;
 - post-transfer rollback as new governed transfer;
-- readiness timeout/non-convergence routing to R11;
 - semantic audit of every runtime replacement/restart/deployment path that can move execution authority.
 
 Exact migration labels, ordinals, and original per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
@@ -314,6 +340,9 @@ Search for patterns including:
 
 - new runtime declared authoritative merely because process starts;
 - old runtime continues claiming new work after drain begins;
+- incumbent drain/quiescence can hang indefinitely without an owned timeout disposition;
+- successor readiness can hang indefinitely without reaching `READINESS_TIMEOUT`;
+- `READINESS_TIMEOUT` has no R11-owned `ABORT_REPLACEMENT` or `HUMAN_BOUNDARY` route;
 - handoff destroys or forgets R12 durable obligations;
 - unresolved R8 execution is retried rather than transferred for reconciliation;
 - reservation/exposure released because worker/runtime was replaced;
@@ -324,7 +353,7 @@ Search for patterns including:
 - in-flight work has no explicit disposition before retirement;
 - nontransferable work is silently abandoned;
 - pre-dispatch abandonment lacks durable proof of non-dispatch;
-- readiness timeout automatically resumes incumbent authority;
+- readiness or drain timeout automatically resumes incumbent authority;
 - post-transfer failure rewinds to the old epoch instead of creating a new transfer;
 - replacement process changes provider/account identity implicitly;
 - inherited obligation bypasses R20 because transfer is treated as perpetual permission.
@@ -337,18 +366,21 @@ At minimum, R14 closure must eventually prove:
 
 - incumbent stops new consequential claims before transfer;
 - quiescence distinguishes no-new-claims, no-active-local-execution, and no-untransferred-external-uncertainty;
+- incumbent `DRAINING → QUIESCED` has a bounded non-convergence rule;
 - every in-flight item has one authoritative disposition before incumbent retirement;
 - unresolved R8 execution identity survives transfer without blind retry;
 - R12 durable obligations survive replacement;
 - successor readiness is R13 path-specific, not generic process-up status;
+- successor readiness non-convergence reaches `READINESS_TIMEOUT`;
+- `READINESS_TIMEOUT` routes only through an R11-owned `ABORT_REPLACEMENT` or `HUMAN_BOUNDARY` where human judgment is genuinely required;
 - authority epoch/fencing prevents stale incumbent execution after transfer;
 - R7 reservations/exposure are neither duplicated nor optimistically released during handoff;
 - expected P / observed Q mismatch blocks adoption under R10;
-- readiness non-convergence produces an owned R11 disposition;
-- readiness timeout does not itself authorize incumbent resumption;
-- pre-transfer abort requires proof that incumbent authority remains valid;
+- readiness/drain timeout does not itself authorize incumbent resumption;
+- pre-transfer abort requires proof that incumbent authority remains valid before consequential resumption;
 - post-transfer rollback creates a new governed handoff/epoch rather than rewinding history;
-- inherited work still passes R20 boundary-time eligibility before consequential execution.
+- inherited work still passes R20 boundary-time eligibility before consequential execution;
+- base MATERIAL severity escalates to BLOCKER while C2-F1 / R8 replacement-race uncertainty remains unresolved.
 
 Original fixture labels/order and exact closure-evidence list remain `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` until recovered.
 
@@ -360,13 +392,13 @@ R14 contract/schema work may proceed once R8 execution identity, R12 durable-obl
 
 ### LOCAL CLOSURE
 
-R14 may locally close when lifecycle states, drain/quiescence, in-flight dispositions, successor compatibility/readiness, authority fencing, timeout/non-convergence handling, pre-transfer abort, post-transfer rollback-as-new-transfer, known migrations, audit children, and final sibling sweep are complete.
+R14 may locally close when lifecycle states, drain/quiescence, **bounded incumbent drain**, in-flight dispositions, successor compatibility/readiness, `READINESS_TIMEOUT`, bounded successor non-convergence, R11-owned `ABORT_REPLACEMENT` / `HUMAN_BOUNDARY` routing, authority fencing, pre-transfer abort, post-transfer rollback-as-new-transfer, known migrations, audit children, and final sibling sweep are complete.
 
 R20 need not be globally closed for the transfer state machine to exist, but consequential post-handoff execution certification remains pending without R20-compatible boundary checks.
 
 ### E2E
 
-Final certification must compose with at least R7, R8, R10, R11, R12, R13, and R20 where relevant.
+Final certification must compose with at least R7, R8, R10, R11, R12, R13, and R20 where relevant. While C2-F1 / R8's replacement-race root remains unresolved, R14 remains conditionally BLOCKER for this cross-node certification context.
 
 ## 23. Explicit non-goals
 
@@ -381,26 +413,28 @@ R14 must not:
 - normalize R10 expected/observed artifact mismatch;
 - allow incumbent and successor to exercise the same authority epoch after transfer;
 - let a stale incumbent reclaim authority after waking late;
-- treat timeout as permission to resume incumbent execution;
+- let incumbent drain or successor readiness remain unbounded indefinitely;
+- treat `READINESS_TIMEOUT` or drain timeout as permission to resume incumbent execution;
+- skip the R11-owned `ABORT_REPLACEMENT` / `HUMAN_BOUNDARY` disposition when replacement cannot converge;
 - rewind to an old authority epoch after post-transfer failure;
 - substitute provider/account identity merely because the runtime changed;
-- treat transferred ownership as perpetual R20 execution eligibility.
+- treat transferred ownership as perpetual R20 execution eligibility;
+- flatten R14's conditional BLOCKER escalation into a permanent flat severity independent of R8/C2-F1 state.
 
 ## 24. Source gaps and assurance status
 
 The following original R14 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID if separately frozen;
-2. exact lifecycle enum/storage representation if different from the recovered semantic states;
-3. exact authority-epoch/fencing storage mechanism;
-4. exact successor compatibility schema/field list;
-5. exact readiness timeout values and timing policy;
-6. exact migration child labels and ordinals;
-7. exact audit name/classification vocabulary if separately frozen;
-8. exact acceptance-fixture labels/order;
-9. exact closure-evidence list;
-10. exact amendment/rejected-alternative wording beyond the recovered invariants;
-11. any original worked examples not represented in the available record.
+1. exact lifecycle enum/storage representation if different from the recovered semantic states;
+2. exact authority-epoch/fencing storage mechanism;
+3. exact successor compatibility schema/field list;
+4. exact readiness and incumbent-drain timeout values/timing policies;
+5. exact migration child labels and ordinals;
+6. exact audit name/classification vocabulary if separately frozen;
+7. exact acceptance-fixture labels/order;
+8. exact closure-evidence list;
+9. exact amendment/rejected-alternative wording beyond the recovered invariants;
+10. any original worked examples not represented in the available record.
 
 Status remains:
 
@@ -408,6 +442,17 @@ Status remains:
 
 This state does **not** block recovery of R15, but it does not restore R14 implementation authority.
 
-## 25. Relay-contamination guard
+## 25. First-pass source-review disposition
+
+| Review item | Disposition |
+|---|---|
+| Core R14 lifecycle, quiescence, in-flight dispositions, fencing, R7/R8/R10/R12/R13/R20 boundaries | ACCEPTED |
+| Historical finding | ACCEPTED CORRECTION → `C2-F4` |
+| Severity relationship | ACCEPTED CORRECTION → MATERIAL, conditionally BLOCKER while C2-F1 / R8 replacement race unresolved |
+| `READINESS_TIMEOUT` + named dispositions | PARTIALLY ACCEPTED → RESTORED |
+| Symmetric incumbent drain deadline/non-convergence | PARTIALLY ACCEPTED → RESTORED |
+| False assertions requiring rejection | NONE |
+
+## 26. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
