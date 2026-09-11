@@ -21,6 +21,8 @@ Two WATCH deterministic identity formats were also restored from a cross-referen
 
 These keys therefore have stronger support than memory-only reconstruction, but their provenance is explicitly recorded as **cross-referenced prior summary**, not as direct recovery from the R12 confirmation exchange itself.
 
+The former R12×R13×R7 ownership hold was resolved during R13 source review using evidence internal to this recovery process: the normative three-way outage-recovery certification is R7-owned. R12 contributes durable backlog reconstruction and cross-references that R7-owned compound rather than re-owning it.
+
 Where exact historical text is unavailable, the gap is marked explicitly rather than inferred.
 
 ## 2. Frozen root and mission
@@ -152,17 +154,17 @@ Likewise, R13 reporting a healthy executor cannot compensate for missing durable
 
 > **Durable work existence and executor health are separate predicates.**
 
-### 10.1 R12 × R13 × R7 outage-recovery compound — ownership unresolved
+### 10.1 R12 × R13 × R7 outage-recovery compound — R7-owned certification
 
-The source-level review recalled a possible confirmed three-way outage-recovery burst compound spanning R12, R13, and R7, but did **not** certify whether that scenario was owned normatively by R12 or by R13 with an R12 cross-reference.
+The ownership question carried forward into R13 review is resolved.
 
-Accordingly, this artifact does not promote that recollection into R12 authority.
+The already-reviewed R7 recovery record owns the normative three-way certification requirement:
 
-Status:
+> **R12 × R13 × R7 process-outage burst certification — Durable obligations accumulate while executor/supervisor is unavailable → system recovers → many due jobs become runnable → R12/R13 recover execution correctly → R7 prevents the recovery wave from overcommitting shared resources. R7 is not responsible for durable scheduling/liveness — it governs admission once recovered work becomes executable.**
 
-`SOURCE_OWNERSHIP_UNRESOLVED / HOLD FOR R13 SOURCE REVIEW`
+R12's role is to make accumulated obligations durable and reconstructible so the backlog reappears correctly after recovery. R13 contributes truthful executor recovery/liveness. R7 owns the aggregate admission/certification requirement.
 
-When R13 is reviewed, the recovery process must determine whether the three-way compound belongs there, here, or is a shared cross-node certification scenario. Until then, §11's confirmed R12×R7 backlog rule remains normative and no additional three-way requirement is inferred.
+R12 must cross-reference this compound but must not re-own or redefine it.
 
 ## 11. R7 boundary — recovery bursts remain governed
 
@@ -175,6 +177,8 @@ Any runnable work that consumes scarce resources must still pass R7 aggregate ad
 This includes catch-up bursts for research, validation, confirmation, capability verification, reconciliation, repair, QA, release, telemetry, and other governed external/provider work.
 
 > **Backlog urgency does not create emergency resource authority.**
+
+The R7-owned outage-recovery compound in §10.1 is the normative cross-node certification for the three-way R12×R13×R7 recovery case.
 
 ## 12. R8 boundary — reconciliation schedules preserve exact execution identity
 
@@ -264,6 +268,7 @@ The available record confirms R12 migration scope includes, at minimum:
 - R8 reconciliation scheduling;
 - retry/delay/backoff paths that currently exist only in worker memory;
 - recovery after scheduler/runtime downtime;
+- outage-recovery backlog reconstruction consumed by the R7-owned R12×R13×R7 certification;
 - semantic audit of every “future work” path whose successor can disappear if the process dies.
 
 Exact migration labels, ordinals, and original per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
@@ -280,6 +285,7 @@ Search for patterns including:
 - WATCH trigger-cycle research reconstruction fails to use `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`;
 - scheduler reconstruction uses current lineage/current object instead of exact originating lineage;
 - overdue work bypasses R7 because it is considered urgent;
+- outage recovery reconstructs many runnable jobs but omits the R7-owned aggregate-admission certification seam;
 - lease expiry directly retries an external action whose R8 state is uncertain;
 - R11 obligation exists but no durable runnable handoff can be reconstructed;
 - scheduler job is treated as the domain obligation itself;
@@ -302,6 +308,7 @@ At minimum, R12 closure must eventually prove:
 - overdue recovery does not bypass R7 resource authority;
 - R11 obligations cannot become orphaned between semantic creation and runnable materialization;
 - R13 executor health remains distinct from R12 durable-work existence;
+- R12 contributes durable backlog reconstruction to the R7-owned R12×R13×R7 outage-recovery certification without re-owning that compound;
 - reconciliation scheduling preserves exact R8 execution identity;
 - scheduler lease loss does not manufacture replay safety;
 - originating R4 lineage is preserved through delayed/reconstructed work;
@@ -322,7 +329,7 @@ R12 may locally close when durable due/runnable representation, deterministic su
 
 R13 need not be locally closed for R12 scheduling semantics to exist, but liveness certification remains pending without R13. R7/R8/R20 need not be globally closed for the scheduler schema to exist, but consequential execution certification remains pending until their gates compose correctly.
 
-The ownership of the recalled R12×R13×R7 outage-recovery compound must be resolved during R13 source review before final cross-node certification, but that unresolved ownership does not alter the confirmed R12-local semantics above.
+The former ownership hold is closed: R7 owns the R12×R13×R7 outage-recovery certification; R12 must preserve its backlog-reconstruction contribution and the cross-reference.
 
 ### E2E
 
@@ -342,7 +349,7 @@ R12 must not:
 - let stale queued work override pause/supersession/termination;
 - treat durable scheduling as perpetual execution authority;
 - require one giant atomic transaction where permanent detectability plus deterministic reconstruction is sufficient;
-- infer the ownership or exact normative framing of the unresolved R12×R13×R7 outage-recovery compound before R13 source review.
+- re-own or redefine the R7-owned R12×R13×R7 outage-recovery certification.
 
 ## 23. Source gaps and assurance status
 
@@ -356,8 +363,7 @@ The following original R12 details are not yet recoverable from the available re
 6. exact closure-evidence list;
 7. exact retry/backoff timing policies if separately frozen;
 8. exact amendment/rejected-alternative wording beyond the recovered invariants;
-9. any original worked examples not represented in the available record;
-10. exact ownership/framing of the recalled R12×R13×R7 outage-recovery burst compound, held for R13 source review.
+9. any original worked examples not represented in the available record.
 
 Status remains:
 
@@ -372,7 +378,7 @@ This state does **not** block recovery of R13, but it does not restore R12 imple
 | Core R12 mission, scheduler/domain separation, Execution Kernel, reconstruction, downtime, boundaries | ACCEPTED |
 | Historical finding | ACCEPTED CORRECTION → `C1-F7` |
 | WATCH deterministic identity formats | PARTIALLY ACCEPTED → RESTORED FROM CROSS-REFERENCED PRIOR SUMMARY |
-| R12×R13×R7 outage-recovery compound ownership | UNRESOLVED → HOLD FOR R13 SOURCE REVIEW |
+| R12×R13×R7 outage-recovery compound ownership | RESOLVED DURING R13 REVIEW → R7-OWNED, R12 CONTRIBUTOR/CROSS-REFERENCE |
 | False assertions requiring rejection | NONE |
 
 ## 25. Relay-contamination guard
