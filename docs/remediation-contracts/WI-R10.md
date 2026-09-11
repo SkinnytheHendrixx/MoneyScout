@@ -1,7 +1,7 @@
 # WI-R10 — Exact Artifact Identity Through Build, QA, Release, and Asset Adoption
 
 **Normalized node:** R10  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
+**Historical finding:** C4-F3  
 **Severity:** BLOCKER  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
@@ -10,7 +10,7 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R10 recovery from the confirmed material still available in the project record. It preserves only obligations that can be recovered with high confidence and does not regenerate missing historical finding IDs, migration ordinals, fixture labels/order, audit classifications, or closure-evidence numbering from compressed summaries.
+This artifact begins R10 recovery from the confirmed material still available in the project record. It preserves only obligations that can be recovered with high confidence and does not regenerate missing migration ordinals, fixture labels/order, audit classifications, or closure-evidence numbering from compressed summaries.
 
 Where exact historical text is unavailable, the gap is marked explicitly rather than inferred.
 
@@ -66,6 +66,8 @@ Recovered R10 semantics prefer preview and production to preserve the same exact
 
 If production requires a rebuild or transformation, the resulting production material must have its own immutable identity plus provable lineage back to the verified artifact/source authority. The system must not collapse “derived from” into “is the same artifact.”
 
+A Preview PASS for artifact P1 is historical evidence about P1. It does **not** automatically verify rebuilt production artifact P2. If production deploys P2 rather than promoting P1 exactly, P2 must receive its own governed verification lineage before production adoption can rely on it.
+
 A production deployment whose observed artifact differs from the authorized expected artifact must fail closed for adoption until the discrepancy is resolved.
 
 ## 7. Asset adoption identity
@@ -81,13 +83,55 @@ The Asset must be able to answer:
 - whether expected and observed identities match;
 - which Build Source Snapshot and Evaluation Lineage ultimately produced that artifact.
 
-## 8. Deterministic materialization
+### 7.1 Rollback exactness
+
+Rollback must target an exact historical Artifact Version / deployment identity.
+
+> **A future rollback should say `deploy Artifact Version P_previous`, not `deploy old branch/tag`.**
+
+A mutable rollback target defeats the purpose of preserving exact production identity. Rollback does not authorize reinterpretation of branch, tag, image label, or “previous successful” convenience state as immutable authority.
+
+### 7.2 Current pointers are permitted but non-authoritative
+
+Convenience and denormalized fields such as `buildJobs.resultCommitSha`, `assets.currentReleaseJobId`, or equivalent current pointers may remain for read performance, navigation, or operational convenience.
+
+They are not required to be removed merely because R10 introduces immutable lineage.
+
+However, no current pointer may become authoritative for an already-completed Build, QA, Release, deployment, adoption, or rollback event when an exact immutable Artifact Version / event lineage already exists.
+
+> **Convenience pointers may summarize current state; they may not rewrite historical authority.**
+
+## 8. Deterministic materialization and representation lineage
 
 Where the system claims that a derived artifact is deterministically materialized from an immutable source artifact, that claim must itself be provable.
 
 Determinism may preserve lineage, but it does not erase identity boundaries. If multiple immutable representations exist, each representation must remain distinguishable while preserving the provable transformation chain.
 
-The exact original deterministic-materialization criteria, if more detailed than this recovered invariant, are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`.
+The exact original deterministic-equivalence/materialization criteria, if more detailed than this recovered invariant, remain `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`.
+
+### 8.1 Artifact Version creation atomicity and crash recovery
+
+Artifact identity must not depend on one process surviving the gap between “Builder result is known” and “Artifact Version row exists.”
+
+If the Builder result becomes durably known but the process dies before the Artifact Version is durably created, recovery must deterministically materialize **exactly one** Artifact Version for that exact Build result.
+
+The confirmed deterministic identity form is:
+
+`build:{buildJobId}:artifact:{exactResultCommitSha}`
+
+Competing or repeated recovery passes must converge on the same Artifact Version rather than creating duplicates.
+
+This is creation-atomicity / deterministic reconstruction. It is distinct from the deterministic-equivalence question in §8.
+
+> **A crash between durable Build result and Artifact Version creation must not create either missing artifact identity or duplicate artifact identities.**
+
+### 8.2 Release Job creation atomicity
+
+The same principle applies when a qualifying QA result should cause a Release Job to exist.
+
+Release Job creation must be idempotently and deterministically derivable from the **exact qualifying QA-bound Artifact Version**, not from “latest Build state,” a current branch, or whichever artifact happens to be current when recovery runs.
+
+If multiple recovery passes race after the qualifying QA state becomes durable, they must converge on one governed Release Job for the exact artifact/QA lineage rather than creating competing Release attempts from mutable current state.
 
 ## 9. R9 boundary
 
@@ -178,13 +222,16 @@ The exact original DI wording, if more specific, should be source-checked during
 The available record confirms R10 migration scope includes, at minimum:
 
 - canonical Artifact Version / Verified Artifact Identity schema;
+- deterministic/idempotent Artifact Version creation from durable Builder result;
 - Builder output persistence;
 - QA input and QA-result linkage;
+- deterministic/idempotent Release Job creation from exact qualifying QA Artifact Version;
 - repair/rebuild artifact handling;
 - Controlled Release preview identity;
 - Controlled Release production identity;
 - deployment/provider artifact linkage;
 - Asset production-version/adoption state;
+- exact rollback target handling;
 - downstream commercial consumers that currently use mutable/current release references;
 - legacy Builds/Releases/Assets whose exact artifact identity is incomplete;
 - semantic audit of all “latest/current” substitutions where exact artifact identity should already exist.
@@ -198,7 +245,13 @@ Search for patterns including:
 - QA verifies one artifact while Release consumes another;
 - Release uses “latest passing build” instead of exact QA-bound artifact;
 - production rebuild occurs but keeps the same artifact identity without authoritative equivalence proof;
+- Preview PASS for P1 is reused as verification authority for rebuilt P2;
+- Builder result is durable but crash before Artifact Version creation can create zero or multiple Artifact Versions;
+- Release Job recovery derives from latest Build/current state instead of exact qualifying QA Artifact Version;
+- multiple recovery passes can create duplicate Artifact Versions or duplicate Release Jobs for one exact lineage;
 - mutable image tags/branch names/version labels stand in for immutable artifact digests;
+- rollback uses old branch/tag/current pointer instead of exact historical Artifact Version;
+- convenience current pointers are treated as historical event authority;
 - preview and production identity are conflated without proof;
 - Asset records only current deployment rather than immutable production artifact history;
 - expected artifact P / observed Q mismatch is overwritten or normalized;
@@ -214,12 +267,18 @@ Every genuine sibling becomes a durable migration child. Repeat until a complete
 
 At minimum, R10 closure must eventually prove:
 
+- historical finding is C4-F3;
 - exact Build output identity is persisted immutably;
+- if a process dies after durable Builder result but before Artifact Version creation, repeated/racing recovery deterministically creates exactly one Artifact Version keyed by `build:{buildJobId}:artifact:{exactResultCommitSha}`;
+- Release Job recovery is idempotently derived from the exact qualifying QA-bound Artifact Version, never from latest Build/current state;
 - QA consumes and verifies that exact artifact;
 - passing QA for P cannot authorize Release of Q;
+- Preview PASS for P1 does not verify rebuilt production artifact P2;
 - rebuild P2 receives new identity unless authoritative equivalence is proved;
 - preview/production identity is exact and transformation lineage is preserved where they differ;
 - Asset adoption records the exact production artifact/deployment identity;
+- rollback targets an exact historical Artifact Version rather than a mutable branch/tag/current pointer;
+- convenience current pointers may remain but cannot become authority for already-completed events;
 - R8 technical execution truth remains distinct from R10 expected/observed artifact identity;
 - R11 repair produces a successor artifact rather than mutating failed history;
 - expected P / observed Q replacement-handoff mismatch blocks adoption;
@@ -236,7 +295,7 @@ R10 contract/schema work may proceed once R9's immutable source/Build identity i
 
 ### LOCAL CLOSURE
 
-R10 may locally close when canonical Artifact Version identity, Builder→QA→Release→Asset propagation, rebuild/repair successor semantics, deterministic materialization lineage, legacy handling, known migrations, audit children, and the final sibling sweep are complete.
+R10 may locally close when canonical Artifact Version identity, deterministic/idempotent Artifact Version and Release Job creation, Builder→QA→Release→Asset propagation, rebuild/repair successor semantics, deterministic materialization lineage, exact rollback semantics, current-pointer non-authority, legacy handling, known migrations, audit children, and the final sibling sweep are complete.
 
 R17/R19/R20 need not be locally closed for R10 artifact identity to exist, but downstream commercial/adoption certification remains pending until the hard chain composes correctly.
 
@@ -252,8 +311,13 @@ R10 must not:
 - infer provider-call success/failure, which belongs to R8;
 - grant scarce-resource authority, which belongs to R7;
 - treat passing QA for one artifact as authority for a different artifact;
+- treat Preview PASS for P1 as verification authority for rebuilt P2;
 - mutate old artifact history to represent a repair/rebuild;
+- use process survival as a prerequisite for Artifact Version or Release Job existence once their exact durable prerequisites are known;
+- derive recovered Release Jobs from “latest Build state” rather than the exact qualifying QA Artifact Version;
 - treat mutable tags/branches/current pointers as immutable Artifact Version authority;
+- require removal of convenience current pointers merely because immutable lineage exists;
+- use a mutable branch/tag/current pointer as rollback authority;
 - infer commercial equivalence for R17 merely because two artifacts appear similar;
 - silently normalize expected P / observed Q deployment mismatch;
 - let current deployment state manufacture historical artifact identity.
@@ -262,14 +326,13 @@ R10 must not:
 
 The following original R10 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID;
-2. exact migration child labels and ordinals;
-3. exact audit name/classification vocabulary if separately frozen;
-4. exact acceptance-fixture labels/order;
-5. exact closure-evidence list;
-6. exact deterministic-equivalence/materialization criteria if more detailed than the recovered invariant;
-7. exact amendment/rejected-alternative wording beyond the invariants preserved above;
-8. any original worked examples or repository/provider path specifics not represented in the available record.
+1. exact migration child labels and ordinals;
+2. exact audit name/classification vocabulary if separately frozen;
+3. exact acceptance-fixture labels/order beyond the restored crash-recovery and preview/rebuild scenarios;
+4. exact closure-evidence list;
+5. exact deterministic-equivalence/materialization criteria if more detailed than the recovered invariant;
+6. exact amendment/rejected-alternative wording beyond the invariants restored above;
+7. any original worked examples or repository/provider path specifics not represented in the available record.
 
 Status remains:
 
@@ -277,6 +340,18 @@ Status remains:
 
 This state does **not** block recovery of R11, but it does not restore R10 implementation authority.
 
-## 23. Relay-contamination guard
+## 23. First source-level review disposition
+
+| Review item | Disposition | Result |
+|---|---|---|
+| Historical finding ID | ACCEPTED CORRECTION | restored as `C4-F3` |
+| Artifact Version creation atomicity | PARTIALLY ACCEPTED → AMENDED | restored with deterministic key and exactly-once recovery semantics |
+| Release Job creation atomicity | PARTIALLY ACCEPTED → AMENDED | restored as exact-QA-Artifact-Version idempotent derivation |
+| Rollback exactness | PARTIALLY ACCEPTED → AMENDED | exact Artifact Version target required |
+| Current pointer clarification | PARTIALLY ACCEPTED → AMENDED | convenience pointers permitted but non-authoritative |
+| Preview PASS vs rebuilt production artifact | UNRESOLVED → AMENDED FROM SOURCE REVIEW | P1 verification does not transfer to P2 |
+| Rejected items | NONE | no asserted contract claim was rejected |
+
+## 24. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
