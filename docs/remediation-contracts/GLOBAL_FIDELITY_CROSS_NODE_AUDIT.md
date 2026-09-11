@@ -27,6 +27,32 @@ The audit must preserve the frozen assurance distinction:
 
 Tier promotion requires evidence. Confidence, repetition, or lack of discovered disagreement is not a substitute for the required evidence class.
 
+### 2.1 T4 independence assignment is explicit, not implied
+
+A reviewer that materially authored, reconstructed, adjudicated, or repeatedly reviewed a node in the same continuity chain may not self-award T4 for that node merely by performing another adversarial pass.
+
+For this corpus specifically, the continuing Claude conversation and the continuing ChatGPT conversation have both materially participated in reconstruction, amendment, or review. Neither continuity chain may by itself certify the recovered corpus as T4 merely by re-reading its own prior work under a different prompt.
+
+T4 for a high-risk node, compound, hard-chain segment, or final corrected authority set must come from one of the following:
+
+1. **a materially independent model family/provider** that did not participate in the reconstruction/review chain and is given the underlying source record plus immutable recovered artifacts, not prior reviewers' conclusions as authority;
+2. **a fresh qualified human reviewer** with no authorship stake in the recovered content, given the same source/artifact packet;
+3. another reviewer/source configuration that demonstrably satisfies the R5 independence rule and is documented with why it is materially independent.
+
+A fresh prompt, persona, context window, or turn in the same materially involved model continuity is not sufficient merely because it feels adversarial.
+
+Concrete project default: final T4 review should be assigned to a reviewer outside the Claude/ChatGPT reconstruction chain, preferably a third model family/provider or qualified senior systems/security reviewer. If no such reviewer is available, the affected material remains below T4 and the audit must say so rather than laundering T3 into T4.
+
+### 2.2 T4 is required at the final authority boundary, not for every low-risk sentence
+
+The audit does not require every recovered sentence to become T4. It does require materially independent review of the final high-risk authority set before implementation authority returns, including at minimum:
+
+- the hard chain `R4 → R9 → R10 → R17 → R19 → R20`;
+- BLOCKER-level cross-node contradiction resolutions;
+- the `R7 × R8 × R15 × R16` money/external-truth compound;
+- the `R6 × R18 × R20` capability/binding/boundary compound;
+- any other node/compound whose remaining ambiguity could authorize unsafe consequential execution.
+
 ## 3. Current corpus starting state
 
 The audit begins from the following known assurance shape:
@@ -51,6 +77,24 @@ For each node:
 4. preserve unresolved gaps explicitly rather than inferring them;
 5. perform a second source-level pass after amendments;
 6. record the resulting assurance tier honestly.
+
+### 4.1 Source basis must be named
+
+Every Phase A review record must say what source was actually used:
+
+- immutable conversation/source transcript;
+- committed contemporaneous artifact;
+- prior frozen summary with known provenance;
+- reviewer memory only;
+- or another named source.
+
+A repeated pass against the same reviewer's residual memory is not automatically a stronger assurance class. If the actual source well is exhausted, the legitimate result is:
+
+`SOURCE_EXHAUSTED / NO FURTHER RECOVERABLE DETAIL`
+
+That state is preferable to inventing detail or pretending another memory pass created new independence.
+
+If only reviewer memory remains for a detail and no durable source supports it, the detail cannot be promoted to T3/T4 merely by repetition.
 
 Special attention:
 
@@ -92,7 +136,23 @@ For each cross-reference, classify the consumer relationship:
 
 Any genuine contradiction or semantic drift becomes its own durable audit finding. It is not closed merely by editing one sentence; all affected downstream consumers must be swept.
 
-### 6.1 Mandatory contradiction checks
+### 6.1 Mechanical cross-reference derivation is authoritative for coverage
+
+The manually listed checks below are mandatory seeds, not the complete graph.
+
+Before Phase C can be considered complete, derive a **Cross-Reference Edge Inventory** mechanically from the R1–R20 artifacts by collecting at minimum:
+
+- every section titled or framed as an `R# boundary`;
+- every explicit `R# × R#` compound;
+- every hard-chain arrow;
+- every `consumes`, `inherits`, `depends on`, `owned by`, `hands off to`, `revalidates`, `preserves`, `supplies`, or equivalent cross-node reference;
+- every Design Input consumption reference that names another node/scope.
+
+Each directed edge `consumer → upstream` must be audited. Transitive chains do not substitute for direct-edge review.
+
+The edge inventory must record immutable artifact SHAs for both ends so a later node amendment invalidates the affected prior edge result mechanically rather than silently.
+
+### 6.2 Mandatory seed contradiction checks
 
 At minimum verify:
 
@@ -110,6 +170,23 @@ At minimum verify:
 - R17 exact Offer authority versus R19 lineage and R20 current eligibility;
 - R18 lifecycle/disposition semantics as consumed by R20;
 - R19 post-hoc authority rule versus R20 authority regression.
+
+### 6.3 Node assurance reopening rule
+
+A per-node review can clear locally and still become globally implicated later.
+
+If a global-audit finding materially implicates node `Rx`, then `Rx` must receive a durable **global-audit overlay** in its own assurance record. The original node review history is not rewritten away, but the node may not continue to appear globally clean while the contradiction exists.
+
+The overlay must include:
+
+- global finding ID;
+- affected consumer/upstream relationship;
+- status `OPEN`, `AMENDED_PENDING_RECHECK`, or `CLOSED`;
+- whether local assurance tier remains valid for transcription/source fidelity;
+- whether implementation eligibility is suspended by the global finding;
+- immutable SHAs of the node versions involved.
+
+A central contradiction register without node-local cross-reference is insufficient.
 
 ## 7. Audit phase D — hard-chain certification
 
@@ -199,6 +276,8 @@ Each gap must include:
 
 - node;
 - missing detail;
+- actual source(s) checked;
+- whether the source is exhausted;
 - whether the gap affects implementation semantics, traceability only, naming only, fixture provenance only, or closure evidence only;
 - whether the gap blocks local implementation authority;
 - whether neighboring contracts constrain it sufficiently for safe implementation;
@@ -233,24 +312,45 @@ Verify that R20's forward engineering-governance rule composes with the developm
 
 > **Architecture cannot runtime-enforce against code never written to call it.**
 
-## 14. Audit outputs
+## 14. Phase ordering and invalidation rules
+
+The audit is ordered to prevent stale certification:
+
+1. **Phase A:** complete R4–R6 substantive source rechecks and amendments;
+2. **Phase B:** normalize R18 assurance;
+3. derive the first complete Cross-Reference Edge Inventory from the amended corpus;
+4. **Phases C–J:** run contradiction, hard-chain, compound, representability, DI, source-gap, naming, and forward-governance audits against pinned immutable SHAs;
+5. resolve findings and amend affected nodes;
+6. automatically invalidate every prior edge/compound/chain result whose upstream or consumer SHA changed;
+7. rerun all invalidated checks;
+8. perform a final complete Phase C contradiction sweep against the final candidate corpus, not merely targeted rechecks;
+9. only then assemble the corrected canonical register;
+10. submit the corrected authority set to the materially independent T4 reviewer defined in §2.1.
+
+A Phase C pass performed before Phase A/B amendments may be useful for discovery, but it cannot serve as final certification.
+
+> **No audit conclusion may outlive the immutable node versions it actually checked.**
+
+## 15. Audit outputs
 
 The Global Fidelity & Cross-Node Audit is not complete until it produces all of the following:
 
 1. per-node assurance matrix R1–R20;
-2. R4–R6 substantive source-level review records;
+2. R4–R6 substantive source-level review records with named source basis;
 3. R18 normalized assurance record;
-4. cross-node contradiction register with dispositions;
-5. hard-chain certification result;
-6. compound certification results;
-7. Design Input consistency matrix;
-8. unresolved source-gap register;
-9. representability/multiplicity findings;
-10. explicit list of remaining blockers to implementation authority;
-11. corrected canonical remediation register that references immutable node artifacts rather than compressing their normative content;
-12. independent final review of the corrected authority set.
+4. mechanically derived Cross-Reference Edge Inventory pinned to immutable SHAs;
+5. cross-node contradiction register with dispositions;
+6. node-local global-audit overlays for every implicated node;
+7. hard-chain certification result;
+8. compound certification results;
+9. Design Input consistency matrix;
+10. unresolved source-gap register including source-exhaustion state;
+11. representability/multiplicity findings;
+12. explicit list of remaining blockers to implementation authority;
+13. corrected canonical remediation register that references immutable node artifacts rather than compressing their normative content;
+14. materially independent T4 review record for the final high-risk authority set.
 
-## 15. Promotion rule
+## 16. Promotion rule
 
 Implementation authority remains suspended until the audit demonstrates that the high-risk nodes and compounds have the required assurance and that no unresolved contradiction allows unsafe interpretation.
 
@@ -258,7 +358,9 @@ A node may remain source-incomplete and still become usable for implementation o
 
 No assurance tier or implementation-authority status may be upgraded by convenience.
 
-## 16. Stop conditions
+T4 absence is not a reason to lower the definition of T4. If materially independent review cannot be obtained, record the limitation and retain the stronger implementation gate where T4 is required.
+
+## 17. Stop conditions
 
 The audit must not be declared complete while any of the following remains unresolved:
 
@@ -266,12 +368,16 @@ The audit must not be declared complete while any of the following remains unres
 - an upstream semantic being silently redefined downstream;
 - missing R4–R6 source-level review;
 - unnormalized R18 assurance;
+- incomplete mechanically derived cross-reference coverage;
 - a hard-chain identity substitution gap;
 - an unowned authority-regression path;
 - a known representability defect that can collapse distinct historical authorities;
 - a consequential boundary class that cannot be represented or registered;
-- an assurance claim stronger than its evidence.
+- an assurance claim stronger than its evidence;
+- a node implicated by an open global finding without a node-local assurance overlay;
+- stale edge/compound/chain certification against superseded node SHAs;
+- required final T4 review not performed by a materially independent reviewer.
 
-## 17. Relay-contamination guard
+## 18. Relay-contamination guard
 
 This audit artifact terminates here. No conversational handoff text is part of the governing audit body.
