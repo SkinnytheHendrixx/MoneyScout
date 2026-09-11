@@ -1,8 +1,14 @@
 # WI-R7 Recovery Reconciliation Record
 
 **Node:** R7  
-**Purpose:** Preserve the four recovered source chunks and the exact unresolved fidelity questions before creating a full WI-R7 candidate.  
-**Status:** `RECOVERY_ASSEMBLED / SOURCE_GAPS REMAIN / DO NOT PROMOTE TO RECOVERED CANDIDATE`
+**Purpose:** Preserve the four recovered source chunks and the exact fidelity limits of the available record before promoting R7 recovery forward.  
+**Status:** `RECOVERY EXHAUSTED AGAINST AVAILABLE RECORD / SOURCE-INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`
+
+## Recovery result
+
+A final narrow source-recovery pass was completed against the available conversation record for the three remaining gaps. No additional exact source text was recoverable. This is not evidence that the original amendments or closure list never existed; it means only that they are **not recoverable from the available record** with the specificity required by the fidelity process.
+
+The correct terminal recovery behavior is therefore to preserve the recovered substance, mark the exact missing material `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`, and move the serialized recovery queue forward without inventing the missing text.
 
 ## Accepted recovered substance
 
@@ -23,63 +29,98 @@ The assembled recovery preserves, without treating unresolved numbering as fact:
 - Fund precedence: `Master Mode → Category Policy → Scoped Override → Fund Authority → Bet Authority → Atomic Reservation`.
 - R7 consumes canonical `deployable_capital`; it does not create another local formula.
 - R7-A1 Scarce Resource Admission Audit scope/classifications and audit-is-not-repair rule.
-- Kill-Risk remains known named remediation scope regardless of final numbering, with invariant `$0.50 ceiling ≠ $0.50 reserved`.
+- Kill-Risk remains known named remediation scope, with invariant `$0.50 ceiling ≠ $0.50 reserved`.
 - R1×R7, R7×R8, R6×R7, R3/R5/R6 burst variants, R12×R13×R7 recovery burst, and R7×R20 distinctions.
 - R7×R4 parallel boundary: reservation does not repair stale evaluation lineage; reservation carries enough exact Bet/evaluation-lineage reference for later checks.
 - Acceptance fixtures A–O including single-pool race, multi-pool atomicity, deterministic lock order, zero-cash entitlement, paygo fallback, Release shared-headroom conflict, Builder migration, Asset Remediation entitlement, pre-boundary release, uncertain post-boundary outcome, partial consumption, recovery burst, R1 typed semantics, R2 UNKNOWN, and authority-state serialization.
 - Start/local-closure/non-goal/sibling-sweep/DI-1/DI-2 governance recovered in Chunk 4.
 - DI-1 schema-entanglement guard: shared schema/identity surfaces must be reviewed for cross-account capability substitution semantics even if the reservation algorithm itself does not currently substitute accounts.
 
-## Unresolved source questions
+## Recovered known migration children
 
-### 1. Final migration numbering
+The available record supports the following **named migration content** as R7 known scope, but it does not support freezing the final ordinals with sufficient confidence:
 
-Recovered logical matrix strongly supports the following shape:
+- canonical Economic Action identity;
+- canonical resource-pool identity;
+- atomic reservation transaction;
+- reservation lifecycle/accounting;
+- Builder Gateway;
+- Builder entitlement;
+- QA/repair provider execution;
+- Controlled Release preview;
+- Controlled Release production;
+- Asset Remediation Builder/QA/Release;
+- Kill-Risk collector;
+- research/validation/resolution resource admission;
+- reservation-aware execution queue/admission;
+- legacy in-flight/local-budget state.
 
-- R7-M1 canonical Economic Action identity
-- R7-M2 canonical resource-pool identity
-- R7-M3 atomic reservation transaction
-- R7-M4 reservation lifecycle/accounting
-- R7-M5 Builder Gateway
-- R7-M6 Builder entitlement
-- R7-M7 QA/repair provider execution
-- R7-M8 Controlled Release preview
-- R7-M9 Controlled Release production
-- R7-M10 Asset Remediation Builder/QA/Release
-- R7-M11 Kill-Risk collector
-- R7-M12 research/validation/resolution resource admission
-- R7-M13 reservation-aware execution queue/admission
-- R7-M14 legacy in-flight/local-budget state
+### Numbering disposition
 
-However, the original transcript text that conclusively proves the Kill-Risk insertion at M11 and the final renumbering has not been independently recovered. Therefore this numbering remains:
+The logical amendment history strongly suggests that Kill-Risk was inserted as a dedicated child and later numbering shifted, producing an M1–M14 matrix with audit-discovered children beginning at M15+. However, the available record does not recover the exact insertion-position text or final frozen ordinal sequence.
 
-`M1–M14 — PENDING SOURCE CONFIRMATION`
+Therefore:
 
-If M1–M14 is confirmed, R7-A1 discovered defects begin at `R7-M15+`. Until then, the audit-child start number is also source-unresolved.
+`FINAL R7 MIGRATION ORDINALS — SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`
 
-**Non-regression:** Kill-Risk is a named known migration surface whether or not the final child number changes.
+`R7-A1 FIRST DISCOVERED-CHILD ORDINAL — SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`
 
-### 2. R7×R15×R16 exact compound scenario
+**Non-regression:** Kill-Risk is a named known migration child, not an R7-A1 audit discovery item, regardless of ordinal.
 
-The existence and governing principle are confirmed: reservation safety is incomplete without durable provider financial observations and order-independent canonical reconciliation of incurred/settled exposure. Exact original scenario wording has not been recovered and must not be reconstructed from later R15/R16 contracts by inference.
+## R7-A1 — Scarce Resource Admission Audit
 
-Status: `CONFIRMED COMPOUND EXISTS / EXACT SCENARIO TEXT SOURCE_NOT_RECOVERABLE`.
+Inventory every autonomous operation capable of consuming cash, provider entitlement, subscription credits, external requests with quota, concurrency, shared model/API capacity, externally billed searches, build/QA/repair execution, deployment/release calls, Asset-operation provider work, or safety-required review/verification/reconciliation work.
 
-### 3. Exact 29-item closure-evidence list
+At minimum inspect Research, Validation, Autonomous Resolution, experiments, Builder, repair, QA, Release preview, Release production, Asset remediation, telemetry, R5 confirmation, R6 automated verification, WATCH/revalidation work, and commercial/payment operations when implemented.
 
-The original record establishes a 29-item closure list. The exact numbered list is not currently recoverable, and its references to migration children depend on the unresolved final numbering above.
+Classifications:
 
-Status: `SOURCE_NOT_RECOVERABLE — DEPENDENT ON MIGRATION-NUMBER RECONCILIATION`.
+- `NON_SCARCE_PROVEN`
+- `ALREADY_R7_ADMITTED`
+- `R7_DEFECT_DISCOVERED`
+- `RESOURCE_SEMANTICS_UNKNOWN`
+- `NOT_CONSEQUENTIAL_RESOURCE_USE`
 
-## Promotion rule
+R7-A1 is audit-only. It does not repair what it finds. Every `R7_DEFECT_DISCOVERED` becomes a durable new R7 migration child using the next available ordinal chosen from the canonical implementation-time register after the ordinal ambiguity is explicitly resolved. Every `RESOURCE_SEMANTICS_UNKNOWN` must be adjudicated before the affected operation can claim reservation-free execution.
 
-Do not replace the current partial `WI-R7.md` with a full recovered candidate until either:
+`AUDITED ≠ DEFECT FOUND ≠ DEFECT FIXED`.
 
-1. the original source resolves final migration numbering and the exact 29-item closure list, with the R7×R15×R16 text recovered if available; or
-2. the final artifact explicitly preserves any unrecoverable source gaps without pretending the missing content is known, and the governing recovery process accepts a source-incomplete R7 contract as non-implementation authority.
+## Source gap 1 — exact migration ordinals
 
-No implementation batches may be derived from this reconciliation record.
+**Status:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`.
+
+Recoverable substance: Kill-Risk was promoted into named known migration scope; later numbering was instructed to shift accordingly; `$0.50 ceiling ≠ $0.50 reserved` is frozen. Not recoverable with sufficient fidelity: the exact original insertion ordinal and final numbered sequence.
+
+## Source gap 2 — R7×R15×R16 exact compound scenario
+
+**Status:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`.
+
+The governing principle is confirmed and preserved:
+
+> Reservation safety without durable provider-originating incurred-cost evidence and order-independent canonical reconciliation is incomplete safety. Reserved exposure, external execution truth, and financial observation/reconciliation must compose before headroom can move safely.
+
+The exact original worked scenario wording must not be regenerated from later R15/R16 contracts and presented as recovered R7 source.
+
+## Source gap 3 — exact 29-item closure-evidence list
+
+**Status:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`.
+
+The available record confirms that the original R7 contract had a 29-item numbered closure-evidence list and preserves its broad categories, but not the exact item-by-item text/ordering. Reconstructing 29 numbered items from pattern would be generation, not recovery.
+
+R7 therefore cannot claim full artifact fidelity to the unavailable closure list. Any future implementation closure must derive its executable closure checklist from the recovered semantic obligations plus an independently reviewed implementation plan, and must not claim that a newly generated list is the recovered original 29-item list.
+
+## Governance and promotion result
+
+R7 source recovery is now **complete to the limit of the available record**.
+
+This means:
+
+- R7 may move out of `RECOVERY BLOCKED` status.
+- R7 remains **source-incomplete** and is not `FIDELITY_VERIFIED` in the same sense as R1–R6.
+- R7 remains **non-implementation authority** until the corrected canonical remediation register/global verification process explicitly decides how source-incomplete recovered nodes are governed.
+- The serialized recovery queue may proceed to R8. Continuing to re-query the same unavailable source is not required and risks fabrication pressure.
+- If stronger original source appears later, it may amend the exact ordinals, closure list, or compound wording without invalidating the already recovered semantic obligations unless a true contradiction is found.
 
 ## Relay-contamination guard
 
-Before any eventual full R7 candidate is committed, strip conversational handoff text and verify the artifact body terminates at its intended normative/fidelity section. This guard was added after the WI-R6 relay-contamination failure.
+Before any future R7 artifact is promoted or rewritten, strip conversational handoff text and verify the artifact body terminates at its intended normative/fidelity section. This guard was added after the WI-R6 relay-contamination failure.
