@@ -180,14 +180,15 @@ A runtime may not silently charge through another provider/account merely becaus
 
 Changing provider/account scope for a commercial action requires the applicable governed rebinding / successor authority rather than local substitution.
 
-This is one of the exact scopes where DI-1 is activated for R17.
+This is the exact DI-1 activation scope named `DI-1/COMMERCIAL_PAYMENT`.
 
 ## 14. DI-1 — provider/account capability identity
 
 **Reviewed:** YES  
+**Activated scope identifier:** `DI-1/COMMERCIAL_PAYMENT`  
 **Activated in R17 commercial/payment scope:** YES
 
-R17 consumes DI-1 for commercial/payment execution because exact provider/account identity is part of the Offer Version / Grant authority and unauthorized substitution would change the consequential execution path.
+R17 consumes `DI-1/COMMERCIAL_PAYMENT` for commercial/payment execution because exact provider/account identity is part of the Offer Version / Grant authority and unauthorized substitution would change the consequential execution path.
 
 At minimum:
 
@@ -197,7 +198,7 @@ At minimum:
 - R19 lineage must preserve this identity;
 - R20 must revalidate the exact bound provider/account where current eligibility matters.
 
-This DI-1 activation is scope-specific to R17's commercial/payment path. It does not imply DI-1 is globally activated for unrelated nodes/scopes.
+`DI-1/COMMERCIAL_PAYMENT` is scope-specific to R17's commercial/payment path. It does not imply DI-1 is globally activated for unrelated nodes/scopes.
 
 ## 15. DI-2 — outbound payment reversal execution
 
@@ -259,7 +260,7 @@ The available record confirms R17 migration scope includes, at minimum:
 
 - canonical immutable Offer Version schema;
 - exact binding from Offer Version to Asset/Opportunity/Bet/Evaluation Cycle/Product/production Artifact/Release/Monetization Plan;
-- exact provider/account commercial binding;
+- exact provider/account commercial binding under `DI-1/COMMERCIAL_PAYMENT`;
 - currency/price/terms/entitlement/promise capture;
 - checkout/payment configuration identity;
 - Offer Version fingerprint / immutable commercial identity;
@@ -269,7 +270,7 @@ The available record confirms R17 migration scope includes, at minimum:
 - artifact-successor commercial-equivalence adjudication;
 - mid-preparation Offer supersession handling;
 - existing-customer contract/renewal binding to historical governing Offer;
-- provider/account rebinding under DI-1;
+- provider/account rebinding under `DI-1/COMMERCIAL_PAYMENT`;
 - commercial lineage handoff to R19;
 - boundary-time eligibility handoff to R20;
 - semantic audit of every customer-charging path that reads mutable current state instead of exact Offer Version authority.
@@ -288,6 +289,7 @@ Search for patterns including:
 - technical artifact successor automatically inherits prior commercial authority without equivalence proof;
 - material commercial-equivalence conclusion self-certifies instead of using R5 where required;
 - provider/account identity is omitted from Offer/Grant execution scope;
+- a commercial/payment provider-account binding that belongs to `DI-1/COMMERCIAL_PAYMENT` is represented only as unnamed/generic DI-1 scope and loses the exact activation identity;
 - provider/account silently substitutes because the logical capability is equivalent;
 - grant revocation deletes historical evidence that it existed;
 - current Offer pointer rewrites the Offer governing an existing customer contract;
@@ -314,7 +316,7 @@ At minimum, R17 closure must eventually prove:
 - material equivalence conclusions consume R5 where required;
 - mid-preparation supersession preserves `O1` historical execution while blocking stale adoption and requires `O2` to obtain its own authority;
 - current Offer does not silently rewrite existing `O1` customer contracts;
-- DI-1 exact provider/account consistency is enforced in the commercial/payment scope;
+- `DI-1/COMMERCIAL_PAYMENT` exact provider/account consistency is enforced in the commercial/payment scope;
 - R19 can consume the exact immutable commercial segment;
 - R20 separately revalidates current eligibility before consequential commercial boundary/adoption.
 
@@ -330,7 +332,7 @@ R19/R20 interface contracts may be designed in parallel, but R17 must remain the
 
 ### LOCAL CLOSURE
 
-R17 may locally close when immutable Offer Version identity, exact upstream/artifact/commercial bindings, material-change successor semantics, exact charging grants, provider/account scope, technical-successor equivalence handling, mid-preparation supersession, existing-contract behavior, known migrations, audit children, and final sibling sweep are complete.
+R17 may locally close when immutable Offer Version identity, exact upstream/artifact/commercial bindings, material-change successor semantics, exact charging grants, `DI-1/COMMERCIAL_PAYMENT` provider/account scope, technical-successor equivalence handling, mid-preparation supersession, existing-contract behavior, known migrations, audit children, and final sibling sweep are complete.
 
 R19/R20 need not be globally closed for the R17 object model to exist, but commercial E2E certification remains pending until full lineage and boundary-time eligibility compose.
 
@@ -353,6 +355,7 @@ R17 must not:
 - treat technical artifact succession as automatic commercial equivalence;
 - let a material commercial-equivalence conclusion self-certify when R5 applies;
 - silently substitute provider/account identity;
+- collapse `DI-1/COMMERCIAL_PAYMENT` into an unnamed generic DI-1 activation that cannot be referenced precisely across commercial/payment work;
 - erase grant/revocation/supersession history;
 - move existing customer contracts to the current Offer merely because a successor exists;
 - let a historically valid `O1` operation be newly adopted after `O1` loses eligibility;
@@ -382,6 +385,15 @@ Status remains:
 
 This state does **not** block recovery of R18/R19, but it does not restore R17 implementation authority.
 
-## 27. Relay-contamination guard
+## 27. First-pass source-review disposition
+
+| Review item | Disposition |
+|---|---|
+| Core R17 Offer Version authority, commercial-equivalence, supersession, and boundaries | ACCEPTED |
+| DI-1 commercial/payment activation substance | ACCEPTED |
+| Named DI-1 activation scope | PARTIALLY ACCEPTED → RESTORED AS `DI-1/COMMERCIAL_PAYMENT` |
+| False assertions requiring rejection | NONE |
+
+## 28. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
