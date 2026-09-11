@@ -1,7 +1,7 @@
 # WI-R12 — Durable Scheduling and Runnable Obligation Reconstruction
 
 **Normalized node:** R12  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
+**Historical finding:** C1-F7  
 **Severity:** MATERIAL  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
@@ -10,7 +10,16 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R12 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing historical finding IDs, exact enum/storage forms, migration ordinals, fixture labels/order, audit vocabulary, or closure-evidence numbering from compressed summaries.
+This artifact begins R12 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing exact enum/storage forms, migration ordinals, fixture labels/order, audit vocabulary, or closure-evidence numbering from compressed summaries.
+
+The historical finding `C1-F7` was restored from the source-level review.
+
+Two WATCH deterministic identity formats were also restored from a cross-referenced prior remediation summary that predates this recovery pass and stated them explicitly and consistently:
+
+- `watch:{watchId}:check:{canonicalNextCheckAt}`
+- `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`
+
+These keys therefore have stronger support than memory-only reconstruction, but their provenance is explicitly recorded as **cross-referenced prior summary**, not as direct recovery from the R12 confirmation exchange itself.
 
 Where exact historical text is unavailable, the gap is marked explicitly rather than inferred.
 
@@ -75,7 +84,12 @@ The successor need not always be created in the same database transaction as the
 
 Repeated recovery passes must converge on one logical execution occurrence for the same domain obligation/timing identity.
 
-The exact deterministic-key forms, if separately frozen, remain source-unresolved until confirmed.
+For the confirmed WATCH cases, deterministic identities recovered from the cross-referenced prior summary are:
+
+- next WATCH check: `watch:{watchId}:check:{canonicalNextCheckAt}`
+- triggered research cycle: `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`
+
+These exact WATCH forms are normative for the recovered WATCH scope. This does **not** imply that every R12 successor class shares the same key scheme; other deterministic-key formats remain source-unresolved unless separately recovered.
 
 ## 7. WATCH scheduling model
 
@@ -86,7 +100,12 @@ The WATCH domain object remains the authoritative monitoring obligation. R12 mat
 - `CHECK_WATCH`
 - subsequent domain execution such as `RUN_RESEARCH`
 
-The exact names above are recovered from the available record and should be source-checked for full original context during review.
+The confirmed WATCH deterministic identities are:
+
+- `CHECK_WATCH`: `watch:{watchId}:check:{canonicalNextCheckAt}`
+- trigger-cycle `RUN_RESEARCH`: `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`
+
+These identities ensure that repeated recovery passes converge on one logical runnable occurrence for the same WATCH/timing or WATCH/trigger-cycle identity rather than creating duplicates.
 
 A WATCH requirement must not depend on one process retaining a timer in memory. Restart must not erase its next due check.
 
@@ -132,6 +151,18 @@ R13 separately determines whether the responsible executor/runtime is started, p
 Likewise, R13 reporting a healthy executor cannot compensate for missing durable R12 runnable state.
 
 > **Durable work existence and executor health are separate predicates.**
+
+### 10.1 R12 × R13 × R7 outage-recovery compound — ownership unresolved
+
+The source-level review recalled a possible confirmed three-way outage-recovery burst compound spanning R12, R13, and R7, but did **not** certify whether that scenario was owned normatively by R12 or by R13 with an R12 cross-reference.
+
+Accordingly, this artifact does not promote that recollection into R12 authority.
+
+Status:
+
+`SOURCE_OWNERSHIP_UNRESOLVED / HOLD FOR R13 SOURCE REVIEW`
+
+When R13 is reviewed, the recovery process must determine whether the three-way compound belongs there, here, or is a shared cross-node certification scenario. Until then, §11's confirmed R12×R7 backlog rule remains normative and no additional three-way requirement is inferred.
 
 ## 11. R7 boundary — recovery bursts remain governed
 
@@ -224,7 +255,7 @@ The available record confirms R12 migration scope includes, at minimum:
 
 - canonical durable runnable/execution-occurrence schema in the Execution Kernel;
 - process-local timers and interval-based scheduling;
-- WATCH scheduling and check reconstruction;
+- WATCH scheduling and check reconstruction using the confirmed deterministic WATCH identities;
 - research/validation follow-up scheduling;
 - R11 corrective-obligation runnable handoff;
 - R3 freshness re-check scheduling;
@@ -245,6 +276,8 @@ Search for patterns including:
 - durable domain state says work is due but no reconstructible execution occurrence exists;
 - restart drops future/retry/watch work;
 - multiple recovery passes create duplicate runnable occurrences for one obligation;
+- WATCH reconstruction fails to use `watch:{watchId}:check:{canonicalNextCheckAt}` for the canonical next check;
+- WATCH trigger-cycle research reconstruction fails to use `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`;
 - scheduler reconstruction uses current lineage/current object instead of exact originating lineage;
 - overdue work bypasses R7 because it is considered urgent;
 - lease expiry directly retries an external action whose R8 state is uncertain;
@@ -264,7 +297,8 @@ At minimum, R12 closure must eventually prove:
 - due/runnable state is durable or deterministically reconstructible;
 - missing successor occurrences are permanently detectable and reconstructible;
 - repeated recovery converges without duplicate logical executions;
-- WATCH checks survive timer/process loss;
+- WATCH next-check reconstruction uses `watch:{watchId}:check:{canonicalNextCheckAt}`;
+- WATCH trigger-cycle `RUN_RESEARCH` reconstruction uses `watch:{watchId}:trigger-cycle:{cycleId}:RUN_RESEARCH`;
 - overdue recovery does not bypass R7 resource authority;
 - R11 obligations cannot become orphaned between semantic creation and runnable materialization;
 - R13 executor health remains distinct from R12 durable-work existence;
@@ -284,9 +318,11 @@ R12 contract/schema work may proceed once the Execution Kernel scheduling substr
 
 ### LOCAL CLOSURE
 
-R12 may locally close when durable due/runnable representation, deterministic successor reconstruction, WATCH scheduling, downtime recovery, claim/retry semantics, pause/supersession handling, known migrations, audit children, and final sibling sweep are complete.
+R12 may locally close when durable due/runnable representation, deterministic successor reconstruction, confirmed WATCH deterministic identities, WATCH scheduling, downtime recovery, claim/retry semantics, pause/supersession handling, known migrations, audit children, and final sibling sweep are complete.
 
 R13 need not be locally closed for R12 scheduling semantics to exist, but liveness certification remains pending without R13. R7/R8/R20 need not be globally closed for the scheduler schema to exist, but consequential execution certification remains pending until their gates compose correctly.
+
+The ownership of the recalled R12×R13×R7 outage-recovery compound must be resolved during R13 source review before final cross-node certification, but that unresolved ownership does not alter the confirmed R12-local semantics above.
 
 ### E2E
 
@@ -305,22 +341,23 @@ R12 must not:
 - rewrite originating lineage to current state when delayed work wakes up;
 - let stale queued work override pause/supersession/termination;
 - treat durable scheduling as perpetual execution authority;
-- require one giant atomic transaction where permanent detectability plus deterministic reconstruction is sufficient.
+- require one giant atomic transaction where permanent detectability plus deterministic reconstruction is sufficient;
+- infer the ownership or exact normative framing of the unresolved R12×R13×R7 outage-recovery compound before R13 source review.
 
 ## 23. Source gaps and assurance status
 
 The following original R12 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID if separately frozen;
-2. exact runnable/job/claim state enum names and storage representation;
-3. exact deterministic identity/key formats for reconstructed occurrences;
-4. exact migration child labels and ordinals;
-5. exact audit name/classification vocabulary if separately frozen;
-6. exact acceptance-fixture labels/order;
-7. exact closure-evidence list;
-8. exact retry/backoff timing policies if separately frozen;
-9. exact amendment/rejected-alternative wording beyond the recovered invariants;
-10. any original worked examples not represented in the available record.
+1. exact runnable/job/claim state enum names and storage representation;
+2. deterministic identity/key formats for reconstructed occurrences **other than** the two confirmed WATCH keys restored from the cross-referenced prior summary;
+3. exact migration child labels and ordinals;
+4. exact audit name/classification vocabulary if separately frozen;
+5. exact acceptance-fixture labels/order;
+6. exact closure-evidence list;
+7. exact retry/backoff timing policies if separately frozen;
+8. exact amendment/rejected-alternative wording beyond the recovered invariants;
+9. any original worked examples not represented in the available record;
+10. exact ownership/framing of the recalled R12×R13×R7 outage-recovery burst compound, held for R13 source review.
 
 Status remains:
 
@@ -328,6 +365,16 @@ Status remains:
 
 This state does **not** block recovery of R13, but it does not restore R12 implementation authority.
 
-## 24. Relay-contamination guard
+## 24. First-pass source-review disposition
+
+| Review item | Disposition |
+|---|---|
+| Core R12 mission, scheduler/domain separation, Execution Kernel, reconstruction, downtime, boundaries | ACCEPTED |
+| Historical finding | ACCEPTED CORRECTION → `C1-F7` |
+| WATCH deterministic identity formats | PARTIALLY ACCEPTED → RESTORED FROM CROSS-REFERENCED PRIOR SUMMARY |
+| R12×R13×R7 outage-recovery compound ownership | UNRESOLVED → HOLD FOR R13 SOURCE REVIEW |
+| False assertions requiring rejection | NONE |
+
+## 25. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
