@@ -4,13 +4,15 @@
 **Historical finding:** C1-F5  
 **Severity:** MATERIAL  
 **Contract state:** CONFIRMED  
-**Artifact fidelity state:** RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION  
+**Artifact fidelity state:** RECOVERED CANDIDATE / AMENDED AFTER FAILED FIDELITY REVIEW / PENDING RE-VERIFICATION  
 **Implementation:** NOT STARTED  
 **Closed:** NO
 
 ## Recovery provenance
 
 This artifact is reconstructed from the WI-R3 adversarial-confirmation conversation record. It is not reconstructed from the compressed v1.0 remediation register and is not a fresh re-derivation from current code.
+
+The first committed R3 recovery candidate preserved the correct migration matrix, temporal vocabulary, Design Input dispositions, and compound structure, but failed fidelity verification because it generalized away one load-bearing acceptance criterion and the concrete examples that made domain-aware freshness testable. Specifically, it omitted the confirmed assertion that **STALE evidence cannot yield `BUILD_READY` for a factor whose current state is required**, and it dropped the concrete domain-policy examples centered on 2023 pricing evidence, historical outage evidence, and current reliability. This amended version preserves that failed first recovery in Git history rather than rewriting it away.
 
 The recovered confirmation record preserves the exact R3 migration labels as:
 
@@ -25,7 +27,7 @@ The recovered confirmation record preserves the exact R3 migration labels as:
 - R3-M9 — Shared Evidence Consumer Audit
 - R3-M10 — UI/reporting surfaces
 
-This file remains **not `FIDELITY_VERIFIED`** until an independent reviewer compares the committed artifact against the original R3 confirmation exchange, including migration assignments, temporal vocabulary, acceptance fixtures, compound gates, and closure-evidence requirements.
+This file remains **not `FIDELITY_VERIFIED`** until an independent reviewer compares the amended artifact against the original R3 confirmation exchange, including migration assignments, temporal vocabulary, acceptance fixtures, compound gates, and closure-evidence requirements.
 
 ## 1. Frozen root and mission
 
@@ -124,7 +126,13 @@ Examples of different policy needs include:
 - historical existence of an event;
 - durable product facts unlikely to change rapidly.
 
-A fact can be temporally adequate for one question and inadequate for another.
+The confirmed concrete examples remain part of the testable meaning of this rule:
+
+- **A 2023 pricing page must not silently prove 2026 pricing merely because Money Scout fetched it today.**
+- Historical outage evidence may remain valid evidence that an outage occurred, while being insufficient to prove the provider is unreliable now.
+- Current reliability claims require evidence fresh enough for current reliability, not merely evidence that reliability problems existed at some point in the past.
+
+A fact can therefore be temporally adequate for one question and inadequate for another.
 
 > **Evidence freshness is a property of evidence relative to a decision policy, not a property of collection timestamp alone.**
 
@@ -139,6 +147,8 @@ For decisions that require current state, evidence cannot be treated as decision
 - applicability to the current decision is unresolved.
 
 This does not mean every stale or unknown evidence item must be deleted or ignored. It means the item cannot carry current-condition authority it does not actually support.
+
+**Load-bearing eligibility rule:** STALE evidence cannot yield `BUILD_READY` for a factor whose current state is required. This is a direct acceptance condition on the validation engine, not merely an illustrative consequence of the general fail-closed principle.
 
 ## 6. Manual Evidence dates remain semantically distinct
 
@@ -235,7 +245,7 @@ Migrate factor assessment so any claim requiring current/recent evidence consume
 
 ### R3-M5 — Validation engine
 
-Migrate validation-engine decision logic so stale/unknown temporal applicability cannot become decision-sufficient for current-condition conclusions, while preserving evidence that remains valid for historical/non-current uses.
+Migrate validation-engine decision logic so stale/unknown temporal applicability cannot become decision-sufficient for current-condition conclusions, while preserving evidence that remains valid for historical/non-current uses. For a factor whose current state is required, STALE evidence must not yield `BUILD_READY`.
 
 ### R3-M6 — Manual Evidence UI/schema/API
 
@@ -276,7 +286,8 @@ The sibling sweep must search for every surface that:
 - treats one freshness result as reusable across unrelated consumers/policies;
 - uses stale/unknown evidence for current-condition conclusions;
 - reconstructs evidence under the current Evaluation Cycle;
-- renders evidence as current/fresh without policy support.
+- renders evidence as current/fresh without policy support;
+- allows STALE evidence to contribute to `BUILD_READY` for a factor whose current state is required.
 
 `AUDITED` is not `FIXED`. A later discovered concrete instance remains PERSISTING scope until repaired.
 
@@ -316,55 +327,73 @@ Source exposes an authoritative update timestamp compatible with the freshness p
 
 Expected: freshness may be evaluated from that source timestamp, with `temporal_basis` showing why.
 
-### D. Policy-specific reuse
+### D. Domain-aware policy examples
+
+The same temporal evidence rules must behave differently according to the actual claim being evaluated.
+
+Required examples:
+
+- a 2023 pricing page fetched in 2026 must not prove 2026 pricing;
+- historical outage evidence may prove an outage occurred without proving current unreliability;
+- a current reliability factor requires evidence fresh enough for current reliability, not merely evidence that reliability problems occurred historically.
+
+Expected: source temporal facts remain unchanged while policy-relative eligibility differs by decision use.
+
+### E. `BUILD_READY` confidence/eligibility gate
+
+A factor requires current state. Its available supporting evidence is `STALE` under the applicable freshness policy.
+
+Expected: **STALE evidence cannot yield `BUILD_READY` for that factor.** Overall confidence or other non-recency signals may not bypass the recency requirement. This fixture must fail if the validation engine reaches `BUILD_READY` while the current-state factor is supported only by stale evidence.
+
+### F. Policy-specific reuse
 
 Same evidence is fresh enough for a historical/slow-changing decision but not for a fast-changing current-condition decision.
 
 Expected: source temporal facts remain the same; policy-relative freshness results differ without rewriting evidence history.
 
-### E. Manual evidence unknown dates
+### G. Manual evidence unknown dates
 
 User manually enters evidence and knows when it was collected but not when the source was published/updated.
 
 Expected: collection time is stored; source dates remain unknown; UI/API do not synthesize source dates.
 
-### F. Legacy evidence migration
+### H. Legacy evidence migration
 
 Legacy row contains only ingestion/collection time.
 
 Expected: migration preserves that fact as collection/legacy temporal information and does not manufacture source publication/update timestamps.
 
-### G. Multi-Opportunity revalidation
+### I. Multi-Opportunity revalidation
 
 One evidence object is shared by two Opportunities or decision consumers with different freshness policies.
 
 Expected: each consumer evaluates freshness for its own policy/use; one fresh result does not globally stamp the evidence fresh for both.
 
-### H. R3×R4 lineage/freshness separation
+### J. R3×R4 lineage/freshness separation
 
 Evidence E belongs to Cycle A. Cycle B becomes current later.
 
 Expected: E remains bound to A. Any use under B requires legitimate lineage handling under R4 and independent freshness evaluation; current-cycle substitution is forbidden.
 
-### I. R3×R20 stale-evidence authority test
+### K. R3×R20 stale-evidence authority test
 
 A consequential boundary requires current evidence. The evidence item was recently collected but source update time is stale or unknown under the applicable policy.
 
 Expected: R3 predicate is not current-safe; R20 blocks rather than treating recent collection as sufficient authority.
 
-### J. R3×R4×R20 coupled test
+### L. R3×R4×R20 coupled test
 
 Evidence was collected recently under Cycle A, source temporal applicability is stale/unknown, and Cycle B is now current.
 
 Expected: action must fail if either stale/unknown freshness is laundered into “fresh” or Cycle A evidence is rebound to B. Passing only one half is insufficient.
 
-### K. Policy-change re-evaluation
+### M. Policy-change re-evaluation
 
 Existing immutable source temporal facts remain the same while freshness policy changes.
 
 Expected: new freshness evaluation may differ, but original source timing/provenance is not rewritten.
 
-### L. UI/reporting honesty
+### N. UI/reporting honesty
 
 Evidence with recent collection but unknown/stale source timing is displayed.
 
@@ -389,6 +418,7 @@ This is a resource-governance composition, not a transfer of R3 scope into R7.
 - `freshness_evaluated_at` ≠ source update time.
 - `freshness_policy` is decision/domain-specific, not one global TTL.
 - evidence can be historically valid while stale for a current-condition decision.
+- STALE current-state evidence ≠ `BUILD_READY` eligibility.
 - exact Evaluation Cycle lineage (R4) ≠ freshness (R3).
 - freshness predicate (R3) ≠ final authority (R20).
 - safety-required freshness work still consumes governed resources (R7) where scarce.
@@ -427,6 +457,8 @@ R3 local closure requires:
 - manual evidence date semantics migrated;
 - existing evidence migration complete;
 - shared-evidence consumer audit complete and all discovered defects repaired;
+- domain-aware policy behavior verified with concrete examples;
+- `BUILD_READY` freshness/eligibility gate verified;
 - multi-consumer policy-relative freshness behavior verified;
 - semantic sibling sweep empty;
 - independent material closure review.
@@ -460,30 +492,32 @@ Requires at minimum:
 11. `temporal_basis` semantics PASS;
 12. unknown-source-time-not-now fixture PASS;
 13. recently-collected-stale-source fixture PASS;
-14. manual evidence date distinction PASS;
-15. policy-specific freshness reuse PASS;
-16. multi-Opportunity revalidation PASS;
-17. R3-M1 Evidence database schema PASS;
-18. R3-M2 Validation evidence collector output schema PASS;
-19. R3-M3 Validation evidence persistence route PASS;
-20. R3-M4 Factor assessment worker PASS;
-21. R3-M5 Validation engine PASS;
-22. R3-M6 Manual Evidence UI/schema/API PASS;
-23. R3-M7 Evaluation-cycle evidence snapshot consumers PASS;
-24. R3-M8 Existing evidence migration PASS;
-25. R3-M9 Shared Evidence Consumer Audit COMPLETE;
-26. every R3-M11+ defect child discovered by the audit CLOSED;
-27. R3-M10 UI/reporting surfaces PASS;
-28. final repeated semantic sibling sweep empty;
-29. R3×R4 exact-lineage/freshness separation PASS;
-30. R3×R20 stale-evidence authority fixture PASS;
-31. R3×R4×R20 coupled fixture PASS;
-32. freshness-policy-change re-evaluation without source-history rewrite PASS;
-33. R7 resource governance for any scarce freshness-revalidation burst PASS;
-34. DI registry reviewed through DI-2 with scope-correct dispositions;
-35. DI-1 not implicitly activated by temporal provider provenance alone;
-36. DI-2 not activated unless a concrete child genuinely introduces reversal execution;
-37. materially independent cross-model/provider confirmation.
+14. domain-aware policy examples PASS, including the 2023-pricing-vs-2026-pricing case;
+15. `BUILD_READY` confidence/eligibility fixture PASS, proving STALE evidence cannot yield `BUILD_READY` for a current-state factor;
+16. manual evidence date distinction PASS;
+17. policy-specific freshness reuse PASS;
+18. multi-Opportunity revalidation PASS;
+19. R3-M1 Evidence database schema PASS;
+20. R3-M2 Validation evidence collector output schema PASS;
+21. R3-M3 Validation evidence persistence route PASS;
+22. R3-M4 Factor assessment worker PASS;
+23. R3-M5 Validation engine PASS;
+24. R3-M6 Manual Evidence UI/schema/API PASS;
+25. R3-M7 Evaluation-cycle evidence snapshot consumers PASS;
+26. R3-M8 Existing evidence migration PASS;
+27. R3-M9 Shared Evidence Consumer Audit COMPLETE;
+28. every R3-M11+ defect child discovered by the audit CLOSED;
+29. R3-M10 UI/reporting surfaces PASS;
+30. final repeated semantic sibling sweep empty;
+31. R3×R4 exact-lineage/freshness separation PASS;
+32. R3×R20 stale-evidence authority fixture PASS;
+33. R3×R4×R20 coupled fixture PASS;
+34. freshness-policy-change re-evaluation without source-history rewrite PASS;
+35. R7 resource governance for any scarce freshness-revalidation burst PASS;
+36. DI registry reviewed through DI-2 with scope-correct dispositions;
+37. DI-1 not implicitly activated by temporal provider provenance alone;
+38. DI-2 not activated unless a concrete child genuinely introduces reversal execution;
+39. materially independent cross-model/provider confirmation.
 
 ## 20. Anti-cheat closure rule
 
@@ -494,7 +528,8 @@ The following does **not** close R3:
 3. declare evidence fresh if age is below a universal threshold;
 4. leave source publication/update times unknown or discarded;
 5. let current Evaluation Cycle consumers reuse the evidence anyway;
-6. label the UI evidence “fresh.”
+6. allow a current-state factor to reach `BUILD_READY` because overall confidence is high while its evidence is stale;
+7. label the UI evidence “fresh.”
 
 That implementation reproduces C1-F5 because it confuses retrieval recency with source recency and ignores decision-specific temporal applicability.
 
@@ -509,6 +544,8 @@ Before marking this artifact `FIDELITY_VERIFIED`, compare it line-by-line agains
 - the rule that unknown publication/update timing remains unknown and collection time never substitutes;
 - manual Evidence date distinctions;
 - the exact freshness-policy/status semantics;
+- the confirmed concrete domain-policy examples, including 2023 pricing vs 2026 pricing;
+- the explicit rule and fixture that STALE evidence cannot yield `BUILD_READY` for a factor whose current state is required;
 - R3-M9 Shared Evidence Consumer Audit and the rule that defects become R3-M11+ rather than closing with the audit;
 - R3×R4, R3×R20, and R3×R4×R20 compound fixtures;
 - multi-Opportunity freshness revalidation;
@@ -517,4 +554,4 @@ Before marking this artifact `FIDELITY_VERIFIED`, compare it line-by-line agains
 - closure-evidence completeness;
 - no invented migration surface or new authority beyond what was confirmed.
 
-Until that independent comparison passes, this artifact remains **RECOVERED CANDIDATE / PENDING ADVERSARIAL FIDELITY VERIFICATION**.
+Until that independent comparison passes, this artifact remains **RECOVERED CANDIDATE / AMENDED AFTER FAILED FIDELITY REVIEW / PENDING RE-VERIFICATION**.
