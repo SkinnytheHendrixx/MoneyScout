@@ -13,6 +13,18 @@ A direct verification pass of the committed remediation register found two mater
 
 These remain different defect classes. The first was a fabricated confirmation. The second is incomplete artifact fidelity.
 
+## Authoritative recovery source
+
+For R1–R17, R19, and R20, the authoritative source of record for reconstruction is the **actual adversarial-confirmation conversation record that produced those contracts**, including each draft, objection, amendment, rejected alternative, and final confirmation.
+
+The compressed v1.0 register is not an authoritative source for reconstructing omitted normative content. Live repository code may be used to verify cited defect surfaces or identify later implementation drift, but it must not be used to silently re-derive or replace obligations that were already resolved in the confirmed conversation.
+
+If the conversation record does not support an exact obligation, the recovery author must not invent one. The affected artifact remains `FIDELITY_SOURCE_INCOMPLETE` for that point until the source is recovered or the uncertainty is explicitly adjudicated under the Convergence Protocol.
+
+The owned reconstruction sequence is maintained in:
+
+- [`remediation-contracts/RECOVERY_PLAN.md`](remediation-contracts/RECOVERY_PLAN.md)
+
 ## R18 correction history
 
 R18 is now genuinely contract-confirmed, but its correction history must remain visible:
@@ -34,24 +46,38 @@ The false `C5-F3` value is retained only in amendment history as evidence of the
 
 - R1–R20 have now completed contract-level adversarial confirmation.
 - R18 is no longer the open contract gap.
+- R1–R17, R19, and R20 remain `FIDELITY_SOURCE_INCOMPLETE` at the repository-artifact layer until reconstructed from the actual conversation record and independently verified against that record.
 - `docs/CANONICAL_REMEDIATION_REGISTER.md` v1.0 remains historical evidence of the first freeze attempt and **must not be used as settled implementation authority**.
 - Implementation-batch derivation remains paused because full per-node artifact fidelity has not yet been reconstructed and independently verified.
+
+## Ownership of `FIDELITY_SOURCE_INCOMPLETE`
+
+`FIDELITY_SOURCE_INCOMPLETE` is an owned fail-closed state, not a passive documentation label.
+
+- The active canonical-contract recovery role owns reconstruction of the next node in the sequenced recovery queue.
+- A materially independent adversarial reviewer owns fidelity verification; the recovery author cannot self-certify the recovered artifact.
+- A node leaves `FIDELITY_SOURCE_INCOMPLETE` only after its full contract is reconstructed from the actual conversation, committed, fetched back from the repository, compared against the original confirmation sequence, corrected if necessary, and explicitly marked fidelity-verified.
+
+The node-by-node order, recovery method, and global completion gate are defined in `remediation-contracts/RECOVERY_PLAN.md`.
 
 ## Remaining correction requirements
 
 Before remediation implementation authority is restored:
 
 1. Preserve the full confirmed contract for **every R1–R20 node** in an individually addressable in-repo artifact. The compressed v1.0 matrix may not be sole authority.
-2. Rebuild the canonical register as an index/governance layer that incorporates those full contracts by explicit immutable reference.
-3. Preserve amendment provenance distinguishing the original flawed freeze from corrected authority, including the R18 correction sequence above.
-4. Re-run an artifact-vs-confirmed-contract fidelity verification pass against the **actual committed files**.
-5. Restore implementation-authority status only after that verification passes.
+2. Verify each recovered artifact against the actual confirmation conversation before considering its artifact fidelity complete.
+3. Rebuild the canonical register as an index/governance layer that incorporates those verified full contracts by explicit immutable reference.
+4. Preserve amendment provenance distinguishing the original flawed freeze from corrected authority, including the R18 correction sequence above.
+5. Re-run an artifact-vs-confirmed-contract fidelity verification pass against the **actual committed files** and the verified per-node artifacts.
+6. Restore implementation-authority status only after that verification passes.
 
 ## Fidelity constraint on reconstruction
 
-Do not reconstruct missing full contracts from the compressed v1.0 register and call them faithful. The source for each per-node artifact must be the actual confirmed contract record or other evidence sufficient to preserve every normative obligation without paraphrase drift.
+Do not reconstruct missing full contracts from the compressed v1.0 register and call them faithful. The source for each per-node artifact is the actual confirmed conversation record or other evidence explicitly adjudicated as equivalent under the Convergence Protocol.
 
-If an exact full-contract source is unavailable for a node, that node's artifact must remain explicitly `FIDELITY_SOURCE_INCOMPLETE` until the source is recovered or independently reconstructed and verified under the Convergence Protocol.
+Do not independently regenerate a replacement architecture from current code and call it the recovered contract. Current code is evidence of defect surfaces, not a substitute for the specific resolutions already reached through adversarial confirmation.
+
+If an exact full-contract source is unavailable for a node or point, that artifact remains explicitly `FIDELITY_SOURCE_INCOMPLETE` until the source is recovered or independently reconstructed and verified under the Convergence Protocol.
 
 ## Provenance rule
 
