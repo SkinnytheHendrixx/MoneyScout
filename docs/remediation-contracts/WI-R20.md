@@ -27,6 +27,8 @@ R20 consumes, where applicable:
 - R19 complete immutable commercial lineage;
 - R11 corrective ownership where a failed eligibility decision requires a durable successor obligation.
 
+The first capstone source-level review restored three material points. First, R20 must consume R18 lifecycle dispositions exactly as R18 defines them rather than reinterpret `DEPRECATED` locally. Second, A0 representability must prove concurrent multiplicity, not merely one exact authority at a time. Third, R20 requires forward engineering governance so future consequential code cannot silently bypass the Boundary Registry and validator path.
+
 Where exact historical migration ordinals, fixture labels/order, boundary-registry field names, audit vocabulary, or closure-evidence numbering are unavailable, the gap is marked rather than inferred.
 
 ## 2. Frozen root and mission
@@ -74,6 +76,8 @@ After an external operation has executed, the result may still require a separat
 > **Boundary crossing and result adoption are separate authority consumptions.**
 
 An operation can remain historically real under R8 while its result is no longer eligible for adoption.
+
+The three-part phase structure is source-confirmed. The exact literal enum strings above remain subject to final source-level/global fidelity confirmation if a richer original source record surfaces; no alternate names are being invented here.
 
 ## 4. Boundary decisions are exact and operation-specific
 
@@ -133,24 +137,34 @@ Recovered families include:
 
 Not every boundary consumes every predicate, but every applicable predicate must be identified explicitly rather than assumed.
 
-## 7. R18 boundary — exact binding must still be valid
+## 7. R18 boundary — consume exact binding disposition without redefining lifecycle policy
 
-R18 supplies the exact capability binding. R20 decides whether that exact binding is still eligible at the consequential boundary.
+R18 supplies the exact capability binding and the operation-specific binding-validation disposition. R20 decides when that R18 decision must be current enough to consume as one predicate in the complete boundary decision. R20 does **not** independently reinterpret raw R18 lifecycle state.
 
-Recovered predispatch R18 outcomes include:
+R18's confirmed disposition family includes, among other states:
 
 - `BINDING_VALID`
-- `EXPIRED`
-- `REVOKED`
-- `QUARANTINED`
-- `RETIRED`
-- `DEPRECATED_DISALLOWED`
-- `DEGRADED_INSUFFICIENT`
+- `BINDING_EXPIRED`
+- `BINDING_REVOKED`
+- `BINDING_QUARANTINED`
+- `BINDING_RETIRED`
+- `BINDING_DEPRECATED_DISALLOWED`
+- `BINDING_DEGRADED_INSUFFICIENT`
 - `PROVIDER_ACCOUNT_MISMATCH`
 - `VERIFICATION_POLICY_CHANGED_RECHECK_REQUIRED`
 - `BINDING_IDENTITY_UNKNOWN`
 - `BINDING_CONFLICT`
 - `REVALIDATION_UNRESOLVED`
+
+The presence of `BINDING_DEPRECATED_DISALLOWED` does **not** mean R20 treats every `DEPRECATED` binding as disallowed. R18's confirmed lifecycle policy is:
+
+- already-frozen `DEPRECATED` bindings may normally continue by default while migration/review debt is recorded;
+- new selection is disallowed by default;
+- an explicit stronger R18 policy may restrict continuation of an already-frozen deprecated binding, in which case R18 may produce `BINDING_DEPRECATED_DISALLOWED`.
+
+> **R20 consumes R18's exact operation-specific disposition. It must not redefine `DEPRECATED` into a stricter or looser policy of its own.**
+
+Accordingly, a deprecated binding that R18 still deems eligible may remain one satisfied predicate at the R20 boundary, subject to every other applicable R20 predicate. If R18 returns a disallowing/invalid/unresolved outcome, R20 must not override it locally merely because the logical capability remains available.
 
 A previously verified binding that is now invalid cannot be replaced silently with another binding merely because the logical capability remains available.
 
@@ -166,7 +180,7 @@ An earlier `AUTOMATION_READY` result is not perpetual authority if:
 - policy changed materially;
 - the bound credential/account was revoked or replaced;
 - required access degraded;
-- a lifecycle state made the capability unusable;
+- a lifecycle state made the capability unusable under the governing R18/R6 policy;
 - exact binding identity became unknown/conflicted.
 
 R20 must consume the exact R6/R18 identity rather than rerouting through “some currently ready capability.”
@@ -264,6 +278,8 @@ Revocation, supersession, quarantine, pause, invalidation, binding loss, authori
 
 By contrast, a return to eligibility requires affirmative proof under the governing validator. The system must not infer restored permission merely because a prior blocker disappeared from one local cache or because time passed.
 
+This principle does not let R20 invent negative semantics that upstream nodes did not establish. For example, R18 `DEPRECATED` is not automatically “bad news = block”; R20 consumes R18's exact disposition under its confirmed lifecycle policy.
+
 ## 16. Boundary-validation decisions are durable and non-reusable by default
 
 A boundary decision must be recorded with enough provenance to establish:
@@ -301,11 +317,13 @@ At minimum, each registered boundary needs enough information to determine:
 
 The exact original registry field names are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` until confirmed.
 
-## 18. A0 representability audit
+## 18. A0 representability and concurrent-multiplicity audit
 
 Before R20 implementation can be considered locally complete, the system must prove that every required predicate can actually be represented and referenced at the boundary.
 
 This is the recovered R20 **A0 representability audit**.
+
+A0 is not satisfied by proving that one exact authority can be represented in isolation. It must also prove the schema can represent **multiple concurrently relevant historical or in-flight authorities and boundary evaluations without identity collision, overwrite, or implicit one-current-authority assumptions**.
 
 The audit must detect cases where current schemas cannot retain the exact identity needed for validation, including but not limited to:
 
@@ -316,9 +334,16 @@ The audit must detect cases where current schemas cannot retain the exact identi
 - missing reservation scope/linkage;
 - missing freshness applicability;
 - missing adoption target identity;
-- missing runtime authority epoch where relevant.
+- missing runtime authority epoch where relevant;
+- one-Asset / one-Offer / one-Bet uniqueness assumptions that prevent two or more distinct R19 Lineage References from being evaluated concurrently;
+- a Boundary Registry or boundary-decision table keyed so coexisting boundary checks overwrite one another;
+- current-pointer fields that cannot coexist with N historical/in-flight authority identities without one becoming implicit authority.
 
-A boundary cannot be certified merely because validator code exists if the schema cannot represent the exact thing being validated.
+R20 A0 must include a multiplicity fixture in which at least two and conceptually arbitrary N distinct authority lineages for the same higher-level scope can have independent boundary decisions in flight or preserved historically at once, and each decision remains bound to the exact authority it evaluated.
+
+> **If the schema cannot represent multiple historically distinct authorities at once, downstream lineage logic cannot make the system historically correct.**
+
+R20 inherits this axiom from the same representability failure class exposed by R9 and R19/M14. A boundary cannot be certified merely because validator code exists if the schema cannot represent the exact thing being validated, or cannot represent several exact things concurrently without collision.
 
 ## 19. A1 full boundary audit
 
@@ -334,6 +359,28 @@ For every boundary, classify whether it:
 `AUDITED ≠ DEFECT FOUND ≠ DEFECT FIXED` remains governing process discipline.
 
 The audit must repeat after each migration wave until a complete semantic sibling sweep returns no new consequential boundary instance.
+
+### 19.1 Forward engineering-governance requirement for future consequential surfaces
+
+A complete A1 audit can only inspect consequential paths that already exist. It cannot runtime-enforce against future code that is never written to invoke R20 at all.
+
+> **Architecture cannot runtime-enforce against code never written to call it.**
+
+R20 therefore requires a forward engineering-governance rule in addition to runtime validators and retrospective audits: every newly introduced or materially changed consequential surface must be classified and registered with the Boundary Registry before it can be considered implementation-complete or production-eligible.
+
+At minimum, the development process must enforce the following semantics:
+
+- new provider/customer dispatch, release, commercial, financial-adoption, headroom-release, lifecycle, handoff, or other consequential surface is reviewed for R20 applicability;
+- if consequential, the surface must declare its boundary class and required predicate set in the Boundary Registry before merge/release;
+- code review must explicitly reject consequential execution paths that bypass registered boundary validation;
+- CI/static analysis/architectural linting or equivalent mechanical checks should enforce registration/invocation wherever the code structure makes that deterministically checkable;
+- tests for new consequential surfaces must prove both denial and allow paths through the registered R20 gate, not merely unit-test a validator in isolation;
+- introducing a new consequence type that cannot be represented by the current registry/schema is an A0/A1 defect requiring governed schema/registry work, not permission to bypass the gate;
+- the repository-wide sibling sweep must be rerun whenever architecture changes create a new class of consequential boundary not previously represented.
+
+This forward rule is distinct from A1. A1 asks whether existing consequential paths are correctly covered. Forward engineering governance prevents newly written paths from silently appearing outside the gate after A1 was last clean.
+
+The exact historical name/mechanical implementation of this governance requirement remains source-unresolved; the requirement itself is normative.
 
 ## 20. Consequential Authority Regression
 
@@ -414,7 +461,7 @@ The available record confirms R20 migration scope includes, at minimum:
 - preflight validation paths;
 - provider/customer dispatch validation;
 - adoption validation paths;
-- R18 exact binding revalidation;
+- exact R18 binding disposition consumption without local lifecycle reinterpretation;
 - R6 readiness revalidation where applicable;
 - R7 reservation/resource authority validation;
 - R3 freshness/current-applicability validation;
@@ -425,8 +472,9 @@ The available record confirms R20 migration scope includes, at minimum:
 - release/deployment/adoption boundaries;
 - financial headroom-release/adoption boundaries where R20 predicates apply;
 - authority-regression detection and R11 handoff;
-- A0 representability audit;
+- A0 exact-identity and concurrent-multiplicity representability audit;
 - A1 complete consequential-boundary audit;
+- forward engineering-governance / required-registration discipline for future consequential surfaces;
 - semantic sibling sweep of all local `isAuthorized`/cached preflight/current-state authorization shortcuts.
 
 Exact migration labels and ordinals remain `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` unless restored in source review.
@@ -440,6 +488,8 @@ Search for patterns including:
 - current/latest authority substituted for the exact bound identity;
 - Offer O2 substituted when O1 becomes ineligible;
 - provider/account B substituted when bound A becomes invalid;
+- R20 interprets raw R18 `DEPRECATED` lifecycle state as disallowed despite R18 returning an eligible operation-specific disposition;
+- R20 overrides an R18 disallowing disposition because the logical capability still exists;
 - stale evidence used for a current-condition boundary;
 - existing reservation treated as sufficient dispatch authority despite policy/lifecycle change;
 - earlier `AUTOMATION_READY` treated as perpetual capability permission;
@@ -450,10 +500,13 @@ Search for patterns including:
 - current eligibility used to repair incomplete R19 lineage;
 - complete R19 lineage treated as perpetual permission;
 - boundary validator exists but exact identity cannot be represented in schema;
+- Boundary Registry/decision schema can represent only one current authority per Asset/Offer/Bet and collisions appear when multiple lineages are evaluated concurrently;
 - R20 failure creates an R11 obligation that then executes consequentially without a fresh boundary decision;
 - negative state is delayed/ignored while positive restoration is inferred without proof;
 - prior `ALLOW` decision reused for a later distinct consequential boundary;
-- later authority backfill retroactively marks an earlier unauthorized effect as legitimate.
+- later authority backfill retroactively marks an earlier unauthorized effect as legitimate;
+- new consequential code path reaches a real external/adoption boundary without being classified/registered in the Boundary Registry;
+- a new consequence class is excluded merely because A1 previously returned clean before that code existed.
 
 Every genuine sibling becomes a durable migration child. Repeat until a complete repository-wide pass returns no new semantic instance.
 
@@ -461,11 +514,12 @@ Every genuine sibling becomes a durable migration child. Repeat until a complete
 
 At minimum, R20 closure must eventually prove:
 
-- `PREFLIGHT`, `BOUNDARY_VALIDATION`, and `ADOPTION_VALIDATION` remain distinct;
+- `PREFLIGHT`, `BOUNDARY_VALIDATION`, and `ADOPTION_VALIDATION` remain distinct as the recovered phase semantics, subject to exact-name confirmation in the Global Fidelity Audit;
 - every consequential boundary has an explicit registered predicate set rather than a generic authorization bit;
 - exact bound lineage/authority is revalidated, never replaced with current state;
 - applicable authority/lifecycle/resource/capability/binding/evidence/freshness predicates are checked at the boundary;
-- R18 exact binding invalidity blocks predispatch action;
+- R20 consumes R18's exact operation-specific binding disposition and does not redefine `DEPRECATED` lifecycle policy;
+- an already-frozen deprecated binding that R18 still permits is not blocked merely because its lifecycle label is `DEPRECATED`, while a R18 `BINDING_DEPRECATED_DISALLOWED` or other invalid/unresolved disposition blocks the applicable predispatch boundary;
 - R6 readiness cannot be consumed after its exact governing conditions are invalid;
 - R7 reservation existence alone does not grant boundary authority;
 - R3 stale/unknown current-condition evidence blocks when current applicability is required;
@@ -473,10 +527,11 @@ At minimum, R20 closure must eventually prove:
 - R19 complete lineage is separate from current eligibility;
 - R14 handoff does not bypass boundary-time validation;
 - R8 external truth survives blocked adoption;
-- bad news blocks immediately while restored good state requires proof;
+- bad news blocks immediately while restored good state requires proof under the governing upstream semantics;
 - boundary decisions are durable, operation-specific, and not perpetually reusable;
-- A0 proves exact predicate identities are representable;
-- A1 inventories every consequential boundary and creates durable migration children for defects;
+- A0 proves exact predicate identities and arbitrary concurrent multiplicity are representable without collision or overwrite;
+- A1 inventories every existing consequential boundary and creates durable migration children for defects;
+- forward engineering governance requires every future consequential surface to be classified/registered and prevents newly written bypass paths from silently escaping R20;
 - `CONSEQUENTIAL_AUTHORITY_REGRESSION` preserves executed history and creates owned remediation;
 - R11 corrective ownership never substitutes for a fresh R20 decision;
 - pre-boundary failure blocks dispatch, post-boundary failure blocks adoption without erasing external history, and post-effect discoveries preserve history while stopping/repairing future authority.
@@ -491,9 +546,9 @@ R20 contract/schema work may proceed once the exact authority identities and sea
 
 ### LOCAL CLOSURE
 
-R20 may locally close when boundary phases, exact operation-specific validators, Boundary Registry, durable decisions, exact-lineage revalidation, A0 representability audit, A1 consequential-boundary audit, authority-regression handling, known migration children, and final sibling sweep are complete.
+R20 may locally close when boundary phases, exact operation-specific validators, Boundary Registry, durable decisions, exact-lineage revalidation, correct upstream-disposition consumption, A0 exact-identity/concurrent-multiplicity representability, A1 consequential-boundary audit, forward engineering-governance controls, authority-regression handling, known migration children, and final sibling sweep are complete.
 
-Primitive existence is not closure. A validator library does not close R20 unless every consequential consumer has migrated or been explicitly audited out.
+Primitive existence is not closure. A validator library does not close R20 unless every consequential consumer has migrated or been explicitly audited out, and the development process prevents future consequential consumers from bypassing registration/gating by default.
 
 ### E2E
 
@@ -514,6 +569,7 @@ R20 is the capstone current-eligibility gate. Its completion does not by itself 
 R20 must not:
 
 - redefine the authority objects owned by R4/R6/R7/R9/R10/R17/R18/R19;
+- reinterpret R18 `DEPRECATED` lifecycle state independently of R18's operation-specific binding disposition;
 - reconstruct exact lineage from current/latest state;
 - treat preflight as permanent dispatch authority;
 - replace boundary-specific predicates with one generic authorization flag;
@@ -526,6 +582,8 @@ R20 must not:
 - infer restored eligibility merely because a negative state disappeared locally;
 - retroactively legitimize prior unauthorized effects with later authority/backfill;
 - use current ineligibility to erase historical economic/external truth;
+- treat a one-current-authority schema as sufficient A0 representability when concurrent authority lineages/evaluations can coexist;
+- treat a clean historical A1 audit as permission for future consequential code to bypass Boundary Registry registration;
 - activate autonomous refund/cancel/void/reversal authority merely by validating that such an action would be desirable.
 
 ## 29. Source gaps and assurance status
@@ -534,14 +592,16 @@ The following original R20 details remain not fully recoverable from the availab
 
 1. exact Boundary Registry schema and field names;
 2. exact boundary-decision schema/storage representation;
-3. exact boundary class names beyond the recovered phase semantics;
-4. exact validator-policy field names/versioning representation;
-5. exact migration child labels and ordinals;
-6. exact audit classification vocabulary if separately frozen;
-7. exact acceptance-fixture labels/order;
-8. exact closure-evidence list;
-9. exact worked scenarios beyond those recoverable above;
-10. exact amendment/rejected-alternative wording beyond the preserved invariants.
+3. exact boundary class names beyond the recovered three-phase semantics;
+4. exact literal enum/string names for the three phases if different from `PREFLIGHT` / `BOUNDARY_VALIDATION` / `ADOPTION_VALIDATION`;
+5. exact validator-policy field names/versioning representation;
+6. exact migration child labels and ordinals;
+7. exact audit classification vocabulary if separately frozen;
+8. exact acceptance-fixture labels/order;
+9. exact closure-evidence list;
+10. exact historical name and mechanical enforcement mechanism of the forward engineering-governance requirement;
+11. exact worked scenarios beyond those recoverable above;
+12. exact amendment/rejected-alternative wording beyond the preserved invariants.
 
 Status remains:
 
@@ -549,6 +609,17 @@ Status remains:
 
 Recovery of R20 completes the node-recovery queue but does **not** restore implementation authority. The Global Fidelity & Cross-Node Audit remains the implementation gate, including substantive source-level rechecks for R4–R6 and normalization/review of R18 under the recovery assurance hierarchy.
 
-## 30. Relay-contamination guard
+## 30. First source-level review disposition
+
+| Review item | Disposition | Recovery action |
+|---|---|---|
+| R18 `DEPRECATED_DISALLOWED` concern | `PARTIALLY ACCEPTED → VERIFIED AGAINST R18 AND CORRECTED` | Direct R18 source check confirmed that `BINDING_DEPRECATED_DISALLOWED` is a valid R18 disposition only when stronger policy disallows continuation; R18 also explicitly permits already-frozen deprecated bindings to continue by default with debt. R20 now consumes R18's exact disposition without redefining deprecation. |
+| A0 concurrent-multiplicity scope | `PARTIALLY ACCEPTED → AMENDED` | Expanded A0 from single-identity representability to concurrent N-authority / N-boundary-decision representability, carrying the R9/R19 schema axiom explicitly. |
+| Forward engineering-governance requirement | `UNRESOLVED → AMENDED AS NORMATIVE REQUIREMENT, EXACT HISTORICAL LABEL SOURCE-UNRESOLVED` | Added mandatory future consequential-surface classification/registration and mechanical/code-review enforcement semantics distinct from A1's retrospective audit. |
+| Three-phase structure | `ACCEPTED` | Structure preserved. Exact literal enum names remain explicitly source-checkable rather than being silently overclaimed. |
+| Remaining capstone content | `ACCEPTED` | No change required from first-pass review. |
+| Rejections | `NONE` | No false asserted contract was retained. |
+
+## 31. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
