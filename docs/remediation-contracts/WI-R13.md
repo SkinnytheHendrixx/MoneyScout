@@ -1,7 +1,7 @@
 # WI-R13 — Executor Liveness and Truthful Health
 
 **Normalized node:** R13  
-**Historical finding:** `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD`  
+**Historical finding:** C2-F5  
 **Severity:** BLOCKER  
 **Contract state:** CONFIRMED  
 **Artifact assurance state:** `RECOVERED TO AVAILABLE RECORD / SOURCE_INCOMPLETE / NON-IMPLEMENTATION AUTHORITY`  
@@ -10,11 +10,11 @@
 
 ## 1. Recovery provenance
 
-This artifact begins R13 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing historical finding IDs, migration ordinals, fixture labels/order, exact timeout thresholds, audit vocabulary, or closure-evidence numbering from compressed summaries.
+This artifact begins R13 recovery from the confirmed material still available in the project record. It preserves only obligations recoverable with high confidence and does not regenerate missing migration ordinals, fixture labels/order, exact timeout thresholds, audit vocabulary, or closure-evidence numbering from compressed summaries.
 
-The unresolved R12 review question is carried forward explicitly rather than silently assigned:
+The historical finding `C2-F5` was restored from the source-level review.
 
-`R12 × R13 × R7 OUTAGE-RECOVERY COMPOUND — SOURCE OWNERSHIP TO BE RESOLVED DURING R13 SOURCE REVIEW`
+The previously open `R12 × R13 × R7` outage-recovery ownership question is also resolved from evidence internal to this recovery process. The R7 recovery artifact already carries the compound normatively, based on directly supplied R7 confirmation material that passed R7 fidelity review. R13 therefore records only its contributing role and cross-references R7 as the owning contract for the three-way certification requirement.
 
 Where exact historical text is unavailable, the gap is marked rather than inferred.
 
@@ -123,24 +123,19 @@ Neither substitutes for the other:
 
 > **Durable work existence and executor health are separate predicates.**
 
-## 10. R12 × R13 × R7 outage-recovery compound — ownership unresolved pending source review
+## 10. R12 × R13 × R7 outage-recovery compound — R7-owned certification
 
-R12's second-pass review carried forward a recalled three-way outage-recovery scenario spanning R12, R13, and R7.
+The ownership question carried forward from R12 is resolved.
 
-The available record supports the substance that:
+The already-reviewed R7 recovery record owns the normative three-way certification requirement:
 
-- downtime can leave many durable obligations overdue;
-- restart can make a backlog runnable together;
-- executor liveness must recover sufficiently to observe/process that backlog;
-- scarce-resource admission still belongs to R7 and backlog urgency must not create emergency resource authority.
+> **R12 × R13 × R7 process-outage burst certification — Durable obligations accumulate while executor/supervisor is unavailable → system recovers → many due jobs become runnable → R12/R13 recover execution correctly → R7 prevents the recovery wave from overcommitting shared resources. R7 is not responsible for durable scheduling/liveness — it governs admission once recovered work becomes executable.**
 
-However, the available recovery record does **not** establish whether the original confirmation assigned this compound normatively to R13, to R12, or to both as a shared certification scenario.
+R13's role in that compound is narrower and specific: after outage/restart, the executor/service path responsible for the recovered backlog must become truthfully observable as healthy/progressing before backlog processing can be trusted. R13 does not own the aggregate resource-admission rule and does not redefine R12 reconstruction semantics.
 
-Status:
+R12 contributes durable backlog reconstruction. R13 contributes truthful executor recovery/liveness. R7 owns the normative three-way certification and aggregate admission constraint.
 
-`SOURCE_OWNERSHIP_UNRESOLVED / MUST RESOLVE IN R13 SOURCE REVIEW`
-
-This artifact therefore preserves the scenario as a source-review checkpoint rather than promoting an ownership claim.
+This closes the prior `SOURCE_OWNERSHIP_UNRESOLVED` state.
 
 ## 11. Generic Execution Kernel health is not enough
 
@@ -194,6 +189,8 @@ A healthy or recovering executor does not gain permission to spend scarce resour
 Every scarce-resource-consuming execution remains subject to R7 admission.
 
 Likewise, R7 denial is not by itself proof the executor is unhealthy when the executor correctly observes and persists the blocked state.
+
+The R7-owned outage-recovery compound in §10 remains the cross-node certification for recovery bursts.
 
 ## 16. Health aggregation must respect expectation class
 
@@ -249,6 +246,7 @@ The available record confirms R13 migration scope includes, at minimum:
 - supervisor health endpoints that can remain green while executors are dead;
 - worker claim/lease/progress instrumentation;
 - runtime replacement readiness consumed by R14;
+- outage/restart executor recovery evidence consumed by the R7-owned R12×R13×R7 certification;
 - semantic audit of every health/readiness surface that currently infers executor health from generic process liveness.
 
 Exact migration labels, ordinals, and original per-surface wording are `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` at this stage.
@@ -263,6 +261,7 @@ Search for patterns including:
 - due work exists but the expected executor never observes it;
 - blocked work is invisible rather than durably recorded;
 - R7 denial is misclassified as executor death despite healthy blocked-state observation;
+- outage recovery makes backlog runnable while required executor remains dead/stalled but system reports recovery healthy;
 - unknown expectation defaults to optional/permissive health;
 - intentionally disabled executor is indistinguishable from failed executor;
 - stale lease/claim remains forever without progress adjudication;
@@ -285,14 +284,14 @@ At minimum, R13 closure must eventually prove:
 - unknown expectation fails conservatively rather than permissively;
 - generic kernel health cannot stand in for every obligation-specific executor;
 - R12 durable-work existence remains distinct from R13 executor health;
+- outage recovery must restore truthful required-executor liveness before recovered backlog processing can be trusted;
+- the R12×R13×R7 compound is cross-referenced as R7-owned rather than duplicated as R13 authority;
 - R14 replacement readiness consumes path-specific R13 evidence rather than process-up status;
 - R8 external execution truth is unchanged by executor death/restart;
 - R7 resource admission remains required during backlog/outage recovery;
 - the four replacement dimensions (runtime/executor/service-path/execution-authority) remain distinguishable.
 
 The exact original fixture labels/order and closure-evidence list remain `SOURCE_NOT_RECOVERABLE_FROM_AVAILABLE_RECORD` until recovered.
-
-The R12×R13×R7 ownership question is an explicit source-review acceptance item and must not disappear during amendment.
 
 ## 22. Start / local closure / E2E dependency result
 
@@ -304,7 +303,7 @@ R13 contract/schema work may proceed once the relevant runtime/executor surfaces
 
 R13 may locally close when executor expectation semantics, durable health evidence, progress-aware stall detection, path-specific aggregation, idle/blocked semantics, known migrations, audit children, and final sibling sweep are complete.
 
-The open ownership classification for the R12×R13×R7 outage-recovery compound does not by itself block R13's core health model, but final cross-node certification must resolve and record the compound's normative ownership.
+The former R12×R13×R7 ownership hold is closed: R7 owns the cross-node certification; R13 must satisfy its liveness contribution and preserve the cross-reference.
 
 ### E2E
 
@@ -323,23 +322,21 @@ R13 must not:
 - transfer runtime/execution authority, which belongs to R14;
 - collapse runtime, executor, service-path, and execution-authority identity into one readiness bit;
 - classify an unknown expected executor as optional merely to preserve a healthy aggregate;
-- silently assign ownership of the unresolved R12×R13×R7 compound before source review.
+- re-own or redefine the R7-owned R12×R13×R7 outage-recovery certification.
 
 ## 24. Source gaps and assurance status
 
 The following original R13 details are not yet recoverable from the available record and are not being invented:
 
-1. exact historical finding ID if separately frozen;
-2. exact health-state transition thresholds/timers;
-3. exact Executor Expectation Registry schema/storage representation;
-4. exact aggregate-health formula if separately frozen;
-5. exact migration child labels and ordinals;
-6. exact audit name/classification vocabulary if separately frozen;
-7. exact acceptance-fixture labels/order;
-8. exact closure-evidence list;
-9. exact amendment/rejected-alternative wording beyond the recovered invariants;
-10. exact normative ownership of the recalled R12×R13×R7 outage-recovery compound;
-11. any original worked examples not represented in the available record.
+1. exact health-state transition thresholds/timers;
+2. exact Executor Expectation Registry schema/storage representation;
+3. exact aggregate-health formula if separately frozen;
+4. exact migration child labels and ordinals;
+5. exact audit name/classification vocabulary if separately frozen;
+6. exact acceptance-fixture labels/order;
+7. exact closure-evidence list;
+8. exact amendment/rejected-alternative wording beyond the recovered invariants;
+9. any original worked examples not represented in the available record.
 
 Status remains:
 
@@ -347,6 +344,15 @@ Status remains:
 
 This state does **not** block recovery of R14, but it does not restore R13 implementation authority.
 
-## 25. Relay-contamination guard
+## 25. First-pass source-review disposition
+
+| Review item | Disposition |
+|---|---|
+| Core R13 mission, health evidence, expectation registry, health states, idle/blocked/stall semantics, boundaries | ACCEPTED |
+| Historical finding | ACCEPTED CORRECTION → `C2-F5` |
+| R12×R13×R7 outage-recovery compound ownership | ACCEPTED CORRECTION → R7-OWNED, R13 CONTRIBUTOR/CROSS-REFERENCE |
+| False assertions requiring rejection | NONE |
+
+## 26. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
