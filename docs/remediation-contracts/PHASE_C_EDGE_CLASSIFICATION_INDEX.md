@@ -1,10 +1,10 @@
 # Phase C Edge Classification Coverage Index
 
-**Status:** ACTIVE / MECHANICALLY RECONCILED AND POINTER-AUDITED THROUGH C-33  
+**Status:** ACTIVE / MECHANICALLY RECONCILED AND POINTER-AUDITED THROUGH C-34  
 **Frozen inventory authority:** `CROSS_REFERENCE_EDGE_INVENTORY.md`  
 **Inventory size:** 163 directed edges  
-**Classified through C-33:** 99  
-**Unclassified after C-33:** 64  
+**Classified through C-34:** 102  
+**Unclassified after C-34:** 61  
 **Implementation authority:** SUSPENDED
 
 ## Purpose
@@ -21,18 +21,18 @@ and independently:
 
 From C-22 forward, a candidate edge may enter a new batch only if this index marks it `U`. After each committed batch, update this file in the same commit or an immediately following reconciliation commit.
 
-## Mechanical checks through C-33
+## Mechanical checks through C-34
 
 - Frozen inventory count: **163**.
-- Batch edge occurrences C-01 through C-33: **99**.
-- Unique classified edges: **99**.
+- Batch edge occurrences C-01 through C-34: **102**.
+- Unique classified edges: **102**.
 - Duplicate classified edges: **0**.
 - Classified edges absent from frozen inventory: **0**.
-- Frozen inventory edges not yet classified: **64**.
-- Section-pointer accuracy: **99 / 99 verified**.
+- Frozen inventory edges not yet classified: **61**.
+- Section-pointer accuracy: **102 / 102 verified**.
 - Section pointers resolving to the wrong edge: **0**.
 
-### Full pointer audit through C-33
+### Full pointer audit through C-34
 
 The original compact-map audit checked every classified pointer through C-22 against the actual committed section heading in `PHASE_C_BATCH_01.md` through `PHASE_C_BATCH_22.md`.
 
@@ -102,10 +102,16 @@ Batch C-33 was then resolved directly against the committed batch file:
 - `C33-02 = R10 → R9`;
 - `C33-03 = R18 → R8`.
 
+Batch C-34 was then resolved directly against the committed batch file:
+
+- `C34-01 = R17 → R9`;
+- `C34-02 = R19 → R9`;
+- `C34-03 = R20 → R8`.
+
 Cumulative result:
 
-- **99 classified pointers checked**;
-- **99 pointers resolve to the exact indexed edge**;
+- **102 classified pointers checked**;
+- **102 pointers resolve to the exact indexed edge**;
 - **0 wrong-section pointers**;
 - **0 missing committed sections**.
 
@@ -143,10 +149,10 @@ Legend:
 | `R14` | `R7=U`; `R8=U`; `R10=C05-02`; `R11=C29-02`; `R12=C27-03`; `R13=C19-02`; `R20=C15-03` |
 | `R15` | `R7=U`; `R8=U`; `R11=C16-03`; `R16=C03-01`; `R19=C10-03`; `R20=C17-03` |
 | `R16` | `R7=U`; `R8=U`; `R11=C18-01`; `R15=C25-03`; `R19=C28-02`; `R20=C12-03` |
-| `R17` | `R4=U`; `R5=C24-02`; `R7=U`; `R8=U`; `R9=U`; `R10=C31-02`; `R15=C29-03`; `R16=C20-01`; `R18=C09-02`; `R19=C03-02`; `R20=C14-02` |
+| `R17` | `R4=U`; `R5=C24-02`; `R7=U`; `R8=U`; `R9=C34-01`; `R10=C31-02`; `R15=C29-03`; `R16=C20-01`; `R18=C09-02`; `R19=C03-02`; `R20=C14-02` |
 | `R18` | `R5=U`; `R6=C32-01`; `R7=U`; `R8=C33-03`; `R11=C25-02`; `R14=C10-01`; `R20=C04-03` |
-| `R19` | `R4=U`; `R7=U`; `R8=U`; `R9=U`; `R10=C32-02`; `R11=C29-01`; `R14=C14-03`; `R15=C30-02`; `R16=C05-03`; `R17=C21-02`; `R18=C26-02`; `R20=C08-03` |
-| `R20` | `R3=U`; `R4=C24-01`; `R6=U`; `R7=U`; `R8=U`; `R9=C25-01`; `R10=C27-01`; `R11=C28-01`; `R14=U`; `R15=C31-03`; `R16=C30-01`; `R17=C03-03`; `R18=C21-01`; `R19=C23-01` |
+| `R19` | `R4=U`; `R7=U`; `R8=U`; `R9=C34-02`; `R10=C32-02`; `R11=C29-01`; `R14=C14-03`; `R15=C30-02`; `R16=C05-03`; `R17=C21-02`; `R18=C26-02`; `R20=C08-03` |
+| `R20` | `R3=U`; `R4=C24-01`; `R6=U`; `R7=U`; `R8=C34-03`; `R9=C25-01`; `R10=C27-01`; `R11=C28-01`; `R14=U`; `R15=C31-03`; `R16=C30-01`; `R17=C03-03`; `R18=C21-01`; `R19=C23-01` |
 
 ## C-22 additions
 
@@ -220,6 +226,12 @@ Legend:
 - `R10 → R9` → `C33-02` / `PHASE_C_BATCH_33.md`.
 - `R18 → R8` → `C33-03` / `PHASE_C_BATCH_33.md`.
 
+## C-34 additions
+
+- `R17 → R9` → `C34-01` / `PHASE_C_BATCH_34.md`.
+- `R19 → R9` → `C34-02` / `PHASE_C_BATCH_34.md`.
+- `R20 → R8` → `C34-03` / `PHASE_C_BATCH_34.md`.
+
 ## Maintenance rule
 
 For every future committed batch:
@@ -231,7 +243,7 @@ For every future committed batch:
 5. **resolve every newly added `Cxx-yy` pointer back to the named committed batch section and verify that section heading classifies the exact same declaring-node → target-node pair;**
 6. fail reconciliation if an edge is duplicated, missing from inventory, mapped twice, counted without a committed section, or points to a committed section for a different edge.
 
-The section-pointer check is logically independent from the count checks. A mapping can preserve 163/99/64 arithmetic while still sending a reviewer to the wrong adjudication text; that state is now a reconciliation failure.
+The section-pointer check is logically independent from the count checks. A mapping can preserve 163/102/61 arithmetic while still sending a reviewer to the wrong adjudication text; that state is now a reconciliation failure.
 
 ## Phase C terminal reconciliation condition
 
