@@ -1,10 +1,10 @@
 # Phase C Edge Classification Coverage Index
 
-**Status:** ACTIVE / MECHANICALLY RECONCILED AND POINTER-AUDITED THROUGH C-25  
+**Status:** ACTIVE / MECHANICALLY RECONCILED AND POINTER-AUDITED THROUGH C-26  
 **Frozen inventory authority:** `CROSS_REFERENCE_EDGE_INVENTORY.md`  
 **Inventory size:** 163 directed edges  
-**Classified through C-25:** 75  
-**Unclassified after C-25:** 88  
+**Classified through C-26:** 78  
+**Unclassified after C-26:** 85  
 **Implementation authority:** SUSPENDED
 
 ## Purpose
@@ -21,18 +21,18 @@ and independently:
 
 From C-22 forward, a candidate edge may enter a new batch only if this index marks it `U`. After each committed batch, update this file in the same commit or an immediately following reconciliation commit.
 
-## Mechanical checks through C-25
+## Mechanical checks through C-26
 
 - Frozen inventory count: **163**.
-- Batch edge occurrences C-01 through C-25: **75**.
-- Unique classified edges: **75**.
+- Batch edge occurrences C-01 through C-26: **78**.
+- Unique classified edges: **78**.
 - Duplicate classified edges: **0**.
 - Classified edges absent from frozen inventory: **0**.
-- Frozen inventory edges not yet classified: **88**.
-- Section-pointer accuracy: **75 / 75 verified**.
+- Frozen inventory edges not yet classified: **85**.
+- Section-pointer accuracy: **78 / 78 verified**.
 - Section pointers resolving to the wrong edge: **0**.
 
-### Full pointer audit through C-25
+### Full pointer audit through C-26
 
 The original compact-map audit checked every classified pointer through C-22 against the actual committed section heading in `PHASE_C_BATCH_01.md` through `PHASE_C_BATCH_22.md`.
 
@@ -54,10 +54,16 @@ Batch C-25 was then resolved directly against the committed batch file:
 - `C25-02 = R18 → R11`;
 - `C25-03 = R16 → R15`.
 
+Batch C-26 was then resolved directly against the committed batch file:
+
+- `C26-01 = R4 → R20`;
+- `C26-02 = R19 → R18`;
+- `C26-03 = R13 → R12`.
+
 Cumulative result:
 
-- **75 classified pointers checked**;
-- **75 pointers resolve to the exact indexed edge**;
+- **78 classified pointers checked**;
+- **78 pointers resolve to the exact indexed edge**;
 - **0 wrong-section pointers**;
 - **0 missing committed sections**.
 
@@ -82,7 +88,7 @@ Legend:
 | `R1` | `R2=U`; `R7=C08-01`; `R8=C17-01`; `R15=C15-01`; `R16=U` |
 | `R2` | `R1=U`; `R4=U`; `R6=U`; `R7=C07-01`; `R11=C17-02`; `R18=C15-02`; `R20=U` |
 | `R3` | `R4=C12-01`; `R5=C01-03`; `R7=C16-01`; `R20=C05-01` |
-| `R4` | `R2=U`; `R3=U`; `R5=U`; `R6=C01-01`; `R9=C06-01`; `R10=C19-03`; `R11=U`; `R17=C22-01`; `R19=C11-01`; `R20=U` |
+| `R4` | `R2=U`; `R3=U`; `R5=U`; `R6=C01-01`; `R9=C06-01`; `R10=C19-03`; `R11=U`; `R17=C22-01`; `R19=C11-01`; `R20=C26-01` |
 | `R5` | `R3=U`; `R4=U`; `R6=C06-02`; `R7=U`; `R11=U`; `R20=C13-01` |
 | `R6` | `R5=C16-02`; `R7=C08-02`; `R18=C02-01`; `R20=C14-01` |
 | `R7` | `R1=U`; `R2=U`; `R3=U`; `R4=U`; `R5=U`; `R6=U`; `R8=C04-01`; `R12=C24-03`; `R13=U`; `R15=C09-03`; `R16=C11-02`; `R20=C13-02` |
@@ -91,13 +97,13 @@ Legend:
 | `R10` | `R4=U`; `R7=U`; `R8=U`; `R9=U`; `R11=C20-03`; `R14=U`; `R17=C07-03`; `R19=C13-03`; `R20=C22-02` |
 | `R11` | `R4=U`; `R5=U`; `R6=U`; `R7=U`; `R8=C21-03`; `R9=U`; `R10=U`; `R12=C04-02`; `R13=U`; `R14=C09-01`; `R20=C10-02` |
 | `R12` | `R3=U`; `R4=U`; `R5=U`; `R6=U`; `R7=U`; `R8=U`; `R11=U`; `R13=C06-03`; `R14=C23-03`; `R20=C18-02` |
-| `R13` | `R7=U`; `R8=U`; `R11=C01-02`; `R12=U`; `R14=U`; `R20=C20-02` |
+| `R13` | `R7=U`; `R8=U`; `R11=C01-02`; `R12=C26-03`; `R14=U`; `R20=C20-02` |
 | `R14` | `R7=U`; `R8=U`; `R10=C05-02`; `R11=U`; `R12=U`; `R13=C19-02`; `R20=C15-03` |
 | `R15` | `R7=U`; `R8=U`; `R11=C16-03`; `R16=C03-01`; `R19=C10-03`; `R20=C17-03` |
 | `R16` | `R7=U`; `R8=U`; `R11=C18-01`; `R15=C25-03`; `R19=U`; `R20=C12-03` |
 | `R17` | `R4=U`; `R5=C24-02`; `R7=U`; `R8=U`; `R9=U`; `R10=U`; `R15=U`; `R16=C20-01`; `R18=C09-02`; `R19=C03-02`; `R20=C14-02` |
 | `R18` | `R5=U`; `R6=U`; `R7=U`; `R8=U`; `R11=C25-02`; `R14=C10-01`; `R20=C04-03` |
-| `R19` | `R4=U`; `R7=U`; `R8=U`; `R9=U`; `R10=U`; `R11=U`; `R14=C14-03`; `R15=U`; `R16=C05-03`; `R17=C21-02`; `R18=U`; `R20=C08-03` |
+| `R19` | `R4=U`; `R7=U`; `R8=U`; `R9=U`; `R10=U`; `R11=U`; `R14=C14-03`; `R15=U`; `R16=C05-03`; `R17=C21-02`; `R18=C26-02`; `R20=C08-03` |
 | `R20` | `R3=U`; `R4=C24-01`; `R6=U`; `R7=U`; `R8=U`; `R9=C25-01`; `R10=U`; `R11=U`; `R14=U`; `R15=U`; `R16=U`; `R17=C03-03`; `R18=C21-01`; `R19=C23-01` |
 
 ## C-22 additions
@@ -124,6 +130,12 @@ Legend:
 - `R18 → R11` → `C25-02` / `PHASE_C_BATCH_25.md`.
 - `R16 → R15` → `C25-03` / `PHASE_C_BATCH_25.md`.
 
+## C-26 additions
+
+- `R4 → R20` → `C26-01` / `PHASE_C_BATCH_26.md`.
+- `R19 → R18` → `C26-02` / `PHASE_C_BATCH_26.md`.
+- `R13 → R12` → `C26-03` / `PHASE_C_BATCH_26.md`.
+
 ## Maintenance rule
 
 For every future committed batch:
@@ -135,7 +147,7 @@ For every future committed batch:
 5. **resolve every newly added `Cxx-yy` pointer back to the named committed batch section and verify that section heading classifies the exact same declaring-node → target-node pair;**
 6. fail reconciliation if an edge is duplicated, missing from inventory, mapped twice, counted without a committed section, or points to a committed section for a different edge.
 
-The section-pointer check is logically independent from the count checks. A mapping can preserve 163/75/88 arithmetic while still sending a reviewer to the wrong adjudication text; that state is a reconciliation failure.
+The section-pointer check is logically independent from the count checks. A mapping can preserve 163/78/85 arithmetic while still sending a reviewer to the wrong adjudication text; that state is a reconciliation failure.
 
 ## Phase C terminal reconciliation condition
 
