@@ -1,6 +1,6 @@
 # Phase C Edge Classification Coverage Index
 
-**Status:** ACTIVE / MECHANICALLY RECONCILED THROUGH C-22  
+**Status:** ACTIVE / MECHANICALLY RECONCILED AND POINTER-AUDITED THROUGH C-22  
 **Frozen inventory authority:** `CROSS_REFERENCE_EDGE_INVENTORY.md`  
 **Inventory size:** 163 directed edges  
 **Classified through C-22:** 66  
@@ -11,9 +11,13 @@
 
 This file is the continuous reconciliation artifact for Phase C. It maps every frozen edge to either a committed classification section or `U` (`UNCLASSIFIED`).
 
-The governing invariant is:
+The governing invariants are:
 
 > `inventory edges = classified edges ∪ unclassified edges`, with the two sets disjoint, every classified edge mapped exactly once, and every batch edge present in the frozen inventory.
+
+and independently:
+
+> **Every `Cxx-yy` pointer must resolve to a committed section whose heading classifies that exact declaring-node → target-node edge. Coverage correctness does not imply pointer correctness.**
 
 From C-22 forward, a candidate edge may enter a new batch only if this index marks it `U`. After each committed batch, update this file in the same commit or an immediately following reconciliation commit.
 
@@ -25,6 +29,27 @@ From C-22 forward, a candidate edge may enter a new batch only if this index mar
 - Duplicate classified edges: **0**.
 - Classified edges absent from frozen inventory: **0**.
 - Frozen inventory edges not yet classified: **97**.
+- Section-pointer accuracy: **66 / 66 verified**.
+- Section pointers resolving to the wrong edge: **0**.
+
+### Full pointer audit through C-22
+
+After the compact representation was introduced, every one of the 66 classified pointers was rechecked against the actual committed section heading in `PHASE_C_BATCH_01.md` through `PHASE_C_BATCH_22.md`.
+
+Result:
+
+- **66 classified pointers checked**;
+- **66 pointers resolve to the exact indexed edge**;
+- **0 wrong-section pointers**;
+- **0 missing committed sections**.
+
+A reported concern that Batch C-20's `C20-01` and `C20-03` pointers were swapped was checked directly against the committed batch. The committed source is:
+
+- `C20-01 = R17 → R16`;
+- `C20-02 = R13 → R20`;
+- `C20-03 = R10 → R11`.
+
+Therefore the compact index's C20 mappings were already correct. The discrepancy came from a secondary record of the C20 ordering rather than the committed batch or the index. This episode is the reason pointer accuracy is now a separate mechanical invariant instead of being inferred from coverage counts.
 
 ## Compact edge map
 
@@ -70,8 +95,11 @@ For every future committed batch:
 1. verify each proposed edge is `U` here before adjudication;
 2. verify both endpoint blob SHAs against the frozen inventory;
 3. after commit, replace each selected `U` with the exact `Cxx-yy` section code;
-4. recompute the six mechanical counts above;
-5. fail reconciliation if an edge is duplicated, missing from inventory, mapped twice, or counted without a committed section.
+4. recompute the coverage counts above;
+5. **resolve every newly added `Cxx-yy` pointer back to the named committed batch section and verify that section heading classifies the exact same declaring-node → target-node pair;**
+6. fail reconciliation if an edge is duplicated, missing from inventory, mapped twice, counted without a committed section, or points to a committed section for a different edge.
+
+The section-pointer check is logically independent from the count checks. A mapping can preserve 163/66/97 arithmetic while still sending a reviewer to the wrong adjudication text; that state is now a reconciliation failure.
 
 ## Phase C terminal reconciliation condition
 
@@ -82,4 +110,5 @@ Phase C edgewise coverage cannot close until this index reaches:
 - 0 unclassified edges;
 - 0 duplicate classifications;
 - 0 batch edges absent from inventory;
-- every classified edge mapped to one committed batch section.
+- every classified edge mapped to one committed batch section;
+- **163 / 163 section pointers independently verified to resolve to the exact edge named by the index.**
