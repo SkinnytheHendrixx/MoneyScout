@@ -21,7 +21,7 @@ This batch therefore tests separately:
 ### R17 governing contract
 
 `docs/remediation-contracts/WI-R17.md`  
-Blob: `d6e3c36dc5f4684df8f54f87ba2dce38413bcd24`
+Blob: `16a234e897fe6e119392707a7187a3232f0fd972`
 
 R17 requires an Offer Version or equivalent immutable commercial-authority object capable of binding, where applicable:
 
@@ -65,7 +65,7 @@ The table is constrained by:
 ### Effective Asset/commercial migration
 
 `lib/db/src/asset-runtime-migrations.ts`  
-Blob: `256d94f5a0017e8012a61bb1a47bd2e6dac7f7d8`
+Blob: `18e736e1bf4e0b20c9a8bc03336c810bdfabf2d4`
 
 The effective runtime migration corroborates the same commercial-activation structure and explicitly creates:
 
