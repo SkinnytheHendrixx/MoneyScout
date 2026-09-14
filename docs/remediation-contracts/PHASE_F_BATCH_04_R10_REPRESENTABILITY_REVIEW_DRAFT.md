@@ -25,7 +25,7 @@ The existence of an exact commit SHA at one stage does not prove that later stag
 ### R10 governing contract
 
 `docs/remediation-contracts/WI-R10.md`  
-Blob: `6bfb0cf631ec51aa92e956fc186cfd2bb22ad83f` [verify exact blob on fetch]
+Blob: `66db007de1ccbf1cdac011ef10cb299e5499aec1`
 
 R10 requires a durable Artifact Version / Verified Artifact Identity capable of proving, where applicable:
 
