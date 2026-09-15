@@ -6,7 +6,7 @@
 
 ## 1. Purpose
 
-This refinement formalizes the anti-double-counting rule established in F7 Batch 01 and sharpened during F7 Batch 02 adversarial review.
+This refinement formalizes the anti-double-counting rule established in F7 Batch 01, sharpened during F7 Batch 02 adversarial review, and further clarified during F7 Batch 03 adjudication.
 
 F7 exists to certify exact persisted composition between independently multiplicative authority/history surfaces. It must not simply renumber endpoint defects.
 
@@ -37,6 +37,7 @@ Examples already adjudicated:
 
 - F06-02: execution ↔ exact R18 binding. This is the entire content of `EXECUTION_CAPABILITY_BINDING_ATTACHMENT`; draft F07-02 was withdrawn as duplicate.
 - F05-03: CUSTOMER_CHARGING Grant ↔ exact Offer Version. A compliant Grant is, by definition, an execution grant bound to one exact Offer Version. A separate F7 count would duplicate F05-03.
+- F04-02: exact QA-bound Artifact ↔ exact Release execution. This is the entire content of `QA_RELEASE_EXACT_ARTIFACT_BINDING`; Batch 03 therefore does not recount that relationship.
 
 **Composite-ingredient relationship:** the relationship is one field or dimension among several inside a broader composite object. The composite object may otherwise be implemented correctly while this one embedded identity is populated from the wrong current/historical object.
 
@@ -47,6 +48,21 @@ Such relationships can earn independent F7 findings.
 Even where a scalar endpoint attachment finding exists, an independent F7 finding may still be required if the actual governing relationship is one-to-many or many-to-many.
 
 Positive control: F07-06 survives F06-02 because a scalar `bindingId` could satisfy one-binding attachment while still being incapable of representing multiple simultaneous bindings for one execution and preventing cross-execution set mixing.
+
+### Test D — necessary precondition versus sufficient precondition
+
+An endpoint audit may correctly state that some downstream surface is a **consequence** of a missing upstream object and therefore should not be separately counted in the individual-surface batch. That statement does **not** automatically settle F7.
+
+Distinguish:
+
+- **Necessary precondition:** endpoint B cannot be wired correctly until endpoint A's canonical object exists.
+- **Sufficient precondition:** once endpoint A is fixed, endpoint B's reference to the exact historical instance is automatically correct with no additional independent wiring invariant.
+
+Only the second defeats an F7 count.
+
+Therefore earlier wording such as “Asset adoption is an acceptance consequence of the missing Artifact Version object” means Artifact Version identity is a prerequisite for correct adoption. It does not prove that a future Asset/adoption record cannot still point to the wrong Artifact Version through current/latest or shared-parent lookup.
+
+This test must be applied whenever an earlier endpoint certification used language such as `consequence`, `downstream consequence`, `acceptance consequence`, or equivalent. Such language governs endpoint finding calibration, not automatically cross-surface F7 calibration.
 
 ## 3. Phase-C empirical precedent for composite ingredients
 
@@ -107,14 +123,15 @@ Every candidate must state:
 2. required A1↔B1 / A2↔B2 or set-membership fixture;
 3. whether the relationship is constitutive purpose or composite ingredient;
 4. the endpoint-complete counterfactual;
-5. any independent current/latest/shared-parent/query-order cross-wire mechanism;
-6. arbitrary-N/restart-replay requirement;
-7. whether it survives as an F7 finding, is withdrawn as duplicate, or remains unresolved;
-8. the existing endpoint findings that remain root-cause remediation scope.
+5. whether any earlier “consequence” language establishes only a necessary precondition or actually a sufficient precondition;
+6. any independent current/latest/shared-parent/query-order cross-wire mechanism;
+7. arbitrary-N/restart-replay requirement;
+8. whether it survives as an F7 finding, is withdrawn as duplicate, or remains unresolved;
+9. the existing endpoint findings that remain root-cause remediation scope.
 
 ## 7. Governance
 
-This refinement governs all F7 batches after Batch 01 and must be applied retroactively when a later review reveals that an earlier F7 candidate was double-counted.
+This refinement governs all F7 batches after Batch 01 and must be applied retroactively when a later review reveals that an earlier F7 candidate was double-counted or wrongly excluded because endpoint “consequence” language was mistaken for a sufficient cross-reference guarantee.
 
 It does not amend endpoint semantics. It governs Phase-F representability finding calibration only.
 
