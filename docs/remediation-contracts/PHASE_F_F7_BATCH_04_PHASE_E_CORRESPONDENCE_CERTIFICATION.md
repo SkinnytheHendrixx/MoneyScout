@@ -118,6 +118,19 @@ However it does **not** declare canonical fields for:
 
 This is supporting evidence for F07-16/F07-17 and does not create a surprise standalone R15 endpoint finding in this batch.
 
+### Relational-anchor limitation
+
+Direct adversarial verification additionally confirmed that `payment_provider_events.activationId` is the table's only declared relational anchor into the broader commercial-authority model. That foreign key points to `commercial_activations`.
+
+This matters because the same `commercial_activations` surface is already independently certified as structurally inadequate for exact historical commercial authority:
+
+- F01-01 / F01-02: commercial-lineage cardinality and identity representation;
+- F05-01 / F05-02: Offer Version identity and cardinality.
+
+Accordingly, R15-like provider events do not merely lack exact R7/R8/account/R16 fields in isolation. Their one existing commercial relational anchor transitively lands on a one-per-Asset mutable activation surface that cannot itself serve as exact immutable Offer/lineage authority.
+
+This is **reinforcing evidence only** for F07-16/F07-17. It does not create another finding or change their classifications.
+
 ### Current ingestion worker
 
 `artifacts/api-server/src/lib/commercial-activation-worker.ts`  
