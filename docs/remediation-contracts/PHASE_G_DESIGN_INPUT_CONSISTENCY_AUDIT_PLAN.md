@@ -84,6 +84,14 @@ Phase G must therefore distinguish:
 
 Only the third activates DI-2 as execution authority.
 
+### DI-1 × DI-2 dispatch-boundary composition
+
+Where DI-2 is active because Money Scout autonomously dispatches a refund/cancel/void/reversal, that same consequential provider call must independently satisfy DI-1 for the **exact provider/account identity actually targeted by the dispatch** wherever provider/account plurality is material.
+
+DI-2 answers whether the system has authority to perform the reversal action. DI-1 answers whether the action is bound to the correct exact provider/account identity. One does not imply the other.
+
+Therefore a reversal can be correctly authorized under DI-2 and still fail Phase G if it is dispatched against a different current/default provider/account than the one whose reversal eligibility was evaluated.
+
 ## 4. Required corpus inventory
 
 Before any Phase-G consistency judgment is final, derive a Design Input inventory for **all R1–R20** from their current committed recovered contracts.
@@ -209,10 +217,14 @@ R12 scheduling of a reversal-related obligation does not by itself activate DI-2
 
 The exact node/scope that autonomously calls the provider to refund/cancel/void/reverse **does activate DI-2** and must carry the corresponding exact authority/disposition.
 
+At that external dispatch boundary, Phase G must also independently verify the DI-1 provider/account binding for the exact target of the reversal call. DI-2 authority cannot substitute for DI-1 target identity, and DI-1 identity cannot substitute for DI-2 reversal authority.
+
 Phase G must detect both false positives and false negatives:
 
 - over-broad activation because reversal history exists;
-- missing activation because actual autonomous reversal dispatch exists under generic payment/external-action language.
+- missing activation because actual autonomous reversal dispatch exists under generic payment/external-action language;
+- correctly evaluated reversal eligibility later consumed against a different current/default provider/account;
+- DI-2-correct dispatch authority combined with DI-1-incorrect provider/account targeting.
 
 ## 8. Cross-node tests
 
@@ -278,6 +290,18 @@ A node explicitly marked NOT ACTIVATED is later cited as if it had positively gr
 
 Expected: FAIL as authority laundering / disposition mismatch.
 
+### G-A11 — DI-2 eligibility-to-dispatch scope drift
+
+At T1, reversal eligibility/authority is correctly evaluated for exact scope and provider/account identity A1. At T2, the outbound refund/cancel/void/reversal dispatch is executed against whichever scope/provider/account is current/default, such as A2, rather than the exact A1 that was evaluated.
+
+Expected: FAIL as `DI_IDENTITY_SEMANTIC_DRIFT`. A correct earlier eligibility decision does not authorize consumption against a materially different later identity.
+
+### G-A12 — DI-1 × DI-2 dispatch-boundary mismatch
+
+A reversal dispatch is correctly authorized under DI-2, but the actual external provider call targets the wrong provider/account identity under DI-1; or the exact provider/account identity is correct under DI-1 but no valid DI-2 reversal authority exists for that action.
+
+Expected: FAIL. The first direction is `DI_IDENTITY_SEMANTIC_DRIFT`; the second is `DI_ACTIVATION_MISCLASSIFIED` and/or `DI_OWNERSHIP_MISATTRIBUTION`. Both Design Inputs must independently hold at the exact outbound reversal boundary.
+
 ## 9. Batch sequence
 
 ### G0 — corpus Design Input inventory
@@ -296,11 +320,11 @@ Audit `R6/R7/R8/R17/R18/R19/R20` as one scope-preserving chain, including `DI-1/
 
 ### G3 — DI-2 node-by-node consistency
 
-Audit every node's DI-2 disposition and distinguish evidence/reconciliation/scheduling/eligibility from actual external reversal dispatch.
+Audit every node's DI-2 disposition and distinguish evidence/reconciliation/scheduling/eligibility from actual external reversal dispatch. For every DI-2-active dispatch scope, also record the exact DI-1 provider/account identity required at that dispatch boundary.
 
 ### G4 — cross-node adversarial scope attacks
 
-Run G-A1 through G-A10 against all active/conditional scopes and any source-unresolved disposition.
+Run G-A1 through G-A12 against all active/conditional scopes and any source-unresolved disposition.
 
 ### G5 — final Design Input consistency matrix and synthesis
 
@@ -311,6 +335,7 @@ Produce canonical Phase-G matrix and closure certification containing:
 - named-scope stability result;
 - DI-1 compound result;
 - DI-2 dispatch-boundary result;
+- DI-1 × DI-2 dispatch-boundary composition result;
 - unresolved source items with explicit resolution triggers;
 - invalidation map.
 
@@ -324,7 +349,8 @@ For every final disposition:
 4. distinguish exact frozen naming from semantic-only recovery;
 5. if implementation behavior is needed to decide whether DI-2 actually dispatches externally, inspect the exact worker/adapter/provider call path rather than inferring from labels;
 6. distinguish database-enforced, application-enforced, and prose-only behavior where implementation evidence becomes relevant;
-7. never infer `NOT ACTIVATED` from silence.
+7. never infer `NOT ACTIVATED` from silence;
+8. where DI-2 activation is established, trace eligibility/authority identity through the actual T1→T2 dispatch boundary and verify that the consumed provider/account target remains the exact DI-1 identity evaluated.
 
 A node may be semantically consistent while exact historical wording remains source-unresolved. Record that distinction rather than forcing one classification to cover both.
 
@@ -342,6 +368,8 @@ Tests for finding independence:
 4. Would one correction necessarily and completely satisfy the other?
 
 If correction of A necessarily closes B under the same invariant, retain B as supporting scope rather than a second primary finding.
+
+The DI-1 × DI-2 dispatch composition does not automatically create two findings for one bad call. Count separately only where provider/account identity correctness and reversal-authority correctness have independently repairable acceptance criteria; otherwise preserve one as supporting scope under the other.
 
 ## 12. Source-gap handling
 
@@ -368,7 +396,8 @@ At minimum:
 
 - R6/R7/R8 changes invalidate DI-1 provider/account chain checks;
 - R17/R18/R19/R20 changes invalidate `DI-1/COMMERCIAL_PAYMENT` and commercial authority propagation checks;
-- any change to actual refund/cancel/void/reversal dispatch code invalidates the DI-2 dispatch-boundary determination;
+- any change to actual refund/cancel/void/reversal eligibility or dispatch code invalidates G-A11 and the DI-2 dispatch-boundary determination;
+- any change to provider/account selection/binding at a reversal-dispatch boundary invalidates G-A12 and the DI-1 × DI-2 composition result;
 - amendments changing exact Design Input names invalidate exact-name claims even if semantics stay stable.
 
 No Phase-G conclusion may outlive the immutable versions it actually checked.
@@ -382,11 +411,12 @@ Phase G may close as an audit only when:
 3. `DI-1/COMMERCIAL_PAYMENT` stability has been checked across all consumers;
 4. provider/account identity consistency across R6/R7/R8/R17/R18/R19/R20 has been adjudicated;
 5. DI-2 has been checked against actual external reversal-dispatch ownership, not merely reversal evidence/history;
-6. G-A1 through G-A10 have been run wherever applicable;
-7. all findings are durably registered with scope and invalidation rules;
-8. unresolved items have explicit resolution triggers rather than open-ended deferral;
-9. adversarial review has been adjudicated;
-10. final status clearly distinguishes audit closure from remediation/implementation closure.
+6. every DI-2-active dispatch has been checked for T1→T2 eligibility-to-dispatch identity stability and exact DI-1 provider/account composition;
+7. G-A1 through G-A12 have been run wherever applicable;
+8. all findings are durably registered with scope and invalidation rules;
+9. unresolved items have explicit resolution triggers rather than open-ended deferral;
+10. adversarial review has been adjudicated;
+11. final status clearly distinguishes audit closure from remediation/implementation closure.
 
 Implementation authority remains **SUSPENDED** after Phase-G audit closure unless and until the governing global audit sequence separately authorizes restoration.
 
