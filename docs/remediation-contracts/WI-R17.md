@@ -397,3 +397,31 @@ This state does **not** block recovery of R18/R19, but it does not restore R17 i
 ## 28. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
+
+## Amendment A — R17/R18 commercial-payment composition invariant
+
+For every consequential `CUSTOMER_CHARGING` execution whose commercial execution path depends on an R18-governed commercial-payment capability, the exact R17 Offer Version / charging Grant and the exact R18 Capability Binding Snapshot consumed by that execution must identify one coherent historical commercial-execution authority path.
+
+For the commercial-payment scope materially consumed by the action:
+
+1. the charging Grant must reference the exact Offer Version authorizing the action;
+2. the execution must reference that exact Grant, not a current/successor Grant;
+3. the execution must reference the exact R18 Capability Binding Snapshot frozen for the commercial-payment operation;
+4. the R17 provider identity must equal the R18 bound provider identity;
+5. the R17 exact provider-account identity must equal the R18 bound provider-account identity wherever account identity is materially relevant;
+6. the R18 allowed operation scope must include the exact commercial action authorized by the R17 Grant;
+7. where checkout/payment configuration identity materially determines provider/account execution authority, the eventual governing compatibility rule must be evaluated against the exact historical checkout/payment configuration and exact historical R18 binding rather than any current replacement;
+8. the R18 validation consumed at the consequential boundary must refer to that same frozen binding identity, not merely the same capability key, provider family, or current provider/account projection;
+9. where an R8 external-execution identity applies, the composed R17/R18 authority must remain attributable to that same exact execution or attempt.
+
+This subsection does not define what checkout/payment configuration compatibility means. That definition remains owned by unresolved H1-S09. This subsection states only that whatever compatibility rule is eventually adopted must evaluate the exact historical configuration/binding pair rather than substitute current configuration.
+
+Provider equality without provider-account equality is insufficient where account identity is materially relevant.
+
+Capability-key equality without exact binding equality is insufficient.
+
+Offer/Grant validity without exact R18 binding validity is insufficient, and exact R18 binding validity without the exact R17 Offer/Grant authority is insufficient.
+
+A later/current Offer, Grant, capability binding, provider account, or checkout configuration must not retroactively satisfy an execution frozen under a different exact authority path. A governed successor path receives its own exact R17 and R18 authority objects under the ordinary R7/R8/R20 gates.
+
+This composition rule consumes the already-canonical R17 `DI-1/COMMERCIAL_PAYMENT` provider/account identity semantics. It does not redefine provider identity, provider-account identity, credential continuity, or DI-1 activation scope.

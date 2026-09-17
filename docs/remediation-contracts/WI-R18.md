@@ -582,3 +582,27 @@ That fails this contract.
 And the final R18/R20 boundary is:
 
 > R18 tells R20 whether the exact frozen capability binding remains valid. R20 decides whether that fact is boundary-current, correctly fenced, and sufficient together with every other required authority predicate to cross the boundary now.
+
+
+## Amendment A — Commercial-payment binding composition with R17
+
+When an R18 Capability Binding Snapshot is materially consumed by a consequential `CUSTOMER_CHARGING` execution governed by R17 commercial authority, R18 must expose enough exact immutable binding identity for the execution and R20 to prove that the binding composes with the exact R17 Offer Version / charging Grant governing that same action.
+
+The composition consumes R18's existing binding semantics. It does not create a second provider/account identity model.
+
+For the materially consumed commercial-payment scope, the composed proof must preserve:
+
+- exact `bindingId` or equivalent immutable binding fingerprint;
+- exact bound provider identity;
+- exact bound provider-account / tenant / organization / workspace identity where materially relevant;
+- exact allowed operation scope;
+- exact binding validation consumed at the boundary;
+- exact execution/attempt attribution where R8 identity applies.
+
+The provider and provider-account values used for this composition are the same identities already governed by R18's provider/account and DI-1 rules. Amendment A does not broaden, narrow, or redefine what counts as provider/account continuity, rebinding, or identity ambiguity.
+
+If R17 and R18 identify different providers, different materially relevant provider accounts, incompatible operation scope, an unknown consequential account identity, or different exact binding history, the composition fails for that action.
+
+R18 revalidation may confirm or reject the exact frozen binding. It may not replace it with a healthier current binding to make the R17/R18 composition pass.
+
+Where checkout/payment configuration identity materially determines execution authority, R18 must preserve/reference the exact historical binding/configuration evidence needed by the eventual H1-S09 compatibility rule. R18 does not define that unresolved compatibility rule here.

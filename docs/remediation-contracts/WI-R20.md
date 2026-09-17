@@ -623,3 +623,33 @@ Recovery of R20 completes the node-recovery queue but does **not** restore imple
 ## 31. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
+
+## Amendment A — Consume exact composed R17/R18 commercial authority
+
+For a consequential commercial boundary that consumes both R17 charging authority and an R18-governed commercial-payment capability, R20 must validate the relational R17/R18 composition predicate in addition to validating each upstream object individually.
+
+It is insufficient for:
+
+- the R17 Offer Version / charging Grant to be independently valid; and
+- some R18 commercial-payment binding to be independently valid;
+
+if those two predicates do not describe the same exact historical commercial-execution authority path.
+
+For the applicable boundary, the R20 Boundary Decision must consume/reference enough exact evidence to establish:
+
+- exact R17 Offer Version and charging Grant identity;
+- exact R18 Capability Binding Snapshot identity or exact materially consumed binding set;
+- equality of provider identity where required;
+- equality of exact materially relevant provider-account identity;
+- compatibility of allowed operation scope with the exact commercial action;
+- the exact R18 validation decision consumed at this boundary;
+- exact execution/attempt attribution where R8 identity applies;
+- exact historical checkout/payment configuration identity where the eventual H1-S09 compatibility rule requires it.
+
+Any unresolved mismatch, missing exact identity, account-continuity ambiguity, current-binding substitution, current-Offer/Grant substitution, or operation-scope mismatch makes this relational predicate unsatisfied before a not-yet-crossed consequential commercial boundary.
+
+R20 does not redefine R17 provider/account identity or R18 binding identity. It consumes those upstream identities and evaluates whether their exact relational composition is satisfied now.
+
+R20 also does not define H1-S09 checkout/payment compatibility semantics. It requires the eventual rule, where applicable, to operate on exact historical evidence rather than current replacement state.
+
+If the external boundary already crossed or may have crossed, failure of the R17/R18 relational predicate does not rewrite R8 external truth. Corrective/reconciliation governance applies separately.
