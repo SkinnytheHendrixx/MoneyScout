@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   PYTHONUNBUFFERED: '1'
@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -66,6 +68,18 @@ jobs:
           assert data['status'] == 'MATERIALIZED_FREEZE_ASSEMBLY_V4_REVIEW_DRAFT'
           print(json.dumps(v, indent=2))
           PY
+
+      - name: Commit validated materialized register
+        run: |
+          git config user.name 'Money Scout Freeze Register Bot'
+          git config user.email 'freeze-register@money-scout.invalid'
+          git add docs/remediation-contracts/GLOBAL_REMEDIATION_REGISTER_FREEZE_ASSEMBLY.json
+          if git diff --cached --quiet; then
+            echo 'Validated register already matches repository.'
+          else
+            git commit -m 'Materialize validated freeze register assembly V4'
+            git push origin HEAD:main
+          fi
 
       - name: Upload materialized register
         uses: actions/upload-artifact@v4
