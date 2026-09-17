@@ -1,6 +1,6 @@
 # Phase H — H3 Source-Exhaustion Verification
 
-**Status:** FINAL / REVIEWED / ADJUDICATED / H3 COMPLETE  
+**Status:** FINAL / REVIEWED / ADJUDICATED / H3 COMPLETE / AMENDED AFTER H4 REVIEW  
 **Phase:** H — Source-Gap Register  
 **Batch:** H3 — named-source / source-exhaustion verification  
 **Implementation authority:** SUSPENDED
@@ -15,7 +15,7 @@ Governing artifacts:
 - `PHASE_H_H0_R1_R20_SOURCE_GAP_INVENTORY.md` — blob `5a5ac208e02a520f7405f1e90f39a75bd7e7a929`;
 - `PHASE_H_H1_SEMANTIC_BLOCKING_GAP_ADJUDICATION.md` — blob `c34a25ed545bdb5eddab31c7944397fb8956bce7`;
 - `PHASE_H_H1_5_CROSS_NODE_OVERLAP_CONFIRMATION.md` — blob `7d8f045ee46250a433b9211ac9a6437c1633bc63`;
-- `PHASE_H_H2_EXACTNESS_TRACEABILITY_ADJUDICATION.md` — blob `e058fd2aaece700f63212c538bd1464ec733f0ec`;
+- `PHASE_H_H2_EXACTNESS_TRACEABILITY_ADJUDICATION.md` — amended blob `04ed9dd0e5a661a088bc1b370137b4742742c96b`;
 - historical `GLOBAL_SOURCE_GAP_REGISTER.md` — blob `ea3f9709eebe8aaadcd247bd1275c9085c3bb226` — used only as prior source-history evidence and reconciled against later recovery.
 
 ## 2. Exhaustion rule
@@ -211,21 +211,24 @@ Basis: `WI-R19.md` blob `8302b53a77d9e4d29ff4cfb2f2f53917e29e26e3`.
 - H2-E41 boundary-class naming;
 - H2-E42 three-phase literal strings;
 - H2-E43 validator-policy representation;
-- H2-E44 forward-governance historical exactness;
-- H2-E45 historical-form provenance packet.
+- H2-E44 forward-governance historical label;
+- H2-E45 forward-governance historical mechanical enforcement;
+- H2-E46 historical-form provenance packet.
 
 All: `SOURCE_PARTIALLY_EXHAUSTED`.
 
 Basis: `WI-R20.md` blob `d9d7788e4c5a8f4c0914cf845294b38386470333`.
 
+The H4 review split does not change source state: both halves derive from the same partially exhausted available-record stratum and the same stronger original-confirmation source class, while remaining independently recoverable propositions.
+
 ## 10. Final H3 arithmetic
 
-Primary propositions entering H3:
+Primary propositions entering amended H3:
 
 - H1 genuine semantic/provider-domain: **9**;
 - H1 `SAFE_DEFAULT_SUFFICIENT`: **2**;
-- H2 exactness/traceability: **45**;
-- total: **56**.
+- amended H2 exactness/traceability: **46**;
+- total: **57**.
 
 R1–R3 add **0** new primaries.
 
@@ -233,16 +236,16 @@ Final exhaustion-state totals:
 
 - `SOURCE_EXHAUSTED`: **0**;
 - `SOURCE_NOT_YET_EXHAUSTED`: **7**;
-- `SOURCE_PARTIALLY_EXHAUSTED`: **45**;
+- `SOURCE_PARTIALLY_EXHAUSTED`: **46**;
 - `SOURCE_AVAILABILITY_UNRESOLVED`: **4**.
 
-Arithmetic: `0 + 7 + 45 + 4 = 56`.
+Arithmetic: `0 + 7 + 46 + 4 = 57`.
 
 Breakdown:
 
 - 5 `SOURCE_NOT_YET_EXHAUSTED` R4–R6 families;
 - 2 `SOURCE_NOT_YET_EXHAUSTED` R18 families;
-- 45 `SOURCE_PARTIALLY_EXHAUSTED` families, including R7 after direct reconciliation-record review;
+- 46 `SOURCE_PARTIALLY_EXHAUSTED` families, including both R20 forward-governance exactness propositions;
 - 4 provider/domain families with concrete authoritative source availability not yet enumerated.
 
 ## 11. Global source-exhaustion synthesis
@@ -253,7 +256,7 @@ H3's most important result is negative but precise:
 
 That does not mean no work has been done or no source stratum has been exhausted. Many available-record strata have been worked deeply, and R7's available-record diligence is especially strong.
 
-It means only that every one of the 56 primary propositions still has either:
+It means only that every one of the 57 primary propositions still has either:
 
 - a named stronger historical source class that may still exist/reappear;
 - a named surviving source still awaiting direct comparison; or
@@ -267,12 +270,16 @@ A family retires only when a named stronger source comparison establishes the ex
 
 Likewise, a prior `SOURCE_EXHAUSTED` label is not preserved if later recovery identifies a stronger source class that remains plausible/checkable.
 
-## 13. Completion state
+## 13. Amendment note
 
-**H3 FINAL RESULT:**
+H4 adversarial review applied H2's existing independent-recoverability rule to former H2-E44 and found that R20 forward-governance historical **label** and historical **mechanical enforcement form** are independently recoverable and serve different downstream review surfaces. H2 was amended from 45 to 46 exactness families; H3 therefore moves from 56 to 57 primary propositions and from 45 to 46 partially exhausted propositions. No other H3 source-state classification changes.
 
-`56 PRIMARY PROPOSITIONS ASSIGNED NAMED-SOURCE EXHAUSTION STATES / 0 EXHAUSTED / 7 NOT YET EXHAUSTED / 45 PARTIALLY EXHAUSTED / 4 SOURCE-AVAILABILITY UNRESOLVED / R1–R3 CREATE NO NEW PRIMARY GAPS`
+## 14. Completion state
+
+**H3 FINAL AMENDED RESULT:**
+
+`57 PRIMARY PROPOSITIONS ASSIGNED NAMED-SOURCE EXHAUSTION STATES / 0 EXHAUSTED / 7 NOT YET EXHAUSTED / 46 PARTIALLY EXHAUSTED / 4 SOURCE-AVAILABILITY UNRESOLVED / R1–R3 CREATE NO NEW PRIMARY GAPS`
 
 Implementation authority remains **SUSPENDED**.
 
-Next: **H4 — global source-gap register synthesis**.
+H4 must use this amended 57-proposition denominator.
