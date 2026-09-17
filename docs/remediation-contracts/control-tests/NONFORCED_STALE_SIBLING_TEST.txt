@@ -1,0 +1,4 @@
+Money Scout control-plane concurrency test
+sibling=C1
+purpose=verify non-forced stale-sibling ref rejection
+non-authoritative=true
