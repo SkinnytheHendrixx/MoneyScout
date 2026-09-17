@@ -6,6 +6,7 @@ on:
       - 'scripts/audit/materialize_freeze_register.py'
       - 'scripts/audit/materialize_freeze_register_v2.py'
       - 'scripts/audit/materialize_freeze_register_v3.py'
+      - 'scripts/audit/materialize_freeze_register_v4.py'
       - '.github/workflows/freeze-register-validation.yml'
   workflow_dispatch:
 
@@ -28,7 +29,7 @@ jobs:
           python-version: '3.12'
 
       - name: Materialize normalized freeze register
-        run: python scripts/audit/materialize_freeze_register_v3.py
+        run: python scripts/audit/materialize_freeze_register_v4.py
 
       - name: Verify generated artifact exists and is valid JSON
         run: |
@@ -47,6 +48,7 @@ jobs:
           assert v['structural_error_count'] == 0, v
           assert v['fidelity_error_count'] == 0, v
           assert v['assembly_completeness_error_count'] == 0, v
+          assert v['canonicalization_error_count'] == 0, v
           assert v['row_count'] == 155, v
           assert v['edge_count'] == 117, v
           assert data['phase_h_source_state_arithmetic'] == {
@@ -61,14 +63,14 @@ jobs:
               'J_DOCUMENTED_ONLY': 3,
               'J_MISSING': 3,
           }
-          assert data['status'] == 'MATERIALIZED_FREEZE_ASSEMBLY_V3_REVIEW_DRAFT'
+          assert data['status'] == 'MATERIALIZED_FREEZE_ASSEMBLY_V4_REVIEW_DRAFT'
           print(json.dumps(v, indent=2))
           PY
 
       - name: Upload materialized register
         uses: actions/upload-artifact@v4
         with:
-          name: money-scout-freeze-register-assembly-v3
+          name: money-scout-freeze-register-assembly-v4
           path: docs/remediation-contracts/GLOBAL_REMEDIATION_REGISTER_FREEZE_ASSEMBLY.json
           if-no-files-found: error
           retention-days: 30
