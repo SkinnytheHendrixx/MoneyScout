@@ -1,6 +1,6 @@
 # Phase H — H2 Exactness / Traceability Source-Gap Adjudication
 
-**Status:** FINAL / REVIEWED / ADJUDICATED / H2 COMPLETE  
+**Status:** FINAL / REVIEWED / ADJUDICATED / H2 COMPLETE / AMENDED AFTER H4 REVIEW  
 **Phase:** H — Source-Gap Register  
 **Batch:** H2 — exactness / traceability adjudication  
 **Implementation authority:** SUSPENDED
@@ -26,10 +26,11 @@ Within one node, audit labels, migration ordinals, fixture labels/order, closure
 
 However, **sharing one source packet is never sufficient by itself to merge distinct representation propositions**. Two exactness questions remain separate when they can be recovered/designed/adopted independently and serve different implementation surfaces.
 
-This independent-recoverability test produced two review corrections:
+This independent-recoverability test produced three review corrections:
 
 1. R15 general Provider Financial Observation/provenance representation is distinct from redaction-provenance representation;
-2. R20 Boundary Registry representation is distinct from Boundary Decision representation.
+2. R20 Boundary Registry representation is distinct from Boundary Decision representation;
+3. R20 forward-governance historical label is distinct from the historical mechanical enforcement mechanism.
 
 The H1 consequence discriminator also remains binding: exactness debt is not safety-blocking merely because the historical form is unrecovered.
 
@@ -205,7 +206,7 @@ Exact historical names/storage form for required lineage-bound commercial identi
 Migration/audit labels, fixture/closure form, historical wording/examples.  
 Do not double-count H1-D02 `SAFE_DEFAULT_SUFFICIENT` legacy-lineage reconstruction threshold.
 
-### R20 — 7
+### R20 — 8
 
 **H2-E39 — R20 Boundary Registry representation exactness**  
 Exact historical schema/fields/storage for the static/declarative registry mapping consequential boundary classes to required predicate/validator sets.
@@ -223,26 +224,29 @@ Exact historical strings for the confirmed three-phase model; naming-only, not s
 **H2-E43 — R20 validator-policy representation exactness**  
 Exact historical field names/versioning mechanics.
 
-**H2-E44 — R20 forward-governance historical exactness**  
-Exact historical label/mechanism for future consequential-boundary registration/consumption. The semantic forward-governance requirement is recovered and belongs to Phase J for coverage audit.
+**H2-E44 — R20 forward-governance historical label exactness**  
+Exact historical label/name for the recovered future consequential-boundary classification/registration requirement. This is naming-only historical exactness and is independently recoverable from the enforcement mechanism. It is a Phase-I carry-forward.
 
-**H2-E45 — R20 historical-form provenance packet**  
+**H2-E45 — R20 forward-governance historical mechanical-enforcement exactness**  
+Exact historical mechanical enforcement form for future consequential-boundary classification/registration/consumption (for example, whether the historical mechanism was a registry hook, schema gate, CI/code-review control, or another mechanism). The semantic forward-governance requirement is recovered and belongs to Phase J for coverage audit; only its historical implementation mechanism remains unresolved here. This is representation/governance exactness, not a Phase-I naming item.
+
+**H2-E46 — R20 historical-form provenance packet**  
 Migration/audit labels, fixture/closure form, worked scenarios, amendment wording and related exact historical prose.
 
 ## 5. Independent-recoverability consistency pass
 
-Adversarial review identified a counting-rule inconsistency in the draft: H2-E38 had merged R20 Boundary Registry and Boundary Decision because they were expected in the same source packet, even though the H2 rule explicitly forbids merging independently recoverable representation questions merely because of a common source packet.
+Earlier adversarial review identified two counting-rule inconsistencies: R20 Boundary Registry vs. Boundary Decision and R15 ordinary observation/provenance vs. redaction-provenance. H4 adversarial review identified a third residual instance: R20 forward-governance historical label vs. historical mechanical enforcement mechanism.
 
-The same test exposed one additional split in R15: ordinary observation/provenance representation versus redaction-provenance representation.
+The third split follows the same rule. The historical name of the requirement could be recovered without recovering how it was mechanically enforced, and the enforcement mechanism could be recovered without knowing the original label. They serve different review surfaces: Phase I owns the label exactness question; Phase J/current governance owns coverage of the recovered semantic requirement, while H2 records historical mechanism exactness.
 
-A full pass over the remaining grouped entries found no third instance requiring a split:
+A renewed pass over the remaining grouped entries found no fourth instance requiring a split:
 
 - historical-form provenance packets remain grouped because their components are traceability/fixture/closure/prose debt with the same treatment and no distinct authority surface;
 - R7 ordinal/closure-form debt remains one provenance family;
 - R19 Lineage Reference fields/serialization/hash remain one representation family for one authority object;
 - other schema/name entries already correspond to independently meaningful objects or encoding questions.
 
-Therefore the two review-driven splits are complete rather than examples of an unexamined broader undercount.
+Therefore the three review-driven splits are complete under the current corpus.
 
 ## 6. H2 arithmetic
 
@@ -260,14 +264,14 @@ Primary H2 exactness / traceability proposition families:
 - R12: 4;
 - R13: 2;
 - R14: 4;
-- R15: **4**;
+- R15: 4;
 - R16: 3;
 - R17: 4;
 - R18: 2;
 - R19: 3;
-- R20: **7**.
+- R20: **8**.
 
-**Final H2 total: 45 primary exactness / traceability proposition families.**
+**Final amended H2 total: 46 primary exactness / traceability proposition families.**
 
 No H1 primary gap is counted a second time merely because it has a naming/representation dimension.
 
@@ -279,10 +283,10 @@ That common root is a recovery-process characteristic, not a merge criterion. No
 
 ## 8. H2 completion state
 
-**H2 FINAL RESULT:**
+**H2 FINAL AMENDED RESULT:**
 
-`45 PRIMARY EXACTNESS / TRACEABILITY PROPOSITION FAMILIES / ZERO H1 DOUBLE-COUNT / R1–R3 HELD FOR H3 NAMED-SOURCE RECONCILIATION / TWO REVIEW-DRIVEN INDEPENDENT-RECOVERABILITY SPLITS APPLIED`
+`46 PRIMARY EXACTNESS / TRACEABILITY PROPOSITION FAMILIES / ZERO H1 DOUBLE-COUNT / R1–R3 HELD FOR H3 NAMED-SOURCE RECONCILIATION / THREE REVIEW-DRIVEN INDEPENDENT-RECOVERABILITY SPLITS APPLIED`
 
 Implementation authority remains **SUSPENDED**.
 
-Next: **H3 — source-exhaustion verification with named source basis**.
+H3 and H4 arithmetic must use this amended 46-family denominator.
