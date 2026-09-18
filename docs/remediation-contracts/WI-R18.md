@@ -606,3 +606,29 @@ If R17 and R18 identify different providers, different materially relevant provi
 R18 revalidation may confirm or reject the exact frozen binding. It may not replace it with a healthier current binding to make the R17/R18 composition pass.
 
 Where checkout/payment configuration identity materially determines execution authority, R18 must preserve/reference the exact historical binding/configuration evidence needed by the eventual H1-S09 compatibility rule. R18 does not define that unresolved compatibility rule here.
+
+
+## Amendment B — Expose exact materially consumed commercial-payment binding identity/set to R19 lineage
+
+When a consequential commercial provider execution governed by R19 materially consumes one or more R18 commercial-payment Capability Binding Snapshots, R18 must expose enough immutable binding identity for R19 to preserve the exact binding member or exact required binding set actually consumed by that execution path.
+
+This lineage-facing requirement consumes R18's existing binding semantics. It does not create a second capability-binding model and does not transfer binding lifecycle or eligibility ownership to R19.
+
+For each materially consumed commercial-payment binding member, the lineage-facing evidence must preserve or make exactly referenceable:
+
+- exact immutable `bindingId` or equivalent deterministic binding fingerprint;
+- exact bound provider identity;
+- exact bound provider-account / tenant / organization / workspace identity where materially relevant;
+- exact allowed operation scope materially consumed by the execution;
+- exact execution/attempt association where R8 identity applies;
+- exact binding-validation provenance consumed at the consequential boundary where such a durable validation record exists.
+
+Where one execution materially consumes multiple exact R18 bindings for distinct capability/operation scopes, R18 must not expose only one current/default binding as though it represented the complete consumed set. Each required member must remain independently addressable or otherwise deterministically disambiguated by the scope actually consumed.
+
+This rule does not require unrelated R18 bindings on the same execution to enter commercial lineage. It exposes the exact required binding set materially consumed by the commercial authority path.
+
+A current or later binding, provider/account projection, provider registration, environment configuration, or credential state must not substitute for the historical binding member actually consumed.
+
+Where exact historical binding-validation representation remains unresolved, this amendment does not invent its missing form. H2-E34 and the existing R18 representation work continue to own that exactness/representation question.
+
+This amendment preserves the provider/account identity, continuity, rebinding, lifecycle, eligibility, and DI-scope semantics already owned by R18. It adds only the lineage-facing exact-reference requirement consumed by R19.

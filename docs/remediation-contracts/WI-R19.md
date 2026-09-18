@@ -496,3 +496,54 @@ This state does **not** block recovery of R20, but it does not restore R19 imple
 ## 30. Relay-contamination guard
 
 This artifact terminates here. No conversational handoff text is part of the contract body.
+
+## Amendment B — Exact R18 commercial-payment binding identity/set is a required dimension of complete commercial lineage
+
+Every R19 Commercial Authority Lineage Reference for a consequential commercial provider execution must bind the exact R18 commercial-payment Capability Binding Snapshot or exact required set of R18 binding snapshots materially consumed by that same execution path.
+
+R19 must not represent the capability/provider-account portion of commercial execution merely as a provider string, logical capability key, current capability projection, current account projection, current credential/configuration state, or reconstructable join.
+
+For each R18-governed commercial-payment capability materially consumed by the execution, the complete lineage must preserve:
+
+1. an immutable reference to the exact R18 binding ID/fingerprint;
+2. provider identity equal to the exact R18 bound provider;
+3. provider-account identity equal to the exact R18 bound provider-account identity where materially relevant;
+4. association with the same exact execution/attempt represented in the R19 lineage where R8 identity applies;
+5. an R17 Offer Version / charging Grant segment and R18 binding segment that satisfy the separately governed, now-current `RD-C-R17-R18` same-historical-path composition invariant;
+6. historical binding identity even if a later current capability binding replaces it;
+7. no inference of historical binding identity from current environment configuration, provider registration, current capability rows, current account projections, or current credentials;
+8. enough exact validation provenance to prove which binding validation was consumed at the consequential commercial boundary where R18 produces a durable Capability Binding Validation Record.
+
+### Binding-set cardinality
+
+R19 must not assume that one execution can consume only one exact R18 binding globally.
+
+Where a consequential commercial execution materially requires multiple exact R18 bindings for distinct capability/operation scopes, R19 must preserve the exact required binding set keyed or otherwise deterministically disambiguated by the scope actually consumed.
+
+The acceptance rule is arbitrary-N: if the execution materially requires exact bindings `B1...BN`, every required member remains independently addressable and attributable, and no current/default/wrong binding may substitute for any member of that set.
+
+This does not require every unrelated R18 binding associated with the execution to become part of commercial lineage. The lineage binds the exact R18 binding set materially consumed by that commercial authority path.
+
+### Validation provenance
+
+Where R18 produces a durable Capability Binding Validation Record, R19 must preserve enough exact reference/provenance to prove which validation of which exact binding was consumed at the consequential commercial boundary.
+
+A later validation record must not be cited as though it were the historical boundary-time validation.
+
+The exact historical representation of the R18 validation record remains governed by H2-E34 and related R18 representation work. This semantic amendment does not invent that missing historical form.
+
+### Post-hoc reconstruction prohibition
+
+A later-valid R18 binding or later-repaired R19 lineage cannot retroactively legitimize an earlier commercial effect that lacked the required exact binding composition at execution time.
+
+Deterministic historical reconstruction may improve attribution only where durable evidence uniquely proves the original exact binding or exact required binding set. It may not use current capability/provider/account/configuration state to manufacture historical authority.
+
+Where the external boundary crossed or may have crossed, R8 preserves the exact external truth and execution identity. R19 correction must not rewrite the attempt as unexecuted or replay it through a newer binding.
+
+### Ownership and downstream consumption
+
+R18 remains owner of capability binding identity, lifecycle, validation, continuity, and eligibility.
+
+R19 owns preservation of the complete immutable lineage that references the exact materially consumed R18 binding member/set.
+
+R20 already consumes the exact complete R19 Commercial Authority Lineage Reference and remains owner of final boundary-time consumption. This amendment does not create a new independent R20 predicate outside that existing complete-lineage abstraction.
