@@ -205,14 +205,20 @@ The following queue is preserved exactly as open governing work:
 9. experiment evidence/Validation reassessment;
 10. disabled-checkout preparation-result adoption;
 11. Policy result adoption;
-12. Demand result adoption.
+12. Demand result adoption;
+13. Discovery Store acquisition (S49) result/adoption.
 
-Related observation families whose later adoption semantics remain transition-specific include:
+S50's five status-poll channels are already represented by items 1–5 under their governing process names:
 
-- S49 Discovery result/adoption;
-- S50 status/reconciliation results across Builder, QA, repair, preview, and production.
+- Builder;
+- QA;
+- QA repair;
+- Release preview;
+- Release production.
 
 The queue must not be shortened merely because the originating provider request already has an S-number or because application occurs inside Money Scout.
+
+No confirmed unresolved item may be demoted to a secondary or related list. S49's omission from Candidate 1's original twelve-item queue is corrected here by naming it as item 13.
 
 For each transition, the next adjudication must produce one of:
 
@@ -299,7 +305,7 @@ Must fail.
 
 `POSITIVE_C2_ADOPTION_FAMILIES = 6`.
 
-`UNRESOLVED_C2_ADOPTION_QUEUE = 12_NAMED_ITEMS_PLUS_RELATED_S49_S50_TRANSITION_SPECIFIC_APPLICATIONS`.
+`UNRESOLVED_C2_ADOPTION_QUEUE = 13_NAMED_ITEMS`.
 
 `FINAL_LEDGER_PROMOTION = NOT_YET_AUTHORIZED`.
 
@@ -309,4 +315,4 @@ Must fail.
 
 ## 16. Next gate
 
-Run the transition-specific Boundary Registry adjudication over the twelve named result/adoption families, explicitly including the related S49/S50 application paths. Then update the effective ledger with each governing disposition and re-run zero-unmapped/zero-unnamed-adoption certification before any final ledger promotion.
+Run the transition-specific Boundary Registry adjudication over the thirteen named result/adoption families. S50's five status/reconciliation application paths are governed by items 1–5 and must be tested explicitly within those adjudications. Then update the effective ledger with each governing disposition and re-run zero-unmapped/zero-unnamed-adoption certification before any final ledger promotion.
